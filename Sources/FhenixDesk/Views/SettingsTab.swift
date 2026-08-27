@@ -45,6 +45,7 @@ struct SettingsTab: View {
                 Stepper("Unpushed work after \(draft.unpushedWorkDays) days", value: $draft.unpushedWorkDays, in: 1...30)
                 Stepper("Metrics window: \(draft.metricsWeeks) weeks", value: $draft.metricsWeeks, in: 2...26)
                 Toggle("macOS notifications", isOn: $draft.notificationsEnabled)
+                Toggle("Open the Desk window at launch", isOn: $draft.openWindowOnLaunch)
             }
             Section {
                 HStack {

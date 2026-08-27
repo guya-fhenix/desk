@@ -19,6 +19,7 @@ public struct DeskConfig: Codable, Sendable, Equatable {
     public var unpushedWorkDays: Int = 2
     public var metricsWeeks: Int = 8
     public var notificationsEnabled: Bool = true
+    public var openWindowOnLaunch: Bool = false
 
     public init() {}
 
