@@ -1,3 +1,4 @@
+import AppKit
 import DeskCore
 import SwiftUI
 
@@ -7,7 +8,8 @@ struct DeskWindow: View {
     enum Tab: String, CaseIterable, Identifiable {
         case overview, pullRequests, reviews, work, worktrees, claude, metrics, settings
 
-        var id: String { rawValue }
+        /// The row tag must be the same type as the selection binding, or clicks never select.
+        var id: Tab { self }
 
         var title: String {
             switch self {
@@ -57,6 +59,9 @@ struct DeskWindow: View {
             case .settings: SettingsTab()
             }
         }
+        // A regular app while the window shows, so ⌘-Tab and the Dock can bring it back.
+        .onAppear { NSApp.setActivationPolicy(.regular) }
+        .onDisappear { NSApp.setActivationPolicy(.accessory) }
         .toolbar {
             ToolbarItemGroup {
                 if !model.refreshing.isEmpty { ProgressView().controlSize(.small) }
