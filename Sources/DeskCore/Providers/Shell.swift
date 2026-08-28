@@ -39,6 +39,7 @@ private final class ProcessRun: @unchecked Sendable {
     private var stdoutClosed = false
     private var stderrClosed = false
     private var exitStatus: Int32?
+    private var launched = false
     private var continuation: CheckedContinuation<ShellResult, any Error>?
     private var timeoutWork: DispatchWorkItem?
 
@@ -60,6 +61,10 @@ private final class ProcessRun: @unchecked Sendable {
         try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<ShellResult, any Error>) in
                 lock.withLock { self.continuation = continuation }
+                if Task.isCancelled {
+                    finish(.failure(CancellationError()))
+                    return
+                }
                 stdoutPipe.fileHandleForReading.readabilityHandler = { [self] handle in
                     let data = handle.availableData
                     if data.isEmpty {
@@ -86,6 +91,7 @@ private final class ProcessRun: @unchecked Sendable {
                 }
                 do {
                     try process.run()
+                    lock.withLock { launched = true }
                 } catch {
                     finish(.failure(error))
                     return
@@ -95,16 +101,24 @@ private final class ProcessRun: @unchecked Sendable {
                     try? stdinPipe.fileHandleForWriting.close()
                 }
                 let work = DispatchWorkItem { [self] in
-                    process.terminate()
+                    terminateIfRunning()
                     finish(.failure(ShellError.timedOut(command: command)))
                 }
                 lock.withLock { timeoutWork = work }
                 DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + timeout, execute: work)
             }
         } onCancel: {
-            process.terminate()
+            terminateIfRunning()
             finish(.failure(CancellationError()))
         }
+    }
+
+    /// `Process.terminate()` raises an Objective-C exception on a process that never launched,
+    /// and Swift cannot catch it. Cancellation can arrive before `run()`, so check first.
+    private func terminateIfRunning() {
+        let canSignal = lock.withLock { launched }
+        guard canSignal, process.isRunning else { return }
+        process.terminate()
     }
 
     private func finishIfDone() {
