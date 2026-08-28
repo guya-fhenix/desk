@@ -3,3 +3,5 @@ build/
 *.xcodeproj
 .swiftpm/
 .DS_Store
+Resources/AppIcon.iconset/
+Resources/AppIcon-preview.png
