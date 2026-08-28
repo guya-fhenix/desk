@@ -50,53 +50,28 @@ struct WorktreesTab: View {
 
 struct ClaudeTab: View {
     @Environment(AppModel.self) private var model
-    private static let recentLimit = 60
 
     var body: some View {
-        VStack(spacing: 0) {
-            Table(model.state.liveSessions) {
-                TableColumn("") { session in LiveStatusDot(session: session) }.width(16)
-                TableColumn("Session") { session in Text(session.name).lineLimit(1) }.width(min: 160, ideal: 260)
-                TableColumn("Kind") { session in Text(session.kind.rawValue) }.width(80)
-                TableColumn("Status") { session in
-                    Text(session.isAlive ? session.status.rawValue : "dead").foregroundStyle(session.waitsForInput ? .orange : .primary)
-                }
-                .width(70)
-                TableColumn("Since") { session in Text(Format.age(session.statusUpdatedAt)).monospacedDigit() }.width(60)
-                TableColumn("Where") { session in Text(relative(session.cwd)).lineLimit(1) }.width(min: 160, ideal: 300)
-                TableColumn("Started") { session in Text(Format.age(session.startedAt)).monospacedDigit() }.width(70)
-                TableColumn("") { session in
-                    Button { model.openTerminal(session.cwd) } label: { Image(systemName: "terminal") }.buttonStyle(.borderless)
-                }
-                .width(30)
+        Table(model.state.aliveSessions) {
+            TableColumn("") { session in LiveStatusDot(session: session) }.width(16)
+            TableColumn("Session") { session in Text(session.name).lineLimit(1) }.width(min: 160, ideal: 280)
+            TableColumn("Kind") { session in Text(session.kind.rawValue) }.width(80)
+            TableColumn("Status") { session in
+                Text(session.status.rawValue).foregroundStyle(session.waitsForInput ? .orange : .primary)
             }
-            .frame(minHeight: 120, idealHeight: 200, maxHeight: 260)
-            Divider()
-            Table(Array(model.state.sessions.prefix(Self.recentLimit))) {
-                TableColumn("Session") { session in
-                    HStack(spacing: 6) {
-                        if let live = model.state.liveSessions.first(where: { $0.sessionId == session.sessionId }), live.isAlive { LiveStatusDot(session: live) }
-                        Text(session.displayName).lineLimit(1)
-                    }
-                }
-                .width(min: 200, ideal: 320)
-                TableColumn("Where") { session in Text(session.cwd.map(relative) ?? "–").lineLimit(1) }.width(min: 140, ideal: 220)
-                TableColumn("Branch") { session in Text(session.branches.last ?? "–").lineLimit(1) }.width(min: 140, ideal: 220)
-                TableColumn("Prompts") { session in Text("\(session.humanPrompts)").monospacedDigit() }.width(60)
-                TableColumn("PRs") { session in
-                    HStack(spacing: 4) {
-                        ForEach(session.prLinks.prefix(3), id: \.url) { link in
-                            Button("#\(link.number)") { model.open(link.url) }.buttonStyle(.link).font(.caption)
-                        }
-                    }
-                }
-                .width(110)
-                TableColumn("Cost") { session in Text(Format.usd(session.costUSD)).monospacedDigit() }.width(60)
-                TableColumn("Time") { session in Text(Format.duration(session.totalDurationMs.map { Double($0) / 1000 })).monospacedDigit() }.width(60)
-                TableColumn("Active") { session in Text(Format.age(session.lastActivityAt)).monospacedDigit() }.width(60)
+            .width(70)
+            TableColumn("Since") { session in Text(Format.age(session.statusUpdatedAt)).monospacedDigit() }.width(60)
+            TableColumn("Where") { session in Text(relative(session.cwd)).lineLimit(1) }.width(min: 160, ideal: 300)
+            TableColumn("Started") { session in Text(Format.age(session.startedAt)).monospacedDigit() }.width(70)
+            TableColumn("") { session in
+                Button { model.openTerminal(session.cwd) } label: { Image(systemName: "terminal") }.buttonStyle(.borderless)
             }
+            .width(30)
         }
         .navigationTitle("Claude")
+        .overlay {
+            if model.state.aliveSessions.isEmpty { EmptyText(text: "No open Claude sessions.").padding() }
+        }
     }
 
     private func relative(_ path: String) -> String {
