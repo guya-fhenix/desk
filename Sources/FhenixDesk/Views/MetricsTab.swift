@@ -49,8 +49,6 @@ struct MetricsTab: View {
                 statTiles
                 phaseChart
                 weeklyTable
-                recentCycles
-                reviewLatency
             }
             .padding(20)
         }
@@ -151,47 +149,6 @@ struct MetricsTab: View {
                 TableColumn("Total") { week in Text(Format.duration(week.medianTotal)).monospacedDigit() }.width(70)
             }
             .frame(height: CGFloat(weekly.count + 1) * Self.rowHeight + 8)
-        }
-    }
-
-    private var recentCycles: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Merged PRs").font(.headline)
-            Table(cycles) {
-                TableColumn("Pull request") { cycle in
-                    Button { model.open(cycle.pullRequest.url) } label: {
-                        Text("\(cycle.pullRequest.repoName)#\(cycle.pullRequest.number) \(cycle.pullRequest.title)").lineLimit(1)
-                    }
-                    .buttonStyle(.link)
-                }
-                .width(min: 260, ideal: 420)
-                TableColumn("Merged") { cycle in Text(Format.age(cycle.pullRequest.mergedAt) + " ago").monospacedDigit() }.width(90)
-                TableColumn("First review") { cycle in Text(Format.duration(cycle.toFirstReview)).monospacedDigit() }.width(90)
-                TableColumn("Approval") { cycle in Text(Format.duration(cycle.toApproval)).monospacedDigit() }.width(80)
-                TableColumn("Merge") { cycle in Text(Format.duration(cycle.toMerge)).monospacedDigit() }.width(70)
-                TableColumn("Total") { cycle in Text(Format.duration(cycle.total)).monospacedDigit() }.width(70)
-                TableColumn("Size") { cycle in Text("\(cycle.pullRequest.size)").monospacedDigit() }.width(60)
-            }
-            .frame(height: min(CGFloat(cycles.count + 1) * Self.rowHeight + 8, 420))
-        }
-    }
-
-    private var reviewLatency: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("My review latency (request → first review)").font(.headline)
-            Table(latencies) {
-                TableColumn("Pull request") { row in
-                    Button { model.open(row.pullRequest.url) } label: {
-                        Text("\(row.pullRequest.repoName)#\(row.pullRequest.number) \(row.pullRequest.title)").lineLimit(1)
-                    }
-                    .buttonStyle(.link)
-                }
-                .width(min: 260, ideal: 420)
-                TableColumn("Author") { row in Text(row.pullRequest.author) }.width(110)
-                TableColumn("Requested") { row in Text(Format.age(row.requestedAt) + " ago").monospacedDigit() }.width(90)
-                TableColumn("Latency") { row in Text(Format.duration(row.latency)).monospacedDigit() }.width(80)
-            }
-            .frame(height: min(CGFloat(latencies.count + 1) * Self.rowHeight + 8, 320))
         }
     }
 }
