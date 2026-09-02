@@ -66,10 +66,7 @@ public actor DeskService {
     }
 
     public func refreshClaude(gitScan: GitScan) async throws -> (live: [LiveSession], scan: ClaudeScan) {
-        let scope = ClaudeScope(
-            repoPaths: gitScan.repos.map(\.root) + gitScan.worktrees.map(\.path),
-            rootFolders: config.expandedRepoRoots
-        )
+        let scope = ClaudeScope(paths: config.expandedRepoRoots + gitScan.worktrees.map(\.path))
         let live = try await claude.liveSessions(scope: scope)
         let scan = try await claude.scanTranscripts(scope: scope, previous: claudeCache)
         claudeCache = scan

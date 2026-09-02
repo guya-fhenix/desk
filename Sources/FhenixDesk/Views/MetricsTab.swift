@@ -39,6 +39,8 @@ struct MetricsTab: View {
     ]
     private static let rowHeight: CGFloat = 26
 
+    @State private var weeklyOrder = [KeyPathComparator(\WeeklyCycle.weekStart)]
+
     private var weekly: [WeeklyCycle] { model.state.weekly }
     private var cycles: [PullRequestCycle] { model.state.cycles }
     private var latencies: [ReviewLatency] { model.state.reviewLatencies }
@@ -140,13 +142,25 @@ struct MetricsTab: View {
     private var weeklyTable: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Weeks").font(.headline)
-            Table(weekly) {
-                TableColumn("Week") { week in Text(week.weekStart.formatted(.dateTime.year().month(.abbreviated).day())) }.width(110)
-                TableColumn("Merged") { week in Text("\(week.merged)").monospacedDigit() }.width(60)
-                TableColumn("To first review") { week in Text(Format.duration(week.medianToFirstReview)).monospacedDigit() }.width(110)
-                TableColumn("Review to approval") { week in Text(Format.duration(week.medianToApproval)).monospacedDigit() }.width(130)
-                TableColumn("Approval to merge") { week in Text(Format.duration(week.medianToMerge)).monospacedDigit() }.width(120)
-                TableColumn("Total") { week in Text(Format.duration(week.medianTotal)).monospacedDigit() }.width(70)
+            Table(weekly.sorted(using: weeklyOrder), sortOrder: $weeklyOrder) {
+                TableColumn("Week", value: \.weekStart) { week in Text(week.weekStart.formatted(.dateTime.year().month(.abbreviated).day())) }.width(110)
+                TableColumn("Merged", value: \.merged) { week in Text("\(week.merged)").monospacedDigit() }.width(60)
+                TableColumn("To first review", value: \.medianToFirstReview, comparator: OptionalComparator()) { week in
+                    Text(Format.duration(week.medianToFirstReview)).monospacedDigit()
+                }
+                .width(110)
+                TableColumn("Review to approval", value: \.medianToApproval, comparator: OptionalComparator()) { week in
+                    Text(Format.duration(week.medianToApproval)).monospacedDigit()
+                }
+                .width(130)
+                TableColumn("Approval to merge", value: \.medianToMerge, comparator: OptionalComparator()) { week in
+                    Text(Format.duration(week.medianToMerge)).monospacedDigit()
+                }
+                .width(120)
+                TableColumn("Total", value: \.medianTotal, comparator: OptionalComparator()) { week in
+                    Text(Format.duration(week.medianTotal)).monospacedDigit()
+                }
+                .width(70)
             }
             .frame(height: CGFloat(weekly.count + 1) * Self.rowHeight + 8)
         }

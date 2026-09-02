@@ -107,6 +107,53 @@ struct LiveStatusDot: View {
     }
 }
 
+/// The refresh button doubles as the refresh indicator: a spinner replaces the arrow while any
+/// source loads, and an orange dot marks a failed source. The fixed frame keeps the toolbar capsule
+/// the same size in every state; the tooltip carries the error text.
+struct RefreshControl: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        Button { model.refreshAll() } label: {
+            ZStack {
+                if model.refreshing.isEmpty {
+                    Image(systemName: "arrow.clockwise")
+                } else {
+                    ProgressView().controlSize(.small)
+                }
+            }
+            .frame(width: 18, height: 18)
+            .overlay(alignment: .topTrailing) {
+                if !model.state.errors.isEmpty {
+                    Circle().fill(.orange).frame(width: 7, height: 7).offset(x: 2, y: -2)
+                }
+            }
+        }
+        .help(helpText)
+    }
+
+    private var helpText: String {
+        let errors = Source.allCases.compactMap { source in model.state.errors[source].map { "\(source.title): \($0)" } }
+        if !errors.isEmpty { return errors.joined(separator: "\n") }
+        return model.refreshing.isEmpty ? "Refresh all" : "Refreshing…"
+    }
+}
+
+/// GitHub's diff stat: the size bucket, then additions in green and deletions in red.
+struct DiffStat: View {
+    var pr: PullRequest
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Text(Format.sizeBucket(pr.size))
+            Text("+\(pr.additions)").foregroundStyle(.green)
+            Text("−\(pr.deletions)").foregroundStyle(.red)
+        }
+        .font(.caption)
+        .monospacedDigit()
+    }
+}
+
 struct SectionTitle: View {
     var title: String
     var count: Int?

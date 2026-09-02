@@ -2,7 +2,8 @@ import DeskCore
 import Foundation
 import Testing
 
-@Suite struct ShellTests {
+/// Serialized: the descriptor count and the concurrency timing are process-wide observations.
+@Suite(.serialized) struct ShellTests {
     @Test func returnsOutputAndStatus() async throws {
         let result = try await Shell.run("/bin/sh", ["-c", "echo out; echo err 1>&2; exit 3"])
         #expect(result.status == 3)
@@ -23,5 +24,32 @@ import Testing
 
     @Test func timesOut() async {
         await #expect(throws: ShellError.self) { try await Shell.run("/bin/sleep", ["5"], timeout: 0.2) }
+    }
+
+    /// Every run opens pipes; a retain cycle once kept them open for the life of the process.
+    @Test func releasesDescriptorsAfterEachRun() async throws {
+        _ = try await Shell.run("/bin/sh", ["-c", "echo warm"])
+        let before = openDescriptors()
+        for _ in 0..<25 {
+            _ = try await Shell.run("/bin/sh", ["-c", "echo out; echo err 1>&2"], stdin: Data("in".utf8))
+        }
+        await #expect(throws: ShellError.self) { try await Shell.run("/bin/sleep", ["5"], timeout: 0.1) }
+        #expect(openDescriptors() <= before + 2)
+    }
+
+    /// Twice the cap plus one takes at least three rounds; an uncapped run finishes in one.
+    @Test func capsConcurrentProcesses() async throws {
+        let start = Date()
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            for _ in 0..<(Shell.maxConcurrentProcesses * 2 + 1) {
+                group.addTask { _ = try await Shell.run("/bin/sleep", ["0.2"]) }
+            }
+            try await group.waitForAll()
+        }
+        #expect(Date().timeIntervalSince(start) >= 0.6)
+    }
+
+    private func openDescriptors() -> Int {
+        (try? FileManager.default.contentsOfDirectory(atPath: "/dev/fd").count) ?? -1
     }
 }

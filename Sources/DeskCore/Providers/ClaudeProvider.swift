@@ -32,28 +32,27 @@ public enum ClaudePaths {
         path.replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ".", with: "-")
     }
 
-    /// A project belongs when its cwd is a repo (or a path under it) or exactly one of the root folders.
-    public static func projectDirectory(_ name: String, belongsTo repoRoots: [String], exactRoots: [String] = []) -> Bool {
-        repoRoots.contains { root in
-            let slug = projectSlug(root)
+    /// A project belongs when its cwd is one of the scope paths or below one.
+    public static func projectDirectory(_ name: String, under paths: [String]) -> Bool {
+        paths.contains { path in
+            let slug = projectSlug(path)
             return name == slug || name.hasPrefix(slug + "-")
-        } || exactRoots.contains { name == projectSlug($0) }
+        }
     }
 
-    public static func path(_ path: String, isUnder prefixes: [String], orExactly exact: [String]) -> Bool {
-        prefixes.contains { path == $0 || path.hasPrefix($0 + "/") } || exact.contains(path)
+    public static func path(_ path: String, isUnder prefixes: [String]) -> Bool {
+        prefixes.contains { path == $0 || path.hasPrefix($0 + "/") }
     }
 }
 
+/// Where Claude sessions count: the root folders, plus worktree paths for worktrees kept elsewhere. A session
+/// belongs when its cwd is one of these or below one, whatever the repo's remote: the GitHub org filter that
+/// picks repos for pull requests would otherwise hide sessions in repos without an org remote.
 public struct ClaudeScope: Sendable {
-    /// Repo roots and worktree paths. Sessions under them count.
-    public var repoPaths: [String]
-    /// Folders that hold repos. Sessions exactly there count too; sessions in unrelated repos below them do not.
-    public var rootFolders: [String]
+    public var paths: [String]
 
-    public init(repoPaths: [String], rootFolders: [String]) {
-        self.repoPaths = repoPaths
-        self.rootFolders = rootFolders
+    public init(paths: [String]) {
+        self.paths = paths
     }
 }
 
@@ -72,7 +71,7 @@ public actor ClaudeProvider {
         for name in names where name.hasSuffix(".json") {
             let url = URL(fileURLWithPath: (directory as NSString).appendingPathComponent(name))
             guard let data = try? Data(contentsOf: url), let file = try? decoder.decode(LiveFile.self, from: data) else { continue }
-            guard ClaudePaths.path(file.cwd, isUnder: scope.repoPaths, orExactly: scope.rootFolders) else { continue }
+            guard ClaudePaths.path(file.cwd, isUnder: scope.paths) else { continue }
             sessions.append(LiveSession(
                 pid: file.pid,
                 sessionId: file.sessionId,
@@ -94,7 +93,7 @@ public actor ClaudeProvider {
         let fileManager = FileManager.default
         guard let projectNames = try? fileManager.contentsOfDirectory(atPath: projects) else { return previous }
         var scan = ClaudeScan()
-        for project in projectNames where ClaudePaths.projectDirectory(project, belongsTo: scope.repoPaths, exactRoots: scope.rootFolders) {
+        for project in projectNames where ClaudePaths.projectDirectory(project, under: scope.paths) {
             let projectPath = (projects as NSString).appendingPathComponent(project)
             guard let files = try? fileManager.contentsOfDirectory(atPath: projectPath) else { continue }
             for file in files where file.hasSuffix(".jsonl") {

@@ -69,6 +69,11 @@ public struct DeskState: Sendable {
         ))
     }
 
+    /// My open PRs with each stack contiguous, children beneath their root; `order` sorts the stacks by their roots.
+    public func stackedMine(order: [KeyPathComparator<StackedPullRequest>]) -> [StackedPullRequest] {
+        Linker.stacked(mine, parents: stackParents, order: order)
+    }
+
     public func stackParent(of pr: PullRequest) -> PullRequest? {
         guard let url = stackParents[pr.url] else { return nil }
         return github?.allOpen.first { $0.url == url }

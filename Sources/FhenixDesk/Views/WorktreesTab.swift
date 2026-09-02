@@ -3,15 +3,24 @@ import SwiftUI
 
 struct WorktreesTab: View {
     @Environment(AppModel.self) private var model
+    /// Empty until a header is clicked: the scan already orders by repo with the main worktree first.
+    @State private var sortOrder: [KeyPathComparator<Worktree>] = []
+
+    private var worktrees: [Worktree] {
+        sortOrder.isEmpty ? model.state.worktrees : model.state.worktrees.sorted(using: sortOrder)
+    }
 
     var body: some View {
-        Table(model.state.worktrees) {
-            TableColumn("Repo") { worktree in Text(worktree.repoName) }.width(min: 90, ideal: 110)
-            TableColumn("Worktree") { worktree in
+        Table(worktrees, sortOrder: $sortOrder) {
+            TableColumn("Repo", value: \.repoName) { worktree in Text(worktree.repoName) }.width(min: 90, ideal: 110)
+            TableColumn("Worktree", value: \.name) { worktree in
                 Text(worktree.isMain ? "(main)" : worktree.name).foregroundStyle(worktree.isMain ? .secondary : .primary)
             }
             .width(min: 100, ideal: 150)
-            TableColumn("Branch") { worktree in Text(worktree.branch ?? "detached").lineLimit(1) }.width(min: 140, ideal: 190)
+            TableColumn("Branch", value: \.branch, comparator: OptionalComparator()) { worktree in
+                Text(worktree.branch ?? "detached").lineLimit(1)
+            }
+            .width(min: 140, ideal: 190)
             TableColumn("State") { worktree in
                 HStack(spacing: 4) {
                     if worktree.isPrunable { Chip(text: "prunable", color: .red) }
@@ -22,11 +31,14 @@ struct WorktreesTab: View {
                 }
             }
             .width(min: 100, ideal: 120)
-            TableColumn("Behind default") { worktree in
+            TableColumn("Behind default", value: \.behindDefault) { worktree in
                 Text(worktree.behindDefault > 0 ? "\(worktree.behindDefault) behind \(worktree.defaultBranch)" : "–").font(.caption).monospacedDigit()
             }
             .width(100)
-            TableColumn("Last commit") { worktree in Text(Format.age(worktree.lastCommitAt)).monospacedDigit() }.width(80)
+            TableColumn("Last commit", value: \.lastCommitAt, comparator: OptionalComparator()) { worktree in
+                Text(Format.age(worktree.lastCommitAt)).monospacedDigit()
+            }
+            .width(80)
             TableColumn("Claude") { worktree in
                 if let live = model.state.liveSession(for: worktree) {
                     HStack(spacing: 4) { LiveStatusDot(session: live); Text(live.status.rawValue).font(.caption) }
@@ -50,19 +62,23 @@ struct WorktreesTab: View {
 
 struct ClaudeTab: View {
     @Environment(AppModel.self) private var model
+    @State private var sortOrder = [KeyPathComparator(\LiveSession.startedAt, order: .reverse)]
 
     var body: some View {
-        Table(model.state.aliveSessions) {
+        Table(model.state.aliveSessions.sorted(using: sortOrder), sortOrder: $sortOrder) {
             TableColumn("") { session in LiveStatusDot(session: session) }.width(16)
-            TableColumn("Session") { session in Text(session.name).lineLimit(1) }.width(min: 160, ideal: 280)
-            TableColumn("Kind") { session in Text(session.kind.rawValue) }.width(80)
-            TableColumn("Status") { session in
+            TableColumn("Session", value: \.name) { session in Text(session.name).lineLimit(1) }.width(min: 160, ideal: 280)
+            TableColumn("Kind", value: \.kind.rawValue) { session in Text(session.kind.rawValue) }.width(80)
+            TableColumn("Status", value: \.status.rawValue) { session in
                 Text(session.status.rawValue).foregroundStyle(session.waitsForInput ? .orange : .primary)
             }
             .width(70)
-            TableColumn("Since") { session in Text(Format.age(session.statusUpdatedAt)).monospacedDigit() }.width(60)
-            TableColumn("Where") { session in Text(relative(session.cwd)).lineLimit(1) }.width(min: 160, ideal: 300)
-            TableColumn("Started") { session in Text(Format.age(session.startedAt)).monospacedDigit() }.width(70)
+            TableColumn("Since", value: \.statusUpdatedAt, comparator: OptionalComparator()) { session in
+                Text(Format.age(session.statusUpdatedAt)).monospacedDigit()
+            }
+            .width(60)
+            TableColumn("Where", value: \.cwd) { session in Text(relative(session.cwd)).lineLimit(1) }.width(min: 160, ideal: 300)
+            TableColumn("Started", value: \.startedAt) { session in Text(Format.age(session.startedAt)).monospacedDigit() }.width(70)
             TableColumn("") { session in
                 Button { model.openTerminal(session.cwd) } label: { Image(systemName: "terminal") }.buttonStyle(.borderless)
             }

@@ -32,8 +32,7 @@ struct MenuPanelView: View {
         HStack {
             Text("Fhenix Desk").font(.title3.weight(.semibold))
             Spacer()
-            if !model.refreshing.isEmpty { ProgressView().controlSize(.small) }
-            Button { model.refreshAll() } label: { Image(systemName: "arrow.clockwise") }.buttonStyle(.borderless).help("Refresh all")
+            RefreshControl().buttonStyle(.borderless)
             Button("Open Desk") {
                 openWindow(id: DeskWindow.id)
                 NSApp.activate()

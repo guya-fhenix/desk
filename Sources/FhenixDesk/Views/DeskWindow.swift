@@ -63,14 +63,7 @@ struct DeskWindow: View {
         .onAppear { NSApp.setActivationPolicy(.regular) }
         .onDisappear { NSApp.setActivationPolicy(.accessory) }
         .toolbar {
-            ToolbarItemGroup {
-                if !model.refreshing.isEmpty { ProgressView().controlSize(.small) }
-                if !model.state.errors.isEmpty {
-                    Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
-                        .help(model.state.errors.map { "\($0.key.title): \($0.value)" }.joined(separator: "\n"))
-                }
-                Button { model.refreshAll() } label: { Image(systemName: "arrow.clockwise") }.help("Refresh all")
-            }
+            ToolbarItem(placement: .primaryAction) { RefreshControl() }
         }
     }
 

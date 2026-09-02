@@ -160,6 +160,38 @@ public enum Linker {
         return depth
     }
 
+    /// Orders PRs so every stack is contiguous: stacks sorted by comparing their roots, each child indented
+    /// beneath its parent by number. A PR whose parent is not in the list is a root; the caller notes the parent.
+    public static func stacked(
+        _ pullRequests: [PullRequest], parents: [String: String], order: [KeyPathComparator<StackedPullRequest>]
+    ) -> [StackedPullRequest] {
+        let urls = Set(pullRequests.map(\.url))
+        var children: [String: [PullRequest]] = [:]
+        var rootPullRequests: [PullRequest] = []
+        for pr in pullRequests {
+            if let parent = parents[pr.url], urls.contains(parent) { children[parent, default: []].append(pr) } else { rootPullRequests.append(pr) }
+        }
+
+        var visited = Set<String>()
+        func build(_ pr: PullRequest, depth: Int, into stack: inout [StackedPullRequest]) {
+            guard visited.insert(pr.url).inserted else { return }
+            let index = stack.count
+            stack.append(StackedPullRequest(pullRequest: pr, depth: depth, stackSize: 1))
+            for child in (children[pr.url] ?? []).sorted(by: { $0.number < $1.number }) { build(child, depth: depth + 1, into: &stack) }
+            stack[index].stackSize = stack.count - index
+        }
+        var roots: [StackedPullRequest] = []
+        var stacks: [String: [StackedPullRequest]] = [:]
+        // PRs whose bases form a cycle never hang off a root; the second pass lists them rather than drops them.
+        for pr in rootPullRequests + pullRequests where !visited.contains(pr.url) {
+            var stack: [StackedPullRequest] = []
+            build(pr, depth: 0, into: &stack)
+            roots.append(stack[0])
+            stacks[stack[0].id] = stack
+        }
+        return roots.sorted(using: order).flatMap { stacks[$0.id] ?? [] }
+    }
+
     public static func defaultBranches(worktrees: [Worktree], pullRequests: [PullRequest]) -> [String: String] {
         var result: [String: String] = [:]
         for worktree in worktrees where worktree.isMain { result[worktree.repoName] = worktree.defaultBranch }
@@ -182,4 +214,14 @@ public enum Linker {
         for pr in pullRequests where pr.state == .open { heads[pr.repoName, default: []].insert(pr.headRef) }
         return heads
     }
+}
+
+/// A pull request placed in its stack: depth 0 for a root, one more for each PR it sits on within the same list.
+public struct StackedPullRequest: Identifiable, Sendable, Hashable {
+    public var pullRequest: PullRequest
+    public var depth: Int
+    /// PRs in the stack this one roots, counting itself. 1 when nothing is stacked on it.
+    public var stackSize: Int
+
+    public var id: String { pullRequest.url }
 }

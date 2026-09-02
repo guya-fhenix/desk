@@ -22,8 +22,49 @@ public enum ShellError: Error, CustomStringConvertible, Sendable {
     }
 }
 
+/// Caps how many child processes run at once. Each one holds pipe descriptors in this process, and
+/// the git scan alone asks for dozens at a time; a GUI app starts with a 256-descriptor limit.
+private final class ProcessSlots: @unchecked Sendable {
+    private let lock = NSLock()
+    private var free: Int
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    init(limit: Int) {
+        free = limit
+    }
+
+    func acquire() async {
+        await withCheckedContinuation { continuation in
+            let slotFree = lock.withLock { () -> Bool in
+                if free > 0 {
+                    free -= 1
+                    return true
+                }
+                waiters.append(continuation)
+                return false
+            }
+            if slotFree { continuation.resume() }
+        }
+    }
+
+    func release() {
+        let waiter: CheckedContinuation<Void, Never>? = lock.withLock {
+            if waiters.isEmpty {
+                free += 1
+                return nil
+            }
+            return waiters.removeFirst()
+        }
+        waiter?.resume()
+    }
+}
+
 /// Runs one process without blocking any thread: pipes deliver data through readability handlers
 /// and the termination handler completes the continuation once both pipes hit EOF.
+///
+/// The pipe descriptors close when this object deallocates, so nothing the process or the timeout
+/// retains may hold `self` strongly: a cycle here leaks two descriptors per command until the
+/// process runs out and every spawn fails.
 private final class ProcessRun: @unchecked Sendable {
     private let process = Process()
     private let stdoutPipe = Pipe()
@@ -85,7 +126,8 @@ private final class ProcessRun: @unchecked Sendable {
                         lock.withLock { stderr.append(data) }
                     }
                 }
-                process.terminationHandler = { [self] process in
+                process.terminationHandler = { [weak self] process in
+                    guard let self else { return }
                     lock.withLock { exitStatus = process.terminationStatus }
                     finishIfDone()
                 }
@@ -100,7 +142,8 @@ private final class ProcessRun: @unchecked Sendable {
                     stdinPipe.fileHandleForWriting.write(stdin)
                     try? stdinPipe.fileHandleForWriting.close()
                 }
-                let work = DispatchWorkItem { [self] in
+                let work = DispatchWorkItem { [weak self] in
+                    guard let self else { return }
                     terminateIfRunning()
                     finish(.failure(ShellError.timedOut(command: command)))
                 }
@@ -133,6 +176,7 @@ private final class ProcessRun: @unchecked Sendable {
         let continuation: CheckedContinuation<ShellResult, any Error>? = lock.withLock {
             defer { self.continuation = nil }
             timeoutWork?.cancel()
+            timeoutWork = nil
             return self.continuation
         }
         guard let continuation else { return }
@@ -144,9 +188,12 @@ private final class ProcessRun: @unchecked Sendable {
 
 public enum Shell {
     public static let defaultTimeout: TimeInterval = 90
+    public static let maxConcurrentProcesses = 8
 
     /// Directories searched for tools when the app runs with a minimal GUI PATH.
     public static let toolDirectories = ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"]
+
+    private static let slots = ProcessSlots(limit: maxConcurrentProcesses)
 
     public static func which(_ name: String) -> String? {
         let pathDirs = (ProcessInfo.processInfo.environment["PATH"] ?? "").split(separator: ":").map(String.init)
@@ -166,6 +213,8 @@ public enum Shell {
         }
         var environment = ProcessInfo.processInfo.environment
         environment["PATH"] = (toolDirectories + [environment["PATH"] ?? ""]).joined(separator: ":")
+        await slots.acquire()
+        defer { slots.release() }
         let run = ProcessRun(executable: executable, arguments: arguments, cwd: cwd, stdin: stdin, environment: environment, timeout: timeout)
         return try await run.run()
     }

@@ -2,6 +2,7 @@ import AppKit
 import DeskCore
 import Foundation
 import Observation
+import os
 
 @MainActor
 @Observable
@@ -15,6 +16,7 @@ final class AppModel {
     private let service: DeskService
     private let notifier: Notifier
     private var loops: [Source: Task<Void, Never>] = [:]
+    private static let log = Logger(subsystem: "io.fhenix.desk", category: "refresh")
 
     init() {
         let config = DeskService.loadConfig(support: support)
@@ -73,6 +75,7 @@ final class AppModel {
                 let scan = await service.refreshGit()
                 state.gitScan = scan
                 state.errors[.git] = scan.errors.isEmpty ? nil : scan.errors.joined(separator: "\n")
+                for error in scan.errors { Self.log.error("git: \(error, privacy: .public)") }
                 // Claude data depends on the repo list, so the first scan unblocks it right away.
                 if firstScan { Task { await refresh(.claude) } }
             case .claude:
@@ -92,6 +95,7 @@ final class AppModel {
             state.lastRefresh[source] = Date()
         } catch {
             state.errors[source] = "\(error)"
+            Self.log.error("\(source.title, privacy: .public): \(String(describing: error), privacy: .public)")
         }
         state.recompute()
         notifier.deliver(state.nudges, post: config.notificationsEnabled && allSourcesReported)

@@ -63,12 +63,21 @@ import Testing
         #expect(summary.prLinks.count == 1)
     }
 
-    @Test func projectDirectoryMatchesRepoAndItsWorktrees() {
-        let roots = ["/Users/me/Repos/cofhe", "/Users/me/Repos/teecryptor"]
-        #expect(ClaudePaths.projectDirectory("-Users-me-Repos-cofhe", belongsTo: roots))
-        #expect(ClaudePaths.projectDirectory("-Users-me-Repos-cofhe--claude-worktrees-pro-391", belongsTo: roots))
-        #expect(ClaudePaths.projectDirectory("-Users-me-Repos-teecryptor-worktrees-pro-401", belongsTo: roots))
-        #expect(!ClaudePaths.projectDirectory("-Users-me-Repos-cofhejs", belongsTo: roots))
-        #expect(!ClaudePaths.projectDirectory("-Users-me-Repos", belongsTo: roots))
+    @Test func projectDirectoryMatchesAnythingAtOrBelowAScopePath() {
+        let scope = ["/Users/me/Repos", "/tmp/worktrees/pro-401"]
+        #expect(ClaudePaths.projectDirectory("-Users-me-Repos", under: scope))
+        #expect(ClaudePaths.projectDirectory("-Users-me-Repos-cofhe", under: scope))
+        #expect(ClaudePaths.projectDirectory("-Users-me-Repos-cofhe--claude-worktrees-pro-391", under: scope))
+        #expect(ClaudePaths.projectDirectory("-Users-me-Repos-personal-project", under: scope))
+        #expect(ClaudePaths.projectDirectory("-tmp-worktrees-pro-401", under: scope))
+        #expect(!ClaudePaths.projectDirectory("-Users-me-Reposit", under: scope))
+        #expect(!ClaudePaths.projectDirectory("-Users-me-Other-cofhe", under: scope))
+    }
+
+    @Test func liveSessionPathMatchesAtOrBelowAScopePath() {
+        let scope = ["/Users/me/Repos"]
+        #expect(ClaudePaths.path("/Users/me/Repos", isUnder: scope))
+        #expect(ClaudePaths.path("/Users/me/Repos/status-page", isUnder: scope))
+        #expect(!ClaudePaths.path("/Users/me/Reposit/x", isUnder: scope))
     }
 }
