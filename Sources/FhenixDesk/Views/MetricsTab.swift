@@ -39,7 +39,20 @@ struct MetricsTab: View {
     ]
     private static let rowHeight: CGFloat = 26
 
-    @State private var weeklyOrder = [KeyPathComparator(\WeeklyCycle.weekStart)]
+    @State private var weeklyOrder: [KeyPathComparator<WeeklyCycle>] = []
+    @AppStorage("sort.metricsWeeks") private var storedSort = ""
+
+    private static let sort = TableSort<WeeklyCycle>(
+        [
+            ("week", KeyPathComparator(\.weekStart)),
+            ("merged", KeyPathComparator(\.merged)),
+            ("firstReview", KeyPathComparator(\.medianToFirstReview, comparator: OptionalComparator())),
+            ("approval", KeyPathComparator(\.medianToApproval, comparator: OptionalComparator())),
+            ("merge", KeyPathComparator(\.medianToMerge, comparator: OptionalComparator())),
+            ("total", KeyPathComparator(\.medianTotal, comparator: OptionalComparator())),
+        ],
+        fallback: [KeyPathComparator(\WeeklyCycle.weekStart)]
+    )
 
     private var weekly: [WeeklyCycle] { model.state.weekly }
     private var cycles: [PullRequestCycle] { model.state.cycles }
@@ -54,6 +67,7 @@ struct MetricsTab: View {
             }
             .padding(20)
         }
+        .remembersSort(Self.sort, order: $weeklyOrder, stored: $storedSort)
         .navigationTitle("Metrics")
     }
 

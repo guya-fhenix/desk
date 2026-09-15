@@ -16,6 +16,16 @@ import Testing
         #expect(text == "hello")
     }
 
+    @Test func environmentOverridesSetAndUnsetVariables() async throws {
+        let script = "echo ${DESK_TEST_SET:-unset} ${DESK_TEST_UNSET:-unset}"
+        setenv("DESK_TEST_UNSET", "inherited", 1)
+        defer { unsetenv("DESK_TEST_UNSET") }
+        let text = try await Shell.output("/bin/sh", ["-c", script], environment: ["DESK_TEST_SET": "yes", "DESK_TEST_UNSET": nil])
+        #expect(text == "yes unset\n")
+        let inherited = try await Shell.output("/bin/sh", ["-c", script])
+        #expect(inherited == "unset inherited\n")
+    }
+
     @Test func cancelledTaskThrowsInsteadOfCrashing() async {
         let task = Task { try await Shell.run("/bin/sleep", ["5"]) }
         task.cancel()

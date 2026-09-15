@@ -2,7 +2,19 @@ import Foundation
 
 public enum NudgeKind: String, Codable, Sendable {
     case ciFailed, changesRequested, readyToMerge, needsRebase, stalePullRequest
-    case reviewRequested, botReviews, claudeWaiting, unpushedWork
+    case reviewRequested, reviewReady
+
+    /// Which screen handles this one. The sidebar badges count what waits on each.
+    public var screen: NudgeScreen {
+        switch self {
+        case .ciFailed, .changesRequested, .readyToMerge, .needsRebase, .stalePullRequest: return .pullRequests
+        case .reviewRequested, .reviewReady: return .reviews
+        }
+    }
+}
+
+public enum NudgeScreen: Sendable {
+    case pullRequests, reviews
 }
 
 public enum NudgeSeverity: Int, Codable, Sendable, Comparable {
@@ -18,15 +30,12 @@ public struct Nudge: Codable, Sendable, Hashable, Identifiable {
     public var title: String
     public var detail: String
     public var url: String?
-    public var path: String?
-
-    public init(id: String, kind: NudgeKind, severity: NudgeSeverity, title: String, detail: String, url: String? = nil, path: String? = nil) {
+    public init(id: String, kind: NudgeKind, severity: NudgeSeverity, title: String, detail: String, url: String? = nil) {
         self.id = id
         self.kind = kind
         self.severity = severity
         self.title = title
         self.detail = detail
         self.url = url
-        self.path = path
     }
 }

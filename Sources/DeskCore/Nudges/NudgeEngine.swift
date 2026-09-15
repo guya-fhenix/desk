@@ -1,33 +1,48 @@
 import Foundation
 
+/// A finished Claude pre-review of a PR that still waits on the user.
+public struct ReadyReview: Sendable, Hashable {
+    public var pr: PullRequest
+    public var summary: String
+    public var comments: Int
+    public var runs: Int
+
+    public init(pr: PullRequest, summary: String, comments: Int, runs: Int) {
+        self.pr = pr
+        self.summary = summary
+        self.comments = comments
+        self.runs = runs
+    }
+}
+
 public struct NudgeInput: Sendable {
     public var now: Date
     public var login: String
     public var config: DeskConfig
     public var mine: [PullRequest]
     public var reviewRequests: [PullRequest]
-    public var worktrees: [Worktree]
-    public var liveSessions: [LiveSession]
     public var openHeadsByRepo: [String: Set<String>]
     public var defaultBranches: [String: String]
+    public var readyReviews: [ReadyReview]
 
-    public init(now: Date, login: String, config: DeskConfig, mine: [PullRequest], reviewRequests: [PullRequest], worktrees: [Worktree], liveSessions: [LiveSession], openHeadsByRepo: [String: Set<String>], defaultBranches: [String: String]) {
+    public init(
+        now: Date, login: String, config: DeskConfig, mine: [PullRequest], reviewRequests: [PullRequest],
+        openHeadsByRepo: [String: Set<String>], defaultBranches: [String: String], readyReviews: [ReadyReview] = []
+    ) {
         self.now = now
         self.login = login
         self.config = config
         self.mine = mine
         self.reviewRequests = reviewRequests
-        self.worktrees = worktrees
-        self.liveSessions = liveSessions
         self.openHeadsByRepo = openHeadsByRepo
         self.defaultBranches = defaultBranches
+        self.readyReviews = readyReviews
     }
 }
 
 public enum NudgeEngine {
     public static func nudges(_ input: NudgeInput) -> [Nudge] {
         var nudges: [Nudge] = []
-        let automation = input.config.automation
         let staleAfter = TimeInterval(input.config.stalePullRequestDays) * 86_400
 
         for pr in input.mine where pr.state == .open && !pr.isDraft {
@@ -53,29 +68,20 @@ public enum NudgeEngine {
             }
         }
 
-        let botReviews = input.reviewRequests.filter { $0.isAutomated(automation) }
-        for pr in input.reviewRequests where !pr.isAutomated(automation) {
+        for pr in input.reviewRequests {
             let waiting = input.now.timeIntervalSince(pr.createdAt)
             nudges.append(Nudge(id: "review:\(pr.url)", kind: .reviewRequested, severity: waiting > 86_400 ? .warning : .info, title: "Review waits: \(pr.repoName)#\(pr.number)", detail: "\(pr.title) · \(pr.author) · \(TimeText.duration(waiting))", url: pr.url))
         }
-        if !botReviews.isEmpty {
-            let ids = botReviews.map(\.url).sorted().joined(separator: ",")
-            nudges.append(Nudge(id: "bots:\(ids.hashValue)", kind: .botReviews, severity: .info, title: "\(botReviews.count) bot PRs wait for approval", detail: botReviews.map { "\($0.repoName)#\($0.number)" }.joined(separator: ", ")))
-        }
 
-        let waitingAfter = TimeInterval(input.config.claudeWaitingMinutes) * 60
-        for session in input.liveSessions where session.waitsForInput {
-            guard let since = session.statusUpdatedAt, input.now.timeIntervalSince(since) > waitingAfter else { continue }
-            nudges.append(Nudge(id: "claude:\(session.sessionId):\(since.timeIntervalSince1970)", kind: .claudeWaiting, severity: .warning, title: "Claude waits for you: \(session.name)", detail: "\((session.cwd as NSString).lastPathComponent) · idle \(TimeText.age(since, now: input.now))", path: session.cwd))
-        }
-
-        let unpushedAfter = TimeInterval(input.config.unpushedWorkDays) * 86_400
-        let liveCwds = input.liveSessions.filter(\.isAlive).map(\.cwd)
-        for worktree in input.worktrees where worktree.hasLocalWork && !worktree.isPrunable {
-            guard let lastCommit = worktree.lastCommitAt, input.now.timeIntervalSince(lastCommit) > unpushedAfter else { continue }
-            guard !liveCwds.contains(where: { $0 == worktree.path || $0.hasPrefix(worktree.path + "/") }) else { continue }
-            let parts = [worktree.dirtyFiles > 0 ? "\(worktree.dirtyFiles) dirty files" : nil, worktree.ahead > 0 ? "\(worktree.ahead) unpushed commits" : nil, worktree.hasUpstream ? nil : "no upstream"].compactMap { $0 }
-            nudges.append(Nudge(id: "unpushed:\(worktree.path):\(worktree.headSha):\(worktree.dirtyFiles)", kind: .unpushedWork, severity: .info, title: "Local work sits in \(worktree.repoName)/\(worktree.name)", detail: parts.joined(separator: ", "), path: worktree.path))
+        for review in input.readyReviews {
+            let pr = review.pr
+            let detail = review.comments > 0
+                ? "\(review.comments) comments to look over"
+                : (review.summary.isEmpty ? pr.title : review.summary)
+            nudges.append(Nudge(
+                id: "prereview:\(pr.url):\(review.runs)", kind: .reviewReady, severity: .info,
+                title: "Claude reviewed \(pr.repoName)#\(pr.number)", detail: detail, url: pr.url
+            ))
         }
 
         return nudges.sorted { ($0.severity, $0.title) > ($1.severity, $1.title) }

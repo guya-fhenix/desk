@@ -46,8 +46,8 @@ struct ReviewBadge: View {
             switch pr.reviewDecision {
             case .approved: Chip(text: "Approved", color: .green)
             case .changesRequested: Chip(text: "Changes", color: .red)
-            case .reviewRequired: Chip(text: "Review", color: .orange)
-            case .none: Chip(text: "No review", color: .secondary)
+            case .reviewRequired: Chip(text: "Required", color: .orange)
+            case .none: Chip(text: "Not required", color: .secondary)
             }
         }
     }
@@ -68,19 +68,6 @@ struct MergeBadge: View {
     }
 }
 
-struct TicketBadge: View {
-    var ticket: Ticket
-
-    var body: some View {
-        switch ticket.category {
-        case .inProgress: Chip(text: ticket.status, color: .blue)
-        case .todo: Chip(text: ticket.status, color: .secondary)
-        case .done: Chip(text: ticket.status, color: .green)
-        case .unknown: Chip(text: ticket.status)
-        }
-    }
-}
-
 struct SeverityDot: View {
     var severity: NudgeSeverity
 
@@ -89,20 +76,6 @@ struct SeverityDot: View {
         case .urgent: StatusDot(color: .red)
         case .warning: StatusDot(color: .orange)
         case .info: StatusDot(color: .blue)
-        }
-    }
-}
-
-struct LiveStatusDot: View {
-    var session: LiveSession
-
-    var body: some View {
-        switch (session.isAlive, session.status) {
-        case (false, _): StatusDot(color: .gray)
-        case (_, .busy): StatusDot(color: .green)
-        case (_, .shell): StatusDot(color: .teal)
-        case (_, .idle): StatusDot(color: .orange)
-        case (_, .unknown): StatusDot(color: .secondary)
         }
     }
 }
@@ -204,5 +177,120 @@ struct PullRequestLine: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+    }
+}
+
+/// GitHub's +/− pair, shared by the PR tables, the file list and the diff headers.
+struct AddDeleteCounts: View {
+    var additions: Int
+    var deletions: Int
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Text("+\(additions)").foregroundStyle(.green)
+            Text("−\(deletions)").foregroundStyle(.red)
+        }
+        .font(.caption)
+        .monospacedDigit()
+    }
+}
+
+/// Where a review stands, as chips: the phase, what it found, and what changed under it since.
+struct ReviewStatusChip: View {
+    var status: ReviewStatus
+    var showCounts = true
+
+    var body: some View {
+        HStack(spacing: 4) {
+            switch status.phase {
+            case .queued, .preparing:
+                ProgressView().controlSize(.mini)
+                Text("starting").font(.caption2).foregroundStyle(.secondary)
+            case .running:
+                ProgressView().controlSize(.mini)
+                Text("reviewing").font(.caption2).foregroundStyle(.secondary)
+            case .submitting:
+                ProgressView().controlSize(.mini)
+                Text("sending").font(.caption2).foregroundStyle(.secondary)
+            case .failed:
+                Chip(text: "failed", color: .red)
+            case .submitted:
+                Chip(text: "submitted", color: .green)
+            case .ready:
+                if showCounts { counts }
+            }
+            if status.phase != .submitted, showCounts, status.counts.outdated > 0 {
+                Chip(text: "\(status.counts.outdated) outdated", color: .secondary)
+                    .help("The lines these point at changed in a later push")
+            }
+            if status.headMoved {
+                Chip(text: "new commits", color: .orange)
+                    .help("The head moved since the review; comments have been re-anchored")
+            }
+            if status.reRequested {
+                Chip(text: "re-requested", color: .orange).help("Your review was requested again")
+            }
+        }
+    }
+
+    @ViewBuilder private var counts: some View {
+        let counts = status.counts
+        if counts.total == 0 {
+            Chip(text: "no comments", color: .green).help("Claude found nothing to say")
+        } else if counts.pending > 0 {
+            Chip(text: "\(counts.pending) to review", color: counts.blocking > 0 ? .red : .orange)
+        } else {
+            Chip(text: "\(counts.approved) approved", color: .blue).help("Ready to send")
+        }
+    }
+}
+
+/// The background Claude sessions that worked on a PR, and the way in. A filled terminal means there is
+/// one — pressing it attaches, which is the only way into a background session from outside the terminal
+/// that started it. A hollow one means there is none, and pressing it starts one on the PR's branch.
+///
+/// Interactive sessions never appear here: nothing outside their own terminal can reach them.
+struct ClaudeSessionButton: View {
+    var pr: PullRequest
+    var model: AppModel
+
+    var body: some View {
+        let jobs = model.state.claudeJobs(for: pr)
+        if model.startingSessions.contains(pr.url) {
+            ProgressView().controlSize(.mini).help("Starting a session on \(pr.headRef)")
+        } else if jobs.count > 1, let newest = jobs.first {
+            Menu {
+                ForEach(jobs) { job in
+                    Button("\(job.name) — \(job.state)") { model.attach(job, for: pr) }
+                }
+            } label: {
+                icon("terminal.fill", newest.isRunning ? .green : .accentColor)
+            }
+            .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+            .help(failure ?? "\(jobs.count) background sessions on this PR")
+        } else if let job = jobs.first {
+            Button { model.attach(job, for: pr) } label: { icon("terminal.fill", job.isRunning ? .green : .accentColor) }
+                .buttonStyle(.borderless)
+                .help(failure ?? "Attach to “\(job.name)” (\(job.state)) in Terminal")
+        } else {
+            Button { model.startSession(for: pr) } label: { icon("terminal", .secondary) }
+                .buttonStyle(.borderless)
+                .disabled(model.state.localRepo(for: pr) == nil)
+                .help(failure ?? startHelp)
+        }
+    }
+
+    /// The last failure on this PR's button, which takes over the tooltip until the next press works.
+    private var failure: String? { model.sessionErrors[pr.url] }
+
+    /// Green while a session is running, the accent colour for one that has finished, grey for the button
+    /// that would start the first — and red once a press has failed, whichever it was.
+    private func icon(_ name: String, _ tint: Color) -> some View {
+        Image(systemName: name).foregroundStyle(failure == nil ? tint : .red)
+    }
+
+    private var startHelp: String {
+        guard model.state.localRepo(for: pr) != nil else { return "No local clone of \(pr.repo) to start a session in" }
+        return "Start a background Claude session on \(pr.headRef)"
     }
 }

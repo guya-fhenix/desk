@@ -1,236 +1,104 @@
-import Darwin
 import Foundation
 
-public struct ClaudeScan: Codable, Sendable {
-    /// Bump when the scanner extracts different fields, so stale caches rescan from zero.
-    public static let currentVersion = 2
-
-    public var version: Int
-    /// Summaries keyed by transcript file path.
-    public var summaries: [String: SessionSummary]
-
-    public init(summaries: [String: SessionSummary] = [:]) {
-        self.version = Self.currentVersion
-        self.summaries = summaries
-    }
-
-    public var isCurrent: Bool { version == Self.currentVersion }
-
-    public var sessions: [SessionSummary] {
-        summaries.values.sorted { ($0.lastActivityAt ?? .distantPast) > ($1.lastActivityAt ?? .distantPast) }
-    }
-
-    /// Sessions with a human prompt or a PR link. Aborted or empty sessions stay out of the UI.
-    public var meaningfulSessions: [SessionSummary] {
-        sessions.filter { $0.humanPrompts > 0 || !$0.prLinks.isEmpty }
-    }
-}
-
 public enum ClaudePaths {
-    /// Claude Code names a project directory after its cwd with `/` and `.` replaced by `-`.
-    public static func projectSlug(_ path: String) -> String {
-        path.replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ".", with: "-")
-    }
-
-    /// A project belongs when its cwd is one of the scope paths or below one.
-    public static func projectDirectory(_ name: String, under paths: [String]) -> Bool {
-        paths.contains { path in
-            let slug = projectSlug(path)
-            return name == slug || name.hasPrefix(slug + "-")
-        }
-    }
-
     public static func path(_ path: String, isUnder prefixes: [String]) -> Bool {
         prefixes.contains { path == $0 || path.hasPrefix($0 + "/") }
     }
 }
 
-/// Where Claude sessions count: the root folders, plus worktree paths for worktrees kept elsewhere. A session
-/// belongs when its cwd is one of these or below one, whatever the repo's remote: the GitHub org filter that
-/// picks repos for pull requests would otherwise hide sessions in repos without an org remote.
-public struct ClaudeScope: Sendable {
-    public var paths: [String]
+/// One Claude Code background session, as its `~/.claude/jobs/<id>/state.json` records it. Interactive
+/// sessions have no job directory, so everything found this way is a background agent by construction.
+public struct ClaudeJob: Sendable, Hashable, Identifiable {
+    /// The short id `claude attach`, `logs` and `stop` take.
+    public var id: String
+    public var name: String
+    /// `working`, `done`, and whatever else Claude Code writes there; shown, never matched on.
+    public var state: String
+    public var cwd: String
+    /// `owner/name#number` of every PR the session touched, from Claude Code's own scan of the transcript.
+    public var prKeys: Set<String>
+    public var updatedAt: Date
 
-    public init(paths: [String]) {
-        self.paths = paths
+    public init(id: String, name: String, state: String, cwd: String, prKeys: Set<String>, updatedAt: Date) {
+        self.id = id
+        self.name = name
+        self.state = state
+        self.cwd = cwd
+        self.prKeys = prKeys
+        self.updatedAt = updatedAt
     }
+
+    public var isRunning: Bool { state == "working" }
 }
 
-public actor ClaudeProvider {
-    private let home: String
+/// Reads the background sessions off disk. Only the small per-job state files, never a transcript: the
+/// PR links in them are already the product of Claude Code's own link scan.
+public enum ClaudeJobs {
+    public static let home = ("~/.claude" as NSString).expandingTildeInPath
 
-    public init(home: String) {
-        self.home = home
-    }
-
-    public func liveSessions(scope: ClaudeScope) throws -> [LiveSession] {
-        let directory = (home as NSString).appendingPathComponent("sessions")
-        guard let names = try? FileManager.default.contentsOfDirectory(atPath: directory) else { return [] }
-        let decoder = JSONDecoder()
-        var sessions: [LiveSession] = []
-        for name in names where name.hasSuffix(".json") {
-            let url = URL(fileURLWithPath: (directory as NSString).appendingPathComponent(name))
-            guard let data = try? Data(contentsOf: url), let file = try? decoder.decode(LiveFile.self, from: data) else { continue }
-            guard ClaudePaths.path(file.cwd, isUnder: scope.paths) else { continue }
-            sessions.append(LiveSession(
-                pid: file.pid,
-                sessionId: file.sessionId,
-                cwd: file.cwd,
-                name: file.name ?? String(file.sessionId.prefix(8)),
-                kind: file.kind.flatMap(SessionKind.init) ?? .unknown,
-                status: file.status.flatMap(LiveStatus.init) ?? .unknown,
-                startedAt: Date(timeIntervalSince1970: file.startedAt / 1000),
-                statusUpdatedAt: file.statusUpdatedAt.map { Date(timeIntervalSince1970: $0 / 1000) },
-                isAlive: Self.isProcessAlive(file.pid)
-            ))
-        }
-        return sessions.sorted { $0.startedAt > $1.startedAt }
-    }
-
-    /// Scans transcripts for the given repos. Re-reads only bytes appended since the previous scan.
-    public func scanTranscripts(scope: ClaudeScope, previous: ClaudeScan) throws -> ClaudeScan {
-        let projects = (home as NSString).appendingPathComponent("projects")
-        let fileManager = FileManager.default
-        guard let projectNames = try? fileManager.contentsOfDirectory(atPath: projects) else { return previous }
-        var scan = ClaudeScan()
-        for project in projectNames where ClaudePaths.projectDirectory(project, under: scope.paths) {
-            let projectPath = (projects as NSString).appendingPathComponent(project)
-            guard let files = try? fileManager.contentsOfDirectory(atPath: projectPath) else { continue }
-            for file in files where file.hasSuffix(".jsonl") {
-                let path = (projectPath as NSString).appendingPathComponent(file)
-                guard let attributes = try? fileManager.attributesOfItem(atPath: path),
-                      let size = (attributes[.size] as? NSNumber)?.int64Value,
-                      let modified = attributes[.modificationDate] as? Date else { continue }
-                var summary = previous.summaries[path] ?? SessionSummary(sessionId: String(file.dropLast(".jsonl".count)), filePath: path)
-                if summary.scannedBytes == size, summary.fileModifiedAt == modified {
-                    scan.summaries[path] = summary
-                    continue
-                }
-                if size < summary.scannedBytes {
-                    summary = SessionSummary(sessionId: summary.sessionId, filePath: path)
-                }
-                try TranscriptScanner.scan(fileURL: URL(fileURLWithPath: path), into: &summary)
-                summary.fileModifiedAt = modified
-                summary.lastActivityAt = modified
-                if summary.firstActivityAt == nil { summary.firstActivityAt = attributes[.creationDate] as? Date }
-                scan.summaries[path] = summary
-            }
-        }
-        return scan
-    }
-
-    private static func isProcessAlive(_ pid: Int32) -> Bool {
-        kill(pid, 0) == 0 || errno == EPERM
-    }
-
-    private struct LiveFile: Decodable {
-        var pid: Int32
-        var sessionId: String
-        var cwd: String
-        var name: String?
-        var kind: String?
-        var status: String?
-        var startedAt: Double
-        var statusUpdatedAt: Double?
-    }
-}
-
-public enum TranscriptScanner {
-    private static let chunkSize = 1 << 20
-    private static let newline = Data("\n".utf8)
-    private static let recordPrefix = Data("{\"parentUuid\"".utf8)
-    private static let typePrefix = Data("{\"type\":\"".utf8)
-    private static let humanMarker = Data("\"kind\":\"human\"".utf8)
-    private static let assistantMarker = Data("\"type\":\"assistant\"".utf8)
-    private static let prLinkPrefix = Data("{\"type\":\"pr-link\"".utf8)
-    private static let titlePrefix = Data("{\"type\":\"ai-title\"".utf8)
-    private static let costPrefix = Data("{\"type\":\"cost-state\"".utf8)
-    private static let relocatedPrefix = Data("{\"type\":\"relocated\"".utf8)
-    private static let worktreePrefix = Data("{\"type\":\"worktree-state\"".utf8)
-
-    public static func scan(fileURL: URL, into summary: inout SessionSummary) throws {
-        let handle = try FileHandle(forReadingFrom: fileURL)
-        defer { try? handle.close() }
-        try handle.seek(toOffset: UInt64(summary.scannedBytes))
+    /// Background sessions that mention a pull request, newest first. Sessions that mention none are
+    /// dropped: nothing on a PR screen could show them.
+    public static func scan(home: String = ClaudeJobs.home) -> [ClaudeJob] {
+        let root = URL(fileURLWithPath: home).appendingPathComponent("jobs")
+        guard let ids = try? FileManager.default.contentsOfDirectory(atPath: root.path) else { return [] }
         let decoder = JSON.decoder()
-        var buffer = Data()
-        var consumed = summary.scannedBytes
-        while let chunk = try handle.read(upToCount: chunkSize), !chunk.isEmpty {
-            buffer.append(chunk)
-            var start = buffer.startIndex
-            while let newlineRange = buffer.range(of: newline, in: start..<buffer.endIndex) {
-                let line = buffer[start..<newlineRange.lowerBound]
-                consume(line, into: &summary, decoder: decoder)
-                consumed += Int64(newlineRange.upperBound - start)
-                start = newlineRange.upperBound
-            }
-            buffer = Data(buffer[start...])
+        return ids.compactMap { id in
+            let file = root.appendingPathComponent(id).appendingPathComponent("state.json")
+            guard let data = try? Data(contentsOf: file), let state = try? decoder.decode(JobState.self, from: data) else { return nil }
+            let keys = state.prKeys
+            guard !keys.isEmpty else { return nil }
+            return ClaudeJob(
+                id: id, name: state.label(fallback: id), state: state.state ?? "unknown", cwd: state.cwd ?? "",
+                prKeys: keys, updatedAt: state.updatedAt ?? .distantPast
+            )
         }
-        summary.scannedBytes = consumed
+        .sorted { $0.updatedAt > $1.updatedAt }
     }
 
-    private static func consume(_ line: Data, into summary: inout SessionSummary, decoder: JSONDecoder) {
-        if line.starts(with: recordPrefix) {
-            if line.range(of: humanMarker) != nil, let record = try? decoder.decode(UserRecord.self, from: line) {
-                summary.humanPrompts += 1
-                if summary.cwd == nil { summary.cwd = record.cwd }
-                if let branch = record.gitBranch, !branch.isEmpty, branch != "HEAD", !summary.branches.contains(branch) { summary.branches.append(branch) }
-                if let timestamp = record.timestamp {
-                    if summary.firstActivityAt.map({ timestamp < $0 }) ?? true { summary.firstActivityAt = timestamp }
-                }
-            } else if line.range(of: assistantMarker) != nil {
-                summary.assistantMessages += 1
-            }
-            return
-        }
-        guard line.starts(with: typePrefix) else { return }
-        if line.starts(with: prLinkPrefix), let record = try? decoder.decode(PRLinkRecord.self, from: line) {
-            let ref = PullRequestRef(repo: record.prRepository, number: record.prNumber, url: record.prUrl)
-            if !summary.prLinks.contains(ref) { summary.prLinks.append(ref) }
-        } else if line.starts(with: titlePrefix), let record = try? decoder.decode(TitleRecord.self, from: line) {
-            summary.title = record.aiTitle
-        } else if line.starts(with: costPrefix), let record = try? decoder.decode(CostRecord.self, from: line) {
-            summary.costUSD = record.totalCostUSD
-            summary.linesAdded = record.totalLinesAdded
-            summary.linesRemoved = record.totalLinesRemoved
-            summary.totalDurationMs = record.totalDuration
-        } else if line.starts(with: relocatedPrefix), let record = try? decoder.decode(RelocatedRecord.self, from: line) {
-            addPath(record.relocatedCwd, to: &summary)
-        } else if line.starts(with: worktreePrefix), let record = try? decoder.decode(WorktreeRecord.self, from: line) {
-            addPath(record.worktreeSession?.worktreePath, to: &summary)
-        }
+    /// The short id `claude --bg` prints ("backgrounded · 1a2b3c4d"), out of ANSI-coloured output.
+    public static func startedID(in output: String) -> String? {
+        output.matches(of: /\b[0-9a-f]{8}\b/).first.map { String($0.output) }
     }
 
-    private static func addPath(_ path: String?, to summary: inout SessionSummary) {
-        guard let path, !path.isEmpty, !summary.worktreePaths.contains(path) else { return }
-        summary.worktreePaths.append(path)
+    /// Every PR url in a piece of text, for the prompt a session was started from.
+    public static func prKeys(in text: String) -> Set<String> {
+        Set(text.matches(of: /https:\/\/github\.com\/[^\/\s]+\/[^\/\s]+\/pull\/\d+/).compactMap { prKey(String($0.output)) })
     }
 
-    private struct UserRecord: Decodable {
-        var timestamp: Date?
-        var gitBranch: String?
+    /// `owner/name#number`, the one shape a PR url and a session's recorded link agree on.
+    public static func prKey(_ url: String) -> String? {
+        let parts = url.split(separator: "/")
+        guard parts.count >= 4, parts[parts.count - 2] == "pull", let number = Int(parts[parts.count - 1]) else { return nil }
+        return "\(parts[parts.count - 4])/\(parts[parts.count - 3])#\(number)".lowercased()
+    }
+
+    /// Every key is optional: the file is Claude Code's, and a missing field must not cost us the session.
+    private struct JobState: Decodable {
+        struct Child: Decodable {
+            var href: String?
+            var kind: String?
+        }
+
+        var state: String?
+        var name: String?
+        /// The prompt the session started from, for sessions Claude Code never named.
+        var intent: String?
         var cwd: String?
-    }
+        var children: [Child]?
+        var updatedAt: Date?
 
-    private struct PRLinkRecord: Decodable {
-        var prNumber: Int
-        var prUrl: String
-        var prRepository: String
-    }
+        /// The PRs this session is about: the ones Claude Code's link scan saw it work with, plus any
+        /// named in the prompt it was started from — which is the only trace of a session opened on a PR
+        /// that has not touched it yet.
+        var prKeys: Set<String> {
+            let linked = (children ?? []).filter { $0.kind == "pr" }.compactMap { $0.href.flatMap(ClaudeJobs.prKey) }
+            return Set(linked).union(intent.map(ClaudeJobs.prKeys(in:)) ?? [])
+        }
 
-    private struct TitleRecord: Decodable { var aiTitle: String }
-
-    private struct CostRecord: Decodable {
-        var totalCostUSD: Double?
-        var totalLinesAdded: Int?
-        var totalLinesRemoved: Int?
-        var totalDuration: Int?
-    }
-
-    private struct RelocatedRecord: Decodable { var relocatedCwd: String? }
-
-    private struct WorktreeRecord: Decodable {
-        var worktreeSession: WorktreeSession?
-        struct WorktreeSession: Decodable { var worktreePath: String? }
+        func label(fallback: String) -> String {
+            let candidates = [name, intent?.split(separator: "\n").first.map(String.init)]
+            let text = candidates.compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }.first { !$0.isEmpty }
+            return text ?? fallback
+        }
     }
 }

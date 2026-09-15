@@ -2,30 +2,25 @@ import AppKit
 import DeskCore
 import SwiftUI
 
+/// The secondary-click panel: how much is waiting, and the two ways out. Anything that needs reading
+/// rather than counting belongs in the window.
 struct MenuPanelView: View {
     @Environment(AppModel.self) private var model
-    @Environment(\.openWindow) private var openWindow
-
-    private static let maxNudges = 6
-    private static let maxReviews = 4
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 12) {
             header
-            ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
-                    nudges
-                    myPullRequests
-                    reviewQueue
-                    claude
-                }
-                .padding(.trailing, 4)
+            HStack(spacing: 0) {
+                counter("Pull requests", model.state.waiting(on: .pullRequests))
+                Divider().frame(height: 34)
+                counter("Reviews", model.state.waiting(on: .reviews))
+                Divider().frame(height: 34)
+                counter("Tickets", model.state.openTickets.count)
             }
             footer
         }
         .padding(12)
-        .frame(width: 420)
-        .frame(maxHeight: 660)
+        .frame(width: 320)
     }
 
     private var header: some View {
@@ -33,87 +28,19 @@ struct MenuPanelView: View {
             Text("Fhenix Desk").font(.title3.weight(.semibold))
             Spacer()
             RefreshControl().buttonStyle(.borderless)
-            Button("Open Desk") {
-                openWindow(id: DeskWindow.id)
-                NSApp.activate()
-            }
-            .controlSize(.small)
+            Button("Open Desk") { AppDelegate.openDesk?() }.controlSize(.small)
         }
     }
 
-    private var nudges: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            SectionTitle(title: "Waits for you", count: model.state.nudges.count)
-            if model.state.nudges.isEmpty {
-                EmptyText(text: "Nothing waits. Good.")
-            }
-            ForEach(model.state.nudges.prefix(Self.maxNudges)) { nudge in
-                Button { model.act(on: nudge) } label: {
-                    HStack(alignment: .firstTextBaseline, spacing: 8) {
-                        SeverityDot(severity: nudge.severity).padding(.top, 4)
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(nudge.title).font(.callout).lineLimit(1)
-                            Text(nudge.detail).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                        }
-                        Spacer()
-                    }
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-            }
-            if model.state.nudges.count > Self.maxNudges {
-                Text("+\(model.state.nudges.count - Self.maxNudges) more in Desk").font(.caption).foregroundStyle(.secondary)
-            }
+    private func counter(_ title: String, _ value: Int) -> some View {
+        VStack(spacing: 2) {
+            Text("\(value)")
+                .font(.system(size: 24, weight: .semibold))
+                .monospacedDigit()
+                .foregroundStyle(value > 0 ? .primary : .secondary)
+            Text(title).font(.caption).foregroundStyle(.secondary)
         }
-    }
-
-    private var myPullRequests: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            SectionTitle(title: "My PRs", count: model.state.mine.count)
-            if model.state.mine.isEmpty { EmptyText(text: model.state.github == nil ? "Loading GitHub…" : "No open PRs.") }
-            ForEach(groupedByRepo(model.state.mine), id: \.repo) { group in
-                Text(group.repo).font(.caption.weight(.semibold)).foregroundStyle(.secondary).padding(.top, 2)
-                ForEach(group.prs) { pr in PullRequestLine(pr: pr, showRepo: false) }
-            }
-        }
-    }
-
-    private var reviewQueue: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                SectionTitle(title: "Review queue", count: model.state.humanReviewRequests.count)
-                if !model.state.botReviewRequests.isEmpty {
-                    Chip(text: "+\(model.state.botReviewRequests.count) bots", color: .secondary)
-                }
-            }
-            if model.state.humanReviewRequests.isEmpty { EmptyText(text: "No reviews wait on you.") }
-            ForEach(model.state.humanReviewRequests.sorted { $0.createdAt < $1.createdAt }.prefix(Self.maxReviews)) { pr in
-                PullRequestLine(pr: pr)
-            }
-        }
-    }
-
-    private var claude: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            SectionTitle(title: "Claude", count: model.state.aliveSessions.count)
-            if model.state.aliveSessions.isEmpty { EmptyText(text: "No live sessions.") }
-            ForEach(model.state.aliveSessions) { session in
-                Button { model.openTerminal(session.cwd) } label: {
-                    HStack(spacing: 8) {
-                        LiveStatusDot(session: session)
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(session.name).font(.callout).lineLimit(1)
-                            Text(relativePath(session.cwd)).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                        }
-                        Spacer()
-                        Text(session.status == .idle ? "idle \(Format.age(session.statusUpdatedAt))" : session.status.rawValue)
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-            }
-        }
+        .frame(maxWidth: .infinity)
     }
 
     private var footer: some View {
@@ -128,17 +55,5 @@ struct MenuPanelView: View {
             Spacer()
             Button("Quit") { NSApp.terminate(nil) }.buttonStyle(.plain).font(.caption).foregroundStyle(.secondary)
         }
-    }
-
-    private func groupedByRepo(_ prs: [PullRequest]) -> [(repo: String, prs: [PullRequest])] {
-        Dictionary(grouping: prs, by: \.repoName)
-            .map { (repo: $0.key, prs: $0.value.sorted { $0.updatedAt > $1.updatedAt }) }
-            .sorted { $0.repo < $1.repo }
-    }
-
-    private func relativePath(_ path: String) -> String {
-        let roots = model.config.expandedRepoRoots
-        for root in roots where path.hasPrefix(root + "/") { return String(path.dropFirst(root.count + 1)) }
-        return (path as NSString).abbreviatingWithTildeInPath
     }
 }

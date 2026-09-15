@@ -6,19 +6,16 @@ struct DeskWindow: View {
     static let id = "desk"
 
     enum Tab: String, CaseIterable, Identifiable {
-        case overview, pullRequests, reviews, work, worktrees, claude, metrics, settings
+        case tickets, pullRequests, reviews, metrics, settings
 
         /// The row tag must be the same type as the selection binding, or clicks never select.
         var id: Tab { self }
 
         var title: String {
             switch self {
-            case .overview: return "Overview"
+            case .tickets: return "Tickets"
             case .pullRequests: return "Pull Requests"
             case .reviews: return "Reviews"
-            case .work: return "Work"
-            case .worktrees: return "Worktrees"
-            case .claude: return "Claude"
             case .metrics: return "Metrics"
             case .settings: return "Settings"
             }
@@ -26,12 +23,9 @@ struct DeskWindow: View {
 
         var icon: String {
             switch self {
-            case .overview: return "bell.badge"
+            case .tickets: return "checklist"
             case .pullRequests: return "arrow.triangle.pull"
             case .reviews: return "eye"
-            case .work: return "rectangle.3.group"
-            case .worktrees: return "folder.badge.gearshape"
-            case .claude: return "sparkles"
             case .metrics: return "chart.bar"
             case .settings: return "gearshape"
             }
@@ -39,7 +33,7 @@ struct DeskWindow: View {
     }
 
     @Environment(AppModel.self) private var model
-    @State private var tab: Tab? = Tab(rawValue: ProcessInfo.processInfo.environment["FHENIX_DESK_OPEN_WINDOW"] ?? "") ?? .overview
+    @State private var tab: Tab? = Tab(rawValue: ProcessInfo.processInfo.environment["FHENIX_DESK_OPEN_WINDOW"] ?? "") ?? .tickets
 
     var body: some View {
         NavigationSplitView {
@@ -48,97 +42,38 @@ struct DeskWindow: View {
             }
             .navigationSplitViewColumnWidth(min: 170, ideal: 190)
         } detail: {
-            switch tab ?? .overview {
-            case .overview: OverviewTab()
+            switch tab ?? .tickets {
+            case .tickets: TicketsTab()
             case .pullRequests: PullRequestsTab()
             case .reviews: ReviewsTab()
-            case .work: WorkTab()
-            case .worktrees: WorktreesTab()
-            case .claude: ClaudeTab()
             case .metrics: MetricsTab()
             case .settings: SettingsTab()
             }
         }
         // A regular app while the window shows, so ⌘-Tab and the Dock can bring it back.
         .onAppear { NSApp.setActivationPolicy(.regular) }
+        // The menu bar and the nudges ask for a tab by setting this; clearing it keeps it a one-shot.
+        .onChange(of: model.pendingTab) { _, requested in
+            guard let requested else { return }
+            tab = requested
+            model.pendingTab = nil
+        }
         .onDisappear { NSApp.setActivationPolicy(.accessory) }
+        // Toolbar items live in their own hosting view, which AppKit keeps updating after the window
+        // closes while the window's environment is gone. The item carries the model itself so a late
+        // update cannot hit "No Observable object of type AppModel found".
         .toolbar {
-            ToolbarItem(placement: .primaryAction) { RefreshControl() }
+            ToolbarItem(placement: .primaryAction) { RefreshControl().environment(model) }
         }
     }
 
+    /// The badge is what waits for you on that screen, so the sidebar is the whole to-do list.
     private func badge(for tab: Tab) -> Int {
         switch tab {
-        case .overview: return model.urgentCount
-        case .pullRequests: return model.state.mine.count
-        case .reviews: return model.state.humanReviewRequests.count
-        case .claude: return model.state.aliveSessions.filter(\.waitsForInput).count
+        case .tickets: return model.state.openTickets.count
+        case .pullRequests: return model.state.waiting(on: .pullRequests)
+        case .reviews: return model.state.waiting(on: .reviews)
         default: return 0
-        }
-    }
-}
-
-struct OverviewTab: View {
-    @Environment(AppModel.self) private var model
-
-    var body: some View {
-        List {
-            Section {
-                HStack(spacing: 24) {
-                    counter("Open PRs", model.state.mine.count)
-                    counter("Reviews on me", model.state.humanReviewRequests.count)
-                    counter("Bot PRs", model.state.botReviewRequests.count)
-                    counter("Live Claude", model.state.aliveSessions.count)
-                    counter("In progress", model.state.tickets.filter { $0.assignedToMe && $0.category == .inProgress }.count)
-                }
-                .padding(.vertical, 4)
-            }
-            ForEach([NudgeSeverity.urgent, .warning, .info], id: \.self) { severity in
-                let rows = model.state.nudges.filter { $0.severity == severity }
-                if !rows.isEmpty {
-                    Section(title(severity)) {
-                        ForEach(rows) { nudge in
-                            HStack(alignment: .firstTextBaseline, spacing: 10) {
-                                SeverityDot(severity: nudge.severity).padding(.top, 4)
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(nudge.title)
-                                    Text(nudge.detail).font(.caption).foregroundStyle(.secondary)
-                                }
-                                Spacer()
-                                if nudge.url != nil || nudge.path != nil {
-                                    Button(nudge.url != nil ? "Open" : "Terminal") { model.act(on: nudge) }.controlSize(.small)
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            if model.state.nudges.isEmpty {
-                Section { EmptyText(text: "Nothing waits for you.") }
-            }
-            if !model.state.errors.isEmpty {
-                Section("Source errors") {
-                    ForEach(Array(model.state.errors.keys), id: \.self) { source in
-                        Text("\(source.title): \(model.state.errors[source] ?? "")").font(.caption).foregroundStyle(.red).textSelection(.enabled)
-                    }
-                }
-            }
-        }
-        .navigationTitle("Overview")
-    }
-
-    private func counter(_ title: String, _ value: Int) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text("\(value)").font(.title2.weight(.semibold)).monospacedDigit()
-            Text(title).font(.caption).foregroundStyle(.secondary)
-        }
-    }
-
-    private func title(_ severity: NudgeSeverity) -> String {
-        switch severity {
-        case .urgent: return "Urgent"
-        case .warning: return "Needs action"
-        case .info: return "Good to know"
         }
     }
 }

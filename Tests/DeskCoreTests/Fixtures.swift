@@ -8,10 +8,10 @@ enum Fixtures {
         number: Int, repo: String = "FhenixProtocol/cofhe", title: String = "A change", head: String, base: String = "master",
         author: String = "guya-fhenix", created: Date = t0, updated: Date = t0, merged: Date? = nil,
         checks: CheckState = .success, review: ReviewDecision = .reviewRequired, merge: MergeState = .blocked,
-        reviews: [Review] = [], events: [ReviewRequestEvent] = []
+        reviews: [Review] = [], events: [ReviewRequestEvent] = [], draft: Bool = false
     ) -> PullRequest {
         PullRequest(
-            number: number, title: title, url: "https://github.com/\(repo)/pull/\(number)", repo: repo,
+            number: number, title: title, url: "https://github.com/\(repo)/pull/\(number)", repo: repo, isDraft: draft,
             state: merged == nil ? .open : .merged, createdAt: created, updatedAt: updated, mergedAt: merged,
             baseRef: base, headRef: head, headSha: "sha\(number)", additions: 10, deletions: 2, author: author,
             reviewDecision: review, mergeState: merge, checks: checks, checkCount: 3, reviews: reviews, reviewRequestEvents: events
@@ -24,21 +24,48 @@ enum Fixtures {
         Worktree(repoName: repo, repoRoot: "/r/\(repo)", path: path, branch: branch, headSha: "abc", isMain: isMain, defaultBranch: "master")
     }
 
-    static func session(id: String, cwd: String, branches: [String] = [], title: String? = nil, prLinks: [PullRequestRef] = []) -> SessionSummary {
-        var summary = SessionSummary(sessionId: id, filePath: "/x/\(id).jsonl")
-        summary.cwd = cwd
-        summary.branches = branches
-        summary.title = title
-        summary.prLinks = prLinks
-        summary.lastActivityAt = t0
-        return summary
+    static func repo(name: String = "cofhe", remote: String = "git@github-guya-fhenix:FhenixProtocol/cofhe.git") -> RepoRef {
+        RepoRef(name: name, root: "/r/\(name)", remote: remote)
     }
 
-    static func live(id: String, cwd: String, status: LiveStatus, statusAge: TimeInterval = 0, alive: Bool = true) -> LiveSession {
-        LiveSession(pid: 1, sessionId: id, cwd: cwd, name: id, kind: .interactive, status: status, startedAt: t0, statusUpdatedAt: t0.addingTimeInterval(-statusAge), isAlive: alive)
+    static func record(
+        pr: PullRequest, head: String? = nil, error: String? = nil, lastRun: Date = t0, runs: Int = 1,
+        phase: ReviewPhase = .ready, comments: [DraftComment] = [], cost: Double = 0
+    ) -> ReviewRecord {
+        var record = ReviewRecord(pr: pr, worktreePath: "/r/.reviews/\(pr.repoName)/pr-\(pr.number)", repoRoot: "/r/\(pr.repoName)", now: lastRun)
+        record.headSha = head ?? pr.headSha
+        record.baseSha = "base\(pr.number)"
+        record.error = error
+        record.runs = runs
+        record.phase = error == nil ? phase : .failed
+        record.comments = comments
+        record.costUSD = cost
+        return record
     }
 
-    static func ticket(_ key: String, category: TicketStatusCategory = .inProgress) -> Ticket {
-        Ticket(key: key, summary: "Summary \(key)", status: "In Progress", category: category, url: "https://j/browse/\(key)", updatedAt: t0, assignedToMe: true)
+    static func comment(
+        path: String = "src/gauge.rs", line: Int = 41, side: DiffSide = .right, severity: CommentSeverity = .major,
+        body: String = "Off by one.", state: CommentState = .pending, anchorText: String = "        let mut n = 0;",
+        before: [String] = [], after: [String] = [], sha: String = "sha9", outdated: Bool = false, run: Int = 1
+    ) -> DraftComment {
+        DraftComment(
+            path: path, line: line, side: side, severity: severity, body: body, state: state,
+            anchor: CommentAnchor(text: anchorText, before: before, after: after, sha: sha),
+            isOutdated: outdated, run: run, now: t0
+        )
+    }
+
+    static func event(reviewer: String = "me", at: Date, team: Bool = false) -> ReviewRequestEvent {
+        ReviewRequestEvent(createdAt: at, reviewer: reviewer, isTeam: team)
+    }
+
+    static func ticket(
+        _ key: String, category: TicketStatusCategory = .inProgress, status: String = "In Progress",
+        placement: TicketPlacement = .sprint, assignedToMe: Bool = true
+    ) -> Ticket {
+        Ticket(
+            key: key, summary: "Summary \(key)", status: status, category: category,
+            url: "https://j/browse/\(key)", assignedToMe: assignedToMe, placement: placement
+        )
     }
 }

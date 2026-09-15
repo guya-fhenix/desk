@@ -34,3 +34,14 @@ import Testing
         #expect(GitParsing.leftRightCount("garbage") == nil)
     }
 }
+
+@Suite struct RepoSlugTests {
+    @Test func readsOwnerAndNameFromAnyRemoteForm() {
+        #expect(GitParsing.repoSlug(fromRemote: "git@github-guya-fhenix:FhenixProtocol/cofhe.git\n") == "fhenixprotocol/cofhe")
+        #expect(GitParsing.repoSlug(fromRemote: "git@github.com:FhenixProtocol/cofhe") == "fhenixprotocol/cofhe")
+        #expect(GitParsing.repoSlug(fromRemote: "ssh://git@github.com/FhenixProtocol/cofhe.git") == "fhenixprotocol/cofhe")
+        #expect(GitParsing.repoSlug(fromRemote: "https://github.com/FhenixProtocol/cofhe.git") == "fhenixprotocol/cofhe")
+        #expect(GitParsing.repoSlug(fromRemote: "https://user@github.com/FhenixProtocol/cofhe/") == "fhenixprotocol/cofhe")
+        #expect(GitParsing.repoSlug(fromRemote: "nope") == nil)
+    }
+}

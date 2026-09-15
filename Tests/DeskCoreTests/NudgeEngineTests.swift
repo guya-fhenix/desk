@@ -5,15 +5,14 @@ import Testing
 @Suite struct NudgeEngineTests {
     var config: DeskConfig {
         var config = DeskConfig()
-        config.claudeWaitingMinutes = 10
         config.stalePullRequestDays = 3
         return config
     }
 
-    func input(mine: [PullRequest] = [], reviews: [PullRequest] = [], live: [LiveSession] = [], worktrees: [Worktree] = []) -> NudgeInput {
+    func input(mine: [PullRequest] = [], reviews: [PullRequest] = []) -> NudgeInput {
         NudgeInput(
-            now: Fixtures.t0, login: "me", config: config, mine: mine, reviewRequests: reviews, worktrees: worktrees,
-            liveSessions: live, openHeadsByRepo: Linker.openHeadsByRepo(mine + reviews), defaultBranches: ["cofhe": "master"]
+            now: Fixtures.t0, login: "me", config: config, mine: mine, reviewRequests: reviews,
+            openHeadsByRepo: Linker.openHeadsByRepo(mine + reviews), defaultBranches: ["cofhe": "master"]
         )
     }
 
@@ -29,28 +28,34 @@ import Testing
         #expect(kinds == [.readyToMerge])
     }
 
-    @Test func idleClaudeSessionNudgesAfterThreshold() {
-        let waiting = Fixtures.live(id: "w", cwd: "/r/cofhe", status: .idle, statusAge: 15 * 60)
-        let fresh = Fixtures.live(id: "f", cwd: "/r/cofhe", status: .idle, statusAge: 2 * 60)
-        let busy = Fixtures.live(id: "b", cwd: "/r/cofhe", status: .busy, statusAge: 60 * 60)
-        let dead = Fixtures.live(id: "d", cwd: "/r/cofhe", status: .idle, statusAge: 60 * 60, alive: false)
-        let nudges = NudgeEngine.nudges(input(live: [waiting, fresh, busy, dead]))
-        #expect(nudges.map(\.kind) == [.claudeWaiting])
-        #expect(nudges[0].title.contains("w"))
-    }
-
-    @Test func botReviewsCollapseIntoOneNudge() {
-        let bot1 = Fixtures.pr(number: 10, head: "sub1", author: "github-actions[bot]")
-        let bot2 = Fixtures.pr(number: 11, title: "Update Submodule from cofhe-contracts", head: "sub2", author: "liorbond")
-        let human = Fixtures.pr(number: 12, head: "h", author: "alice")
-        let nudges = NudgeEngine.nudges(input(reviews: [bot1, bot2, human]))
-        #expect(nudges.filter { $0.kind == .botReviews }.count == 1)
-        #expect(nudges.filter { $0.kind == .reviewRequested }.count == 1)
-    }
-
     @Test func stalePullRequestAfterConfiguredDays() {
         let old = Fixtures.pr(number: 3, head: "c", updated: Fixtures.t0.addingTimeInterval(-4 * 86_400))
         let nudges = NudgeEngine.nudges(input(mine: [old]))
         #expect(nudges.map(\.kind) == [.stalePullRequest])
+    }
+
+    @Test func finishedReviewNudgesWithItsCommentCount() {
+        let pr = Fixtures.pr(number: 12, head: "h", author: "alice")
+        var input = input(reviews: [pr])
+        input.readyReviews = [ReadyReview(pr: pr, summary: "Looks fine.", comments: 3, runs: 1)]
+        let nudges = NudgeEngine.nudges(input).filter { $0.kind == .reviewReady }
+        #expect(nudges.count == 1)
+        #expect(nudges[0].url == pr.url)
+        #expect(nudges[0].title == "Claude reviewed cofhe#12")
+        #expect(nudges[0].detail == "3 comments to look over")
+
+        // Nothing to look over: the summary carries the nudge instead.
+        input.readyReviews = [ReadyReview(pr: pr, summary: "Looks fine.", comments: 0, runs: 2)]
+        #expect(NudgeEngine.nudges(input).first { $0.kind == .reviewReady }?.detail == "Looks fine.")
+    }
+
+    @Test func everyNudgeLandsOnTheScreenThatHandlesIt() {
+        let mine = Fixtures.pr(number: 1, head: "a", checks: .failure)
+        let theirs = Fixtures.pr(number: 2, head: "b", author: "alice")
+        var input = input(mine: [mine], reviews: [theirs])
+        input.readyReviews = [ReadyReview(pr: theirs, summary: "", comments: 1, runs: 1)]
+        let byScreen = Dictionary(grouping: NudgeEngine.nudges(input), by: \.kind.screen)
+        #expect(byScreen[.pullRequests]?.map(\.kind) == [.ciFailed])
+        #expect(byScreen[.reviews]?.map(\.kind).sorted { "\($0)" < "\($1)" } == [.reviewReady, .reviewRequested])
     }
 }

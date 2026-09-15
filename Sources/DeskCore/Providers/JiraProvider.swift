@@ -1,128 +1,141 @@
 import Foundation
 
 public enum JiraError: Error, CustomStringConvertible, Sendable {
-    case badURL(String)
-    case http(status: Int, body: String)
-    case unauthorized
+    case acliNotFound
+    case notAuthenticated
+    case badOutput(String)
+    /// The workflow has no way from where the ticket stands to the status asked for. acli names the ones
+    /// it does have, which is the whole diagnostic.
+    case transitionRefused(key: String, status: String, detail: String)
 
     public var description: String {
         switch self {
-        case .badURL(let url): return "Jira: bad URL \(url)"
-        case .http(let status, let body): return "Jira: HTTP \(status) \(body.prefix(200))"
-        case .unauthorized: return "Jira: authentication failed. Check email and API token."
+        case .acliNotFound: return "Jira: acli not found. Install it with `brew install acli` or set the path in Settings."
+        case .notAuthenticated: return "Jira: not signed in. Run `acli jira auth login --web` in a terminal."
+        case .badOutput(let detail): return "Jira: unexpected acli output — \(detail)"
+        case .transitionRefused(let key, let status, let detail):
+            return "Jira: could not move \(key) to “\(status)” — \(detail)"
         }
     }
 }
 
-public actor JiraProvider {
-    private let site: String
-    private let authorization: String
-    private let session: URLSession
-    private static let pageSize = 100
-    private static let fields = "summary,status,priority,updated"
+/// Where acli is signed in, as `acli jira auth status` reports it.
+public struct JiraAccount: Sendable, Equatable {
+    public var site: String
+    public var email: String?
 
-    public init(site: String, email: String, token: String, session: URLSession = .shared) {
+    public init(site: String, email: String? = nil) {
         self.site = site
-        self.authorization = "Basic " + Data("\(email):\(token)".utf8).base64EncodedString()
-        self.session = session
+        self.email = email
+    }
+}
+
+/// Reads Jira through the Atlassian CLI, the way `GitHubProvider` reads GitHub through `gh`: the CLI
+/// holds the OAuth tokens, so the app stores no Jira credential of its own.
+public actor JiraProvider {
+    /// Not private: the one write path lives in `JiraWrite.swift`, apart from these reads.
+    let acliPath: String
+    /// The signed-in site, only needed to build browse URLs. Read once from the CLI.
+    private var account: JiraAccount?
+
+    public init(acliPath: String) {
+        self.acliPath = acliPath
     }
 
+    /// Nil when the CLI is there but nobody is signed in.
+    public func signedInAccount() async -> JiraAccount? {
+        if let account { return account }
+        guard let text = try? await Shell.output(acliPath, ["jira", "auth", "status"]) else { return nil }
+        guard let parsed = JiraDecoding.account(fromStatus: text) else { return nil }
+        account = parsed
+        return parsed
+    }
+
+    private static let mine = "assignee = currentUser() AND resolution = Unresolved"
+
+    /// Two searches rather than one: sprint membership is a JQL function, not a field acli will return,
+    /// so which search a ticket comes back in is what places it.
     public func myOpenIssues() async throws -> [Ticket] {
-        try await search(jql: "assignee = currentUser() AND resolution = Unresolved ORDER BY updated DESC", assignedToMe: true)
+        async let sprint = search(
+            jql: "\(Self.mine) AND sprint in openSprints() ORDER BY updated DESC", assignedToMe: true, placement: .sprint
+        )
+        async let backlog = search(
+            jql: "\(Self.mine) AND (sprint is EMPTY OR sprint not in openSprints()) ORDER BY updated DESC",
+            assignedToMe: true, placement: .backlog
+        )
+        return try await sprint + backlog
     }
 
+    /// Tickets referenced by a PR but assigned to someone else. The Tickets screen never shows these, so
+    /// they are left unplaced rather than given a sprint they may not be in.
     public func issues(keys: [String]) async throws -> [Ticket] {
         guard !keys.isEmpty else { return [] }
-        let list = keys.joined(separator: ",")
-        return try await search(jql: "key in (\(list)) ORDER BY updated DESC", assignedToMe: false)
+        return try await search(jql: "key in (\(keys.joined(separator: ","))) ORDER BY updated DESC", assignedToMe: false, placement: .unknown)
     }
 
     public func projectKeys() async throws -> [String] {
-        let data = try await get(path: "/rest/api/3/project/search", query: [URLQueryItem(name: "maxResults", value: "100")])
-        let page = try JSONDecoder().decode(ProjectPage.self, from: data)
-        return page.values.map(\.key)
+        let data = try await run(["jira", "project", "list", "--paginate", "--json"])
+        return try JiraDecoding.projectKeys(from: data)
     }
 
-    private func search(jql: String, assignedToMe: Bool) async throws -> [Ticket] {
-        var tickets: [Ticket] = []
-        var nextPageToken: String?
-        repeat {
-            var query = [
-                URLQueryItem(name: "jql", value: jql),
-                URLQueryItem(name: "fields", value: Self.fields),
-                URLQueryItem(name: "maxResults", value: String(Self.pageSize)),
-            ]
-            if let nextPageToken { query.append(URLQueryItem(name: "nextPageToken", value: nextPageToken)) }
-            let data = try await get(path: "/rest/api/3/search/jql", query: query)
-            let page = try JiraDecoding.decoder().decode(SearchPage.self, from: data)
-            tickets.append(contentsOf: page.issues.map { JiraDecoding.ticket($0, site: site, assignedToMe: assignedToMe) })
-            nextPageToken = page.isLast == true ? nil : page.nextPageToken
-        } while nextPageToken != nil
-        return tickets
+    /// `--paginate` walks every page itself, which is why no cursor is threaded through here.
+    private func search(jql: String, assignedToMe: Bool, placement: TicketPlacement) async throws -> [Ticket] {
+        guard let account = await signedInAccount() else { throw JiraError.notAuthenticated }
+        let data = try await run([
+            "jira", "workitem", "search", "--jql", jql,
+            // acli allows only this handful; `updated` is not among them, which is why `Ticket` carries no
+            // timestamp. The JQL still orders by it.
+            "--fields", "key,summary,status,priority",
+            "--json", "--paginate",
+        ])
+        return try JiraDecoding.tickets(from: data, site: account.site, assignedToMe: assignedToMe, placement: placement)
     }
 
-    private func get(path: String, query: [URLQueryItem]) async throws -> Data {
-        var components = URLComponents()
-        components.scheme = "https"
-        components.host = site
-        components.path = path
-        components.queryItems = query
-        guard let url = components.url else { throw JiraError.badURL(path) }
-        var request = URLRequest(url: url)
-        request.setValue(authorization, forHTTPHeaderField: "Authorization")
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-        let (data, response) = try await session.data(for: request)
-        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-        if status == 401 || status == 403 { throw JiraError.unauthorized }
-        guard (200..<300).contains(status) else { throw JiraError.http(status: status, body: String(decoding: data, as: UTF8.self)) }
-        return data
+    private func run(_ arguments: [String]) async throws -> Data {
+        do {
+            return Data(try await Shell.output(acliPath, arguments).utf8)
+        } catch let error as ShellError {
+            if case .failed(_, _, let stderr) = error, stderr.lowercased().contains("unauthorized") {
+                throw JiraError.notAuthenticated
+            }
+            if case .executableNotFound = error { throw JiraError.acliNotFound }
+            throw error
+        }
     }
-
-    struct SearchPage: Decodable {
-        var issues: [Issue]
-        var nextPageToken: String?
-        var isLast: Bool?
-    }
-
-    struct Issue: Decodable {
-        var key: String
-        var fields: Fields
-    }
-
-    struct Fields: Decodable {
-        var summary: String
-        var status: Status
-        var priority: Named?
-        var updated: Date
-    }
-
-    struct Status: Decodable {
-        var name: String
-        var statusCategory: StatusCategory
-    }
-
-    struct StatusCategory: Decodable { var key: String }
-    struct Named: Decodable { var name: String }
-    struct ProjectPage: Decodable { var values: [Project] }
-    struct Project: Decodable { var key: String }
 }
 
 public enum JiraDecoding {
-    /// Jira sends "2026-08-25T08:00:47.108+0300", which is not strict ISO-8601.
-    static func decoder() -> JSONDecoder {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss.SSSZ"
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .custom { decoder in
-            let text = try decoder.singleValueContainer().decode(String.self)
-            if let date = formatter.date(from: text) ?? JSON.parseISO8601(text) { return date }
-            throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: "bad Jira date: \(text)"))
+    /// `acli jira auth status` prints a short block of labelled lines rather than JSON.
+    public static func account(fromStatus text: String) -> JiraAccount? {
+        guard text.contains("Authenticated") else { return nil }
+        var site: String?
+        var email: String?
+        for line in text.split(separator: "\n") {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if let value = trimmed.dropPrefix("Site:") { site = value }
+            if let value = trimmed.dropPrefix("Email:") { email = value }
         }
-        return decoder
+        guard let site, !site.isEmpty else { return nil }
+        return JiraAccount(site: site, email: email)
     }
 
-    static func ticket(_ issue: JiraProvider.Issue, site: String, assignedToMe: Bool) -> Ticket {
+    public static func tickets(from data: Data, site: String, assignedToMe: Bool, placement: TicketPlacement = .unknown) throws -> [Ticket] {
+        do {
+            return try JSONDecoder().decode([Issue].self, from: data).map { ticket($0, site: site, assignedToMe: assignedToMe, placement: placement) }
+        } catch {
+            throw JiraError.badOutput("\(error)")
+        }
+    }
+
+    public static func projectKeys(from data: Data) throws -> [String] {
+        do {
+            return try JSONDecoder().decode([Project].self, from: data).map(\.key)
+        } catch {
+            throw JiraError.badOutput("\(error)")
+        }
+    }
+
+    static func ticket(_ issue: Issue, site: String, assignedToMe: Bool, placement: TicketPlacement) -> Ticket {
         Ticket(
             key: issue.key,
             summary: issue.fields.summary,
@@ -130,13 +143,36 @@ public enum JiraDecoding {
             category: TicketStatusCategory(jiraKey: issue.fields.status.statusCategory.key),
             priority: issue.fields.priority?.name,
             url: "https://\(site)/browse/\(issue.key)",
-            updatedAt: issue.fields.updated,
-            assignedToMe: assignedToMe
+            assignedToMe: assignedToMe,
+            placement: placement
         )
     }
 
-    public static func tickets(fromSearchResponse data: Data, site: String, assignedToMe: Bool) throws -> [Ticket] {
-        let page = try decoder().decode(JiraProvider.SearchPage.self, from: data)
-        return page.issues.map { ticket($0, site: site, assignedToMe: assignedToMe) }
+    public struct Issue: Decodable {
+        public var key: String
+        public var fields: Fields
+    }
+
+    public struct Fields: Decodable {
+        public var summary: String
+        public var status: Status
+        public var priority: Named?
+    }
+
+    public struct Status: Decodable {
+        public var name: String
+        public var statusCategory: StatusCategory
+    }
+
+    public struct StatusCategory: Decodable { public var key: String }
+    public struct Named: Decodable { public var name: String }
+    public struct Project: Decodable { public var key: String }
+}
+
+private extension String {
+    /// The value after a `Label:` prefix, trimmed; nil when the line is something else.
+    func dropPrefix(_ label: String) -> String? {
+        guard hasPrefix(label) else { return nil }
+        return String(dropFirst(label.count)).trimmingCharacters(in: .whitespaces)
     }
 }

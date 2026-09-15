@@ -4,14 +4,20 @@ public struct GitHubSnapshot: Codable, Sendable {
     public var login: String
     public var mine: [PullRequest]
     public var reviewRequests: [PullRequest]
+    /// Open PRs by other people in the tracked repos, whether or not anyone asked you to review them.
+    public var openForReview: [PullRequest]
     public var mergedRecent: [PullRequest]
     public var reviewedByMe: [PullRequest]
     public var fetchedAt: Date
 
-    public init(login: String, mine: [PullRequest], reviewRequests: [PullRequest], mergedRecent: [PullRequest], reviewedByMe: [PullRequest], fetchedAt: Date) {
+    public init(
+        login: String, mine: [PullRequest], reviewRequests: [PullRequest], openForReview: [PullRequest] = [],
+        mergedRecent: [PullRequest], reviewedByMe: [PullRequest], fetchedAt: Date
+    ) {
         self.login = login
         self.mine = mine
         self.reviewRequests = reviewRequests
+        self.openForReview = openForReview
         self.mergedRecent = mergedRecent
         self.reviewedByMe = reviewedByMe
         self.fetchedAt = fetchedAt
@@ -19,7 +25,24 @@ public struct GitHubSnapshot: Codable, Sendable {
 
     public var allOpen: [PullRequest] {
         var seen = Set<String>()
-        return (mine + reviewRequests).filter { seen.insert($0.url).inserted }
+        return (mine + reviewRequests + openForReview).filter { seen.insert($0.url).inserted }
+    }
+}
+
+/// One repository of the org, as GitHub lists it. Settings picks the tracked ones from here.
+public struct GitHubRepo: Codable, Sendable, Hashable, Identifiable {
+    public var id: String { slug }
+    /// `owner/name`, lowercased — the form `trackedRepos` stores and remotes are matched against.
+    public var slug: String
+    public var name: String
+    public var isArchived: Bool
+    public var pushedAt: Date?
+
+    public init(slug: String, name: String, isArchived: Bool = false, pushedAt: Date? = nil) {
+        self.slug = slug.lowercased()
+        self.name = name
+        self.isArchived = isArchived
+        self.pushedAt = pushedAt
     }
 }
 
@@ -36,7 +59,8 @@ public enum GitHubError: Error, CustomStringConvertible, Sendable {
 }
 
 public actor GitHubProvider {
-    private let ghPath: String
+    /// Not private: the one write path lives in `GitHubWrite.swift`, apart from these reads.
+    let ghPath: String
     private let org: String
     private var cachedLogin: String?
 
@@ -53,16 +77,38 @@ public actor GitHubProvider {
         return login
     }
 
-    /// Four separate requests: one combined query exceeds GitHub's 10 s GraphQL limit.
-    public func snapshot(since: Date, now: Date = Date()) async throws -> GitHubSnapshot {
+    /// Every repository in the org, newest push first, so Settings can offer them.
+    public func repositories() async throws -> [GitHubRepo] {
+        var repos: [GitHubRepo] = []
+        var after: String?
+        // The org list is paged; a few hundred repos is two or three round trips.
+        repeat {
+            var variables: [String: any Sendable] = ["org": org]
+            if let after { variables["after"] = after }
+            let data = try await graphQL(query: GitHubQueries.repositoriesQuery, variables: variables)
+            let page = try GitHubDecoding.repositories(from: data)
+            repos += page.repos
+            after = page.next
+        } while after != nil
+        return repos
+    }
+
+    /// Four separate requests: one combined query exceeds GitHub's 10 s GraphQL limit. With no repo
+    /// tracked there is nothing to ask about, so it answers empty without spending a call.
+    public func snapshot(repos: [String], since: Date, now: Date = Date()) async throws -> GitHubSnapshot {
         let login = try await viewerLogin()
-        let queries = GitHubQueries.searches(login: login, org: org, since: since)
+        guard !repos.isEmpty else {
+            return GitHubSnapshot(login: login, mine: [], reviewRequests: [], mergedRecent: [], reviewedByMe: [], fetchedAt: now)
+        }
+        let queries = GitHubQueries.searches(login: login, repos: repos, since: since)
         async let mine = search(queries.mine, first: 50)
         async let reviews = search(queries.reviews, first: 50)
         async let merged = search(queries.merged, first: 100)
         async let reviewed = search(queries.reviewed, first: 100)
+        async let open = search(queries.openForReview, first: 100)
         return try await GitHubSnapshot(
-            login: login, mine: mine, reviewRequests: reviews, mergedRecent: merged, reviewedByMe: reviewed, fetchedAt: now
+            login: login, mine: mine, reviewRequests: reviews, openForReview: open,
+            mergedRecent: merged, reviewedByMe: reviewed, fetchedAt: now
         )
     }
 
@@ -71,17 +117,30 @@ public actor GitHubProvider {
         return try GitHubDecoding.pullRequests(from: data)
     }
 
-    public func approve(url: String) async throws {
-        try await Shell.output(ghPath, ["pr", "review", url, "--approve"])
-    }
+    private static let attempts = 3
 
+    /// GitHub answers with a 5xx now and then; `gh` prints it as "HTTP 502" and exits 1. A retry after a
+    /// short pause almost always succeeds, and it keeps one bad response from marking the source red
+    /// for a whole poll interval.
     private func graphQL(query: String, variables: [String: any Sendable]) async throws -> Data {
         let body = try JSONSerialization.data(withJSONObject: ["query": query, "variables": variables])
-        let result = try await Shell.run(ghPath, ["api", "graphql", "--input", "-"], stdin: body)
-        guard result.stdout.first == UInt8(ascii: "{") else {
-            throw ShellError.failed(command: "gh api graphql", status: result.status, stderr: result.stderr)
+        var attempt = 0
+        while true {
+            let result = try await Shell.run(ghPath, ["api", "graphql", "--input", "-"], stdin: body)
+            if result.stdout.first == UInt8(ascii: "{") { return result.stdout }
+            attempt += 1
+            guard attempt < Self.attempts, GitHubError.isTransient(stderr: result.stderr) else {
+                throw ShellError.failed(command: "gh api graphql", status: result.status, stderr: result.stderr)
+            }
+            try await Task.sleep(for: .seconds(Double(attempt) * 2))
         }
-        return result.stdout
+    }
+}
+
+extension GitHubError {
+    /// Server-side failures worth retrying, as `gh` reports them on stderr.
+    public static func isTransient(stderr: String) -> Bool {
+        ["HTTP 500", "HTTP 502", "HTTP 503", "HTTP 504"].contains { stderr.contains($0) }
     }
 }
 
@@ -90,25 +149,45 @@ public struct GitHubSearches: Sendable, Equatable {
     public var reviews: String
     public var merged: String
     public var reviewed: String
+    public var openForReview: String
 }
 
 public enum GitHubQueries {
-    public static func searches(login: String, org: String, since: Date) -> GitHubSearches {
+    /// Scoped to the tracked repositories rather than the whole org, so an untracked repo is invisible
+    /// to the app even when its PRs involve you.
+    /// ponytail: repeated `repo:` qualifiers; GitHub caps search query length, so a very long tracked
+    /// list would need batching into several searches.
+    public static func searches(login: String, repos: [String], since: Date) -> GitHubSearches {
         let day = since.formatted(.iso8601.year().month().day())
+        let scope = repos.map { "repo:\($0)" }.joined(separator: " ")
         return GitHubSearches(
-            mine: "is:pr is:open author:\(login) org:\(org)",
-            reviews: "is:pr is:open review-requested:\(login) org:\(org)",
-            merged: "is:pr is:merged author:\(login) org:\(org) merged:>=\(day)",
-            reviewed: "is:pr org:\(org) reviewed-by:\(login) -author:\(login) updated:>=\(day)"
+            mine: "is:pr is:open author:\(login) \(scope)",
+            reviews: "is:pr is:open review-requested:\(login) \(scope)",
+            merged: "is:pr is:merged author:\(login) \(scope) merged:>=\(day)",
+            reviewed: "is:pr \(scope) reviewed-by:\(login) -author:\(login) updated:>=\(day)",
+            // Everything open that someone else wrote. Drafts are dropped server-side because this is the
+            // widest search of the five and `first:` would otherwise fill up with them.
+            openForReview: "is:pr is:open draft:false -author:\(login) \(scope) sort:created-asc"
         )
     }
+
+    public static let repositoriesQuery = """
+    query($org: String!, $after: String) {
+      organization(login: $org) {
+        repositories(first: 100, after: $after, orderBy: {field: PUSHED_AT, direction: DESC}) {
+          pageInfo { hasNextPage endCursor }
+          nodes { name nameWithOwner isArchived pushedAt }
+        }
+      }
+    }
+    """
 
     public static let searchQuery = """
     query($q: String!, $first: Int!) {
       search(query: $q, type: ISSUE, first: $first) { nodes { ...PR } }
     }
     fragment PR on PullRequest {
-      number title url isDraft createdAt updatedAt mergedAt state baseRefName headRefName additions deletions
+      number title body url isDraft createdAt updatedAt mergedAt state baseRefName headRefName additions deletions
       author { login }
       repository { nameWithOwner }
       reviewDecision
@@ -119,6 +198,7 @@ public enum GitHubQueries {
       timelineItems(itemTypes: [REVIEW_REQUESTED_EVENT], first: 50) {
         nodes { ... on ReviewRequestedEvent { createdAt requestedReviewer { __typename ... on User { login } ... on Team { name } } } }
       }
+      reviewThreads(first: 100) { nodes { isResolved } }
     }
     """
 }
@@ -129,6 +209,16 @@ public enum GitHubDecoding {
         if let errors = response.errors, !errors.isEmpty { throw GitHubError.graphQL(errors.map(\.message)) }
         guard let login = response.data?.viewer.login else { throw GitHubError.emptyResponse }
         return login
+    }
+
+    public static func repositories(from data: Data) throws -> (repos: [GitHubRepo], next: String?) {
+        let response = try JSON.decoder().decode(Response<OrgData>.self, from: data)
+        if let errors = response.errors, !errors.isEmpty { throw GitHubError.graphQL(errors.map(\.message)) }
+        guard let page = response.data?.organization.repositories else { throw GitHubError.emptyResponse }
+        let repos = page.nodes.map {
+            GitHubRepo(slug: $0.nameWithOwner, name: $0.name, isArchived: $0.isArchived, pushedAt: $0.pushedAt)
+        }
+        return (repos, page.pageInfo.hasNextPage ? page.pageInfo.endCursor : nil)
     }
 
     public static func pullRequests(from data: Data) throws -> [PullRequest] {
@@ -143,6 +233,7 @@ public enum GitHubDecoding {
         return PullRequest(
             number: node.number,
             title: node.title,
+            body: node.body ?? "",
             url: node.url,
             repo: node.repository.nameWithOwner,
             isDraft: node.isDraft,
@@ -168,7 +259,8 @@ public enum GitHubDecoding {
             reviewRequestEvents: node.timelineItems.nodes.compactMap { event in
                 guard let createdAt = event.createdAt, let reviewer = event.requestedReviewer else { return nil }
                 return ReviewRequestEvent(createdAt: createdAt, reviewer: reviewer.displayName, isTeam: reviewer.typename == "Team")
-            }
+            },
+            unresolvedThreads: node.reviewThreads?.nodes.filter { !$0.isResolved }.count ?? 0
         )
     }
 
@@ -182,6 +274,23 @@ public enum GitHubDecoding {
     private struct Login: Decodable { var login: String }
     private struct Repository: Decodable { var nameWithOwner: String }
 
+    private struct OrgData: Decodable { var organization: Org }
+    private struct Org: Decodable { var repositories: RepoPage }
+    private struct RepoPage: Decodable {
+        var pageInfo: PageInfo
+        var nodes: [RepoNode]
+    }
+    private struct PageInfo: Decodable {
+        var hasNextPage: Bool
+        var endCursor: String?
+    }
+    private struct RepoNode: Decodable {
+        var name: String
+        var nameWithOwner: String
+        var isArchived: Bool
+        var pushedAt: Date?
+    }
+
     private struct SearchData: Decodable { var search: SearchResult }
 
     private struct SearchResult: Decodable { var nodes: [PRNode] }
@@ -189,6 +298,7 @@ public enum GitHubDecoding {
     private struct PRNode: Decodable {
         var number: Int
         var title: String
+        var body: String?
         var url: String
         var isDraft: Bool
         var createdAt: Date
@@ -207,7 +317,11 @@ public enum GitHubDecoding {
         var reviews: Reviews
         var reviewRequests: ReviewRequests
         var timelineItems: Timeline
+        var reviewThreads: ReviewThreads?
     }
+
+    private struct ReviewThreads: Decodable { var nodes: [ReviewThreadNode] }
+    private struct ReviewThreadNode: Decodable { var isResolved: Bool }
 
     private struct Commits: Decodable { var nodes: [CommitNode] }
     private struct CommitNode: Decodable { var commit: Commit }

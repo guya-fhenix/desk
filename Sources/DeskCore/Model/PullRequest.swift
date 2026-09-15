@@ -76,6 +76,8 @@ public struct PullRequest: Codable, Sendable, Hashable, Identifiable {
     public var id: String { url }
     public var number: Int
     public var title: String
+    /// The PR description as the author wrote it, GitHub-flavoured markdown and all.
+    public var body: String
     public var url: String
     public var repo: String
     public var isDraft: Bool
@@ -96,17 +98,20 @@ public struct PullRequest: Codable, Sendable, Hashable, Identifiable {
     public var reviews: [Review]
     public var requestedReviewers: [String]
     public var reviewRequestEvents: [ReviewRequestEvent]
+    /// Review conversations nobody has resolved yet, outdated ones included: GitHub counts them the same way.
+    public var unresolvedThreads: Int
 
     public init(
-        number: Int, title: String, url: String, repo: String, isDraft: Bool = false,
+        number: Int, title: String, body: String = "", url: String, repo: String, isDraft: Bool = false,
         state: PullRequestState = .open, createdAt: Date, updatedAt: Date, mergedAt: Date? = nil,
         baseRef: String, headRef: String, headSha: String = "", additions: Int = 0, deletions: Int = 0,
         author: String, reviewDecision: ReviewDecision = .none, mergeState: MergeState = .unknown,
         checks: CheckState = .none, checkCount: Int = 0, reviews: [Review] = [],
-        requestedReviewers: [String] = [], reviewRequestEvents: [ReviewRequestEvent] = []
+        requestedReviewers: [String] = [], reviewRequestEvents: [ReviewRequestEvent] = [], unresolvedThreads: Int = 0
     ) {
         self.number = number
         self.title = title
+        self.body = body
         self.url = url
         self.repo = repo
         self.isDraft = isDraft
@@ -127,6 +132,7 @@ public struct PullRequest: Codable, Sendable, Hashable, Identifiable {
         self.reviews = reviews
         self.requestedReviewers = requestedReviewers
         self.reviewRequestEvents = reviewRequestEvents
+        self.unresolvedThreads = unresolvedThreads
     }
 
     public var repoName: String { repo.split(separator: "/").last.map(String.init) ?? repo }

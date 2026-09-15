@@ -58,6 +58,55 @@ public enum GitParsing {
         return entries
     }
 
+    /// `owner/name`, lowercased, from any remote URL form: `git@host:Org/repo.git`, `ssh://git@host/Org/repo`,
+    /// `https://host/Org/repo`. Host-agnostic because remotes here use SSH host aliases such as
+    /// `github-guya-fhenix`, so matching on github.com would find nothing.
+    public static func repoSlug(fromRemote remote: String) -> String? {
+        var text = remote.trimmingCharacters(in: .whitespacesAndNewlines)
+        while text.hasSuffix("/") { text.removeLast() }
+        if text.lowercased().hasSuffix(".git") { text.removeLast(4) }
+        let parts = text.replacingOccurrences(of: ":", with: "/").split(separator: "/").filter { !$0.isEmpty }
+        guard parts.count >= 2 else { return nil }
+        return "\(parts[parts.count - 2])/\(parts[parts.count - 1])".lowercased()
+    }
+
+    /// Undoes the C-style quoting git puts on a path holding a control character, a quote, a backslash
+    /// or any non-ASCII byte. Diff headers carry the quoted form; GitHub's API wants the real path.
+    public static func unquotePath(_ value: String) -> String {
+        let utf8 = Array(value.utf8)
+        guard utf8.count >= 2, utf8.first == UInt8(ascii: "\""), utf8.last == UInt8(ascii: "\"") else { return value }
+        var bytes: [UInt8] = []
+        var index = 1
+        let end = utf8.count - 1
+        while index < end {
+            let byte = utf8[index]
+            index += 1
+            guard byte == UInt8(ascii: "\\"), index < end else {
+                bytes.append(byte)
+                continue
+            }
+            let escape = utf8[index]
+            index += 1
+            switch escape {
+            case UInt8(ascii: "n"): bytes.append(0x0A)
+            case UInt8(ascii: "t"): bytes.append(0x09)
+            case UInt8(ascii: "r"): bytes.append(0x0D)
+            case UInt8(ascii: "0")...UInt8(ascii: "7"):
+                // Three octal digits, which is how git writes every byte of a non-ASCII name.
+                var value = Int(escape - UInt8(ascii: "0"))
+                var digits = 1
+                while digits < 3, index < end, (UInt8(ascii: "0")...UInt8(ascii: "7")).contains(utf8[index]) {
+                    value = value * 8 + Int(utf8[index] - UInt8(ascii: "0"))
+                    index += 1
+                    digits += 1
+                }
+                bytes.append(UInt8(truncatingIfNeeded: value))
+            default: bytes.append(escape)
+            }
+        }
+        return String(decoding: bytes, as: UTF8.self)
+    }
+
     /// Parses `git rev-list --left-right --count A...B` output "behind<TAB>ahead".
     public static func leftRightCount(_ text: String) -> (behind: Int, ahead: Int)? {
         let parts = text.split(whereSeparator: { $0 == "\t" || $0 == " " || $0 == "\n" })
@@ -74,9 +123,12 @@ public actor GitProvider {
         self.gitPath = gitPath
     }
 
-    public func scan(roots: [String], org: String) async -> GitScan {
+    /// `slugs` are the tracked `owner/name`s. A clone is only interesting when it is one of them: the
+    /// repo list comes from GitHub now, and the local folder only says where a tracked repo is checked out.
+    public func scan(roots: [String], slugs: [String]) async -> GitScan {
+        guard !slugs.isEmpty else { return GitScan() }
         var scan = GitScan()
-        scan.repos = await discoverRepos(roots: roots, org: org)
+        scan.repos = await discoverRepos(roots: roots, slugs: Set(slugs))
         await withTaskGroup(of: (worktrees: [Worktree], error: String?).self) { group in
             for repo in scan.repos {
                 group.addTask { await self.scanRepo(repo) }
@@ -91,8 +143,7 @@ public actor GitProvider {
         return scan
     }
 
-    private func discoverRepos(roots: [String], org: String) async -> [RepoRef] {
-        let orgMarker = "/\(org.lowercased())/"
+    private func discoverRepos(roots: [String], slugs: Set<String>) async -> [RepoRef] {
         var candidates: [String] = []
         for root in roots {
             guard let names = try? FileManager.default.contentsOfDirectory(atPath: root) else { continue }
@@ -108,9 +159,8 @@ public actor GitProvider {
         await withTaskGroup(of: RepoRef?.self) { group in
             for path in candidates {
                 group.addTask {
-                    guard let remote = try? await self.git(["remote", "get-url", "origin"], cwd: path) else { return nil }
-                    let normalized = remote.lowercased().replacingOccurrences(of: ":", with: "/")
-                    guard normalized.contains(orgMarker) else { return nil }
+                    guard let remote = try? await self.git(["remote", "get-url", "origin"], cwd: path),
+                          let slug = GitParsing.repoSlug(fromRemote: remote), slugs.contains(slug) else { return nil }
                     return RepoRef(name: (path as NSString).lastPathComponent, root: path, remote: remote)
                 }
             }
@@ -125,7 +175,7 @@ public actor GitProvider {
         do {
             let porcelain = try await git(["worktree", "list", "--porcelain"], cwd: repo.root)
             let entries = GitParsing.worktreeEntries(porcelain).filter { !$0.isBare }
-            let defaultBranch = await defaultBranch(repo: repo)
+            let defaultBranch = await Self.defaultBranch(root: repo.root, gitPath: gitPath)
             var worktrees: [Worktree] = []
             await withTaskGroup(of: Worktree.self) { group in
                 var pending = entries.makeIterator()
@@ -148,13 +198,16 @@ public actor GitProvider {
         }
     }
 
-    private func defaultBranch(repo: RepoRef) async -> String {
-        if let ref = try? await git(["symbolic-ref", "--short", "refs/remotes/origin/HEAD"], cwd: repo.root) {
+    /// The branch `origin/HEAD` names when the clone records it, else `main` when `origin/main` exists,
+    /// else `master`. Also what a review reads other clones at.
+    public nonisolated static func defaultBranch(root: String, gitPath: String) async -> String {
+        func git(_ arguments: [String]) async -> String? {
+            try? await Shell.output(gitPath, arguments, cwd: root, timeout: 30).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        if let ref = await git(["symbolic-ref", "--short", "refs/remotes/origin/HEAD"]) {
             return ref.replacingOccurrences(of: "origin/", with: "")
         }
-        if (try? await git(["rev-parse", "--verify", "--quiet", "refs/remotes/origin/main"], cwd: repo.root)) != nil {
-            return "main"
-        }
+        if await git(["rev-parse", "--verify", "--quiet", "refs/remotes/origin/main"]) != nil { return "main" }
         return "master"
     }
 

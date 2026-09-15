@@ -8,7 +8,7 @@ import UserNotifications
 final class Notifier {
     private static let deliveredFile = "notified.json"
     private static let retention: TimeInterval = 30 * 86_400
-    private static let notifiedKinds: Set<NudgeKind> = [.ciFailed, .changesRequested, .readyToMerge, .needsRebase, .claudeWaiting, .reviewRequested]
+    private static let notifiedKinds: Set<NudgeKind> = [.ciFailed, .changesRequested, .readyToMerge, .needsRebase, .reviewRequested, .reviewReady]
 
     private let support: AppSupport
     private var delivered: [String: Date]
@@ -28,7 +28,7 @@ final class Notifier {
     /// nudges that exist before all sources report once never fire.
     func deliver(_ nudges: [Nudge], post: Bool) {
         let now = Date()
-        let fresh = nudges.filter { delivered[$0.id] == nil && Self.notifiedKinds.contains($0.kind) && ($0.severity >= .warning || $0.kind == .readyToMerge) }
+        let fresh = nudges.filter { delivered[$0.id] == nil && Self.notifiedKinds.contains($0.kind) && ($0.severity >= .warning || $0.kind == .readyToMerge || $0.kind == .reviewReady) }
         for nudge in fresh {
             delivered[nudge.id] = now
             guard post, let center else { continue }

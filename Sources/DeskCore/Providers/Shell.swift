@@ -190,8 +190,11 @@ public enum Shell {
     public static let defaultTimeout: TimeInterval = 90
     public static let maxConcurrentProcesses = 8
 
-    /// Directories searched for tools when the app runs with a minimal GUI PATH.
-    public static let toolDirectories = ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"]
+    /// Directories searched for tools when the app runs with a minimal GUI PATH. `~/.local/bin` comes
+    /// first because the native Claude installer puts its launcher there, ahead of any stale copy.
+    public static let toolDirectories = [
+        (NSHomeDirectory() as NSString).appendingPathComponent(".local/bin"), "/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin",
+    ]
 
     private static let slots = ProcessSlots(limit: maxConcurrentProcesses)
 
@@ -204,15 +207,19 @@ public enum Shell {
         return nil
     }
 
+    /// `environment` sets a variable, or unsets one when the value is nil, on top of the inherited environment.
     public static func run(
         _ executable: String, _ arguments: [String], cwd: String? = nil, stdin: Data? = nil,
-        timeout: TimeInterval = defaultTimeout
+        environment overrides: [String: String?] = [:], timeout: TimeInterval = defaultTimeout
     ) async throws -> ShellResult {
         guard FileManager.default.isExecutableFile(atPath: executable) else {
             throw ShellError.executableNotFound(executable)
         }
         var environment = ProcessInfo.processInfo.environment
         environment["PATH"] = (toolDirectories + [environment["PATH"] ?? ""]).joined(separator: ":")
+        for (key, value) in overrides {
+            if let value { environment[key] = value } else { environment.removeValue(forKey: key) }
+        }
         await slots.acquire()
         defer { slots.release() }
         let run = ProcessRun(executable: executable, arguments: arguments, cwd: cwd, stdin: stdin, environment: environment, timeout: timeout)
@@ -223,9 +230,9 @@ public enum Shell {
     @discardableResult
     public static func output(
         _ executable: String, _ arguments: [String], cwd: String? = nil, stdin: Data? = nil,
-        timeout: TimeInterval = defaultTimeout
+        environment overrides: [String: String?] = [:], timeout: TimeInterval = defaultTimeout
     ) async throws -> String {
-        let result = try await run(executable, arguments, cwd: cwd, stdin: stdin, timeout: timeout)
+        let result = try await run(executable, arguments, cwd: cwd, stdin: stdin, environment: overrides, timeout: timeout)
         guard result.status == 0 else {
             throw ShellError.failed(command: ([executable] + arguments).joined(separator: " "), status: result.status, stderr: result.stderr)
         }

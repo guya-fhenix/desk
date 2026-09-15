@@ -12,7 +12,8 @@ import Testing
           "commits":{"nodes":[{"commit":{"oid":"abc","statusCheckRollup":{"state":"SUCCESS","contexts":{"totalCount":9}}}}]},
           "reviews":{"nodes":[{"state":"COMMENTED","submittedAt":"2026-08-27T11:12:25Z","author":{"login":"claude"}}]},
           "reviewRequests":{"nodes":[{"requestedReviewer":{"__typename":"Team","name":"Protocol Team"}}]},
-          "timelineItems":{"nodes":[{"createdAt":"2026-08-27T11:12:22Z","requestedReviewer":{"__typename":"Team","name":"Protocol Team"}},{}]}}]}}}
+          "timelineItems":{"nodes":[{"createdAt":"2026-08-27T11:12:22Z","requestedReviewer":{"__typename":"Team","name":"Protocol Team"}},{}]},
+          "reviewThreads":{"nodes":[{"isResolved":false},{"isResolved":true},{"isResolved":false}]}}]}}}
         """
         let pr = try #require(GitHubDecoding.pullRequests(from: Data(json.utf8)).first)
         #expect(pr.repoName == "cofhe")
@@ -24,6 +25,18 @@ import Testing
         #expect(pr.reviewRequestEvents.count == 1)
         #expect(pr.reviewRequestEvents[0].isTeam)
         #expect(pr.humanReviews(botLogins: ["claude"]).isEmpty)
+        #expect(pr.unresolvedThreads == 2)
+    }
+
+    @Test func missingReviewThreadsMeanNoneUnresolved() throws {
+        let json = """
+        {"data":{"search":{"nodes":[{"number":1,"title":"t","url":"u","isDraft":false,"createdAt":"2026-08-27T11:12:21Z","updatedAt":"2026-08-27T12:26:33Z",
+          "mergedAt":null,"state":"OPEN","baseRefName":"main","headRefName":"h","additions":0,"deletions":0,"author":{"login":"me"},
+          "repository":{"nameWithOwner":"o/r"},"reviewDecision":null,"mergeStateStatus":null,"commits":{"nodes":[]},"reviews":{"nodes":[]},
+          "reviewRequests":{"nodes":[]},"timelineItems":{"nodes":[]}}]}}}
+        """
+        let pr = try #require(GitHubDecoding.pullRequests(from: Data(json.utf8)).first)
+        #expect(pr.unresolvedThreads == 0)
     }
 
     @Test func graphQLErrorsThrow() {
@@ -31,23 +44,137 @@ import Testing
         #expect(throws: GitHubError.self) { try GitHubDecoding.pullRequests(from: Data(json.utf8)) }
     }
 
-    @Test func decodesJiraSearch() throws {
+    @Test func serverErrorsFromGhAreTransient() {
+        #expect(GitHubError.isTransient(stderr: "gh: HTTP 502\n"))
+        #expect(GitHubError.isTransient(stderr: "gh: HTTP 503 Service Unavailable"))
+        #expect(!GitHubError.isTransient(stderr: "gh: HTTP 401: Bad credentials"))
+        #expect(!GitHubError.isTransient(stderr: ""))
+    }
+
+    @Test func decodesAcliWorkItemSearch() throws {
         let json = """
-        {"issues":[{"key":"PRO-484","fields":{"summary":"Create a status page","updated":"2026-08-24T10:45:16.473+0300",
-          "priority":{"name":"Highest"},"status":{"name":"In Progress","statusCategory":{"key":"indeterminate"}}}}],"isLast":true}
+        [{"id":"20322","key":"PRO-484","self":"https://jira-prod-eu-47-2.prod.atl-paas.net/rest/api/3/issue/20322",
+          "fields":{"summary":"Create a status page","priority":{"name":"Highest"},
+            "status":{"name":"In Progress","statusCategory":{"key":"indeterminate"}}}}]
         """
-        let tickets = try JiraDecoding.tickets(fromSearchResponse: Data(json.utf8), site: "fhenix.atlassian.net", assignedToMe: true)
+        let tickets = try JiraDecoding.tickets(from: Data(json.utf8), site: "fhenix.atlassian.net", assignedToMe: true)
         let ticket = try #require(tickets.first)
         #expect(ticket.key == "PRO-484")
         #expect(ticket.category == .inProgress)
         #expect(ticket.priority == "Highest")
+        // acli's `self` points at an internal host, so the browse URL is built from the signed-in site.
         #expect(ticket.url == "https://fhenix.atlassian.net/browse/PRO-484")
-        #expect(ticket.updatedAt == JSON.parseISO8601("2026-08-24T07:45:16.473Z"))
+        #expect(ticket.assignedToMe)
+    }
+
+    @Test func decodesAcliProjectList() throws {
+        let json = #"[{"key":"PRO","name":"Protocol"},{"key":"DOC","name":"Documentation"}]"#
+        #expect(try JiraDecoding.projectKeys(from: Data(json.utf8)) == ["PRO", "DOC"])
+    }
+
+    @Test func readsTheSignedInSiteFromAuthStatus() {
+        let text = """
+        ✓ Authenticated
+          Site: fhenix.atlassian.net
+          Email: guya@fhenix.io
+          Authentication Type: oauth
+        """
+        let account = try! #require(JiraDecoding.account(fromStatus: text))
+        #expect(account.site == "fhenix.atlassian.net")
+        #expect(account.email == "guya@fhenix.io")
+        // Signed out: acli says so instead, and there is no account to report.
+        #expect(JiraDecoding.account(fromStatus: "✗ Error: unauthorized: use 'acli jira auth login' to authenticate") == nil)
     }
 
     @Test func parsesDatesWithAndWithoutFractions() {
         #expect(JSON.parseISO8601("2026-08-27T11:12:21Z") != nil)
         #expect(JSON.parseISO8601("2026-08-23T11:54:57.327Z") != nil)
         #expect(JSON.parseISO8601("nope") == nil)
+    }
+}
+
+@Suite struct RepositoryListTests {
+    @Test func searchesScopeToTheTrackedReposRatherThanTheOrg() {
+        let queries = GitHubQueries.searches(login: "me", repos: ["fhenixprotocol/cofhe", "fhenixprotocol/gitops"], since: Fixtures.t0)
+        for query in [queries.mine, queries.reviews, queries.merged, queries.reviewed] {
+            #expect(query.contains("repo:fhenixprotocol/cofhe"))
+            #expect(query.contains("repo:fhenixprotocol/gitops"))
+            #expect(!query.contains("org:"))
+        }
+        #expect(queries.mine.contains("author:me"))
+        #expect(queries.reviews.contains("review-requested:me"))
+    }
+
+    @Test func repositoryPageDecodesAndCarriesItsCursor() throws {
+        let json = """
+        {"data":{"organization":{"repositories":{
+          "pageInfo":{"hasNextPage":true,"endCursor":"Y3Vyc29y"},
+          "nodes":[
+            {"name":"cofhe","nameWithOwner":"FhenixProtocol/cofhe","isArchived":false,"pushedAt":"2026-09-01T10:00:00Z"},
+            {"name":"old","nameWithOwner":"FhenixProtocol/old","isArchived":true,"pushedAt":null}
+          ]}}}}
+        """
+        let page = try GitHubDecoding.repositories(from: Data(json.utf8))
+        // The slug is lowercased because remotes and search qualifiers are compared in that form.
+        #expect(page.repos.map(\.slug) == ["fhenixprotocol/cofhe", "fhenixprotocol/old"])
+        #expect(page.repos[0].name == "cofhe")
+        #expect(page.repos[1].isArchived)
+        #expect(page.repos[1].pushedAt == nil)
+        #expect(page.next == "Y3Vyc29y")
+    }
+
+    @Test func lastPageStopsThePaging() throws {
+        let json = #"{"data":{"organization":{"repositories":{"pageInfo":{"hasNextPage":false,"endCursor":"z"},"nodes":[]}}}}"#
+        #expect(try GitHubDecoding.repositories(from: Data(json.utf8)).next == nil)
+    }
+}
+
+@Suite struct MarkdownTests {
+    @Test func splitsADescriptionIntoBlocks() {
+        let text = """
+        ## What
+        Fixes the thing.
+        Second line of the same paragraph.
+
+        - first
+        - second
+          - nested
+        1. step one
+        2. step two
+
+        ```swift
+        let x = 1
+        # not a heading
+        ```
+        > a note
+        ---
+        """
+        let blocks = Markdown.blocks(text)
+        #expect(blocks.contains(.heading(level: 2, text: "What")))
+        // Consecutive lines join into one paragraph, the way markdown reads them.
+        #expect(blocks.contains(.paragraph("Fixes the thing. Second line of the same paragraph.")))
+        #expect(blocks.contains(.bullet(indent: 0, text: "first")))
+        #expect(Markdown.blocks("- [x] done\n- [ ] todo") == [
+            .task(indent: 0, done: true, text: "done"), .task(indent: 0, done: false, text: "todo"),
+        ])
+        #expect(blocks.contains(.bullet(indent: 1, text: "nested")))
+        #expect(blocks.contains(.numbered(indent: 0, number: "2", text: "step two")))
+        // A `#` inside a fence is code, not a heading.
+        #expect(blocks.contains(.code(language: "swift", text: "let x = 1\n# not a heading")))
+        #expect(blocks.contains(.quote("a note")))
+        #expect(blocks.contains(.rule))
+        #expect(!blocks.contains(.heading(level: 1, text: "not a heading")))
+    }
+
+    @Test func anUnclosedFenceStillKeepsItsText() {
+        let blocks = Markdown.blocks("intro\n```\nstranded\n")
+        #expect(blocks.contains(.code(language: nil, text: "stranded")))
+    }
+
+    @Test func emptyAndPlainTextSurvive() {
+        #expect(Markdown.blocks("").isEmpty)
+        #expect(Markdown.blocks("just words") == [.paragraph("just words")])
+        // Half-written markup must not throw the text away.
+        #expect(String(Markdown.inline("**unclosed").characters).contains("unclosed"))
     }
 }
