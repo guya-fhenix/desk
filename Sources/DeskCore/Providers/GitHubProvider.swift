@@ -77,6 +77,19 @@ public actor GitHubProvider {
         return login
     }
 
+    /// What became of one pull request, asked for by name. Only used for a review whose PR has left every
+    /// search: a PR nobody asked you to review and you never submitted on drops out of all of them the
+    /// moment it merges, and absence alone is far too thin to delete a review on.
+    public func pullRequestState(repo: String, number: Int) async throws -> PullRequestState {
+        let parts = repo.split(separator: "/", maxSplits: 1)
+        guard parts.count == 2 else { throw GitHubError.graphQL(["not an owner/name repository: \(repo)"]) }
+        let data = try await graphQL(
+            query: GitHubQueries.pullRequestStateQuery,
+            variables: ["owner": String(parts[0]), "name": String(parts[1]), "number": number]
+        )
+        return try GitHubDecoding.pullRequestState(from: data)
+    }
+
     /// Every repository in the org, newest push first, so Settings can offer them.
     public func repositories() async throws -> [GitHubRepo] {
         var repos: [GitHubRepo] = []
@@ -171,6 +184,12 @@ public enum GitHubQueries {
         )
     }
 
+    public static let pullRequestStateQuery = """
+    query($owner: String!, $name: String!, $number: Int!) {
+      repository(owner: $owner, name: $name) { pullRequest(number: $number) { state } }
+    }
+    """
+
     public static let repositoriesQuery = """
     query($org: String!, $after: String) {
       organization(login: $org) {
@@ -219,6 +238,14 @@ public enum GitHubDecoding {
             GitHubRepo(slug: $0.nameWithOwner, name: $0.name, isArchived: $0.isArchived, pushedAt: $0.pushedAt)
         }
         return (repos, page.pageInfo.hasNextPage ? page.pageInfo.endCursor : nil)
+    }
+
+    public static func pullRequestState(from data: Data) throws -> PullRequestState {
+        let response = try JSON.decoder().decode(Response<PullRequestData>.self, from: data)
+        if let errors = response.errors, !errors.isEmpty { throw GitHubError.graphQL(errors.map(\.message)) }
+        guard let state = response.data?.repository?.pullRequest?.state else { throw GitHubError.emptyResponse }
+        guard let parsed = PullRequestState(rawValue: state) else { throw GitHubError.graphQL(["unknown pull request state: \(state)"]) }
+        return parsed
     }
 
     public static func pullRequests(from data: Data) throws -> [PullRequest] {
@@ -273,6 +300,10 @@ public enum GitHubDecoding {
     private struct ViewerData: Decodable { var viewer: Login }
     private struct Login: Decodable { var login: String }
     private struct Repository: Decodable { var nameWithOwner: String }
+
+    private struct PullRequestData: Decodable { var repository: RepositoryPR? }
+    private struct RepositoryPR: Decodable { var pullRequest: PRState? }
+    private struct PRState: Decodable { var state: String }
 
     private struct OrgData: Decodable { var organization: Org }
     private struct Org: Decodable { var repositories: RepoPage }

@@ -312,8 +312,19 @@ public actor ReviewRunner {
 
     public func cleanupClosed(github snapshot: GitHubSnapshot) async {
         guard config.cleanupReviewsOnMerge else { return }
-        let closed = snapshot.mergedRecent + snapshot.reviewedByMe + snapshot.allOpen
-        for record in ReviewPlanner.cleanups(records: ledger.records, closed: closed) {
+        let seen = snapshot.mergedRecent + snapshot.reviewedByMe + snapshot.allOpen
+        for record in ReviewPlanner.cleanups(records: ledger.records, closed: seen) {
+            try? await remove(record)
+        }
+        // The searches only ever show a merged PR you authored or submitted a review on. One you reviewed
+        // here and never sent vanishes from all five the moment it merges, so it has to be asked about by
+        // name. An answer that does not arrive keeps the review: a review costs real money to produce, and
+        // a failed query is not a closed pull request.
+        guard let github else { return }
+        for record in ReviewPlanner.unresolved(records: ledger.records, seen: seen) {
+            guard let state = try? await github.pullRequestState(repo: record.repo, number: record.number),
+                  state != .open
+            else { continue }
             try? await remove(record)
         }
     }
