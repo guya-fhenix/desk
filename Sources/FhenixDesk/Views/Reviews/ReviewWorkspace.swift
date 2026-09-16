@@ -111,7 +111,7 @@ private struct ReviewHeaderBar: View {
                 .buttonStyle(.borderless)
                 // Not Escape: that belongs to the comment editor's Cancel.
                 .keyboardShortcut("[", modifiers: .command)
-            Button { model.open(record.prUrl) } label: { Text(record.label).font(.headline) }
+            Button { model.open(record.prUrl) } label: { Text(record.label).scaled(.headline) }
                 .buttonStyle(.link)
             Text(record.title).lineLimit(1).foregroundStyle(.secondary)
             if let pr { ChecksBadge(pr: pr) }
@@ -138,15 +138,15 @@ private struct ReviewHeaderBar: View {
     @ViewBuilder private var status: some View {
         if record.phase.isBusy || model.busyReviews.contains(record.prUrl) {
             ProgressView().controlSize(.small)
-            Text(record.phase.label).font(.caption).foregroundStyle(.secondary)
+            Text(record.phase.label).scaled(.caption).foregroundStyle(.secondary)
         }
         let counts = record.counts
         if counts.total > 0 {
             Text("\(counts.approved) of \(counts.total) approved")
-                .font(.caption).monospacedDigit().foregroundStyle(.secondary)
+                .scaled(.caption).monospacedDigit().foregroundStyle(.secondary)
         }
         if record.costUSD > 0 {
-            Text(Format.usd(record.costUSD)).font(.caption).monospacedDigit().foregroundStyle(.tertiary)
+            Text(Format.usd(record.costUSD)).scaled(.caption).monospacedDigit().foregroundStyle(.tertiary)
         }
     }
 
@@ -156,7 +156,7 @@ private struct ReviewHeaderBar: View {
         if let verdict = record.verdict {
             let overridden = record.chosenVerdict != nil && record.chosenVerdict != verdict
             Text("Claude: \(verdict.title)")
-                .font(.caption)
+                .scaled(.caption)
                 .foregroundStyle(overridden ? .orange : .secondary)
                 .help(overridden ? "Claude suggested \(verdict.title); you changed it" : "Claude's verdict for this run")
         }
@@ -250,11 +250,11 @@ private struct ReviewSummary: View {
         VStack(alignment: .leading, spacing: 6) {
             if draft == nil, record.summary.isEmpty, record.rawOutput == nil {
                 Button("Add a summary") { draft = "" }
-                    .buttonStyle(.borderless).controlSize(.small).font(.caption)
+                    .buttonStyle(.borderless).controlSize(.small).scaled(.caption)
                     .help("Posted as the review body when you submit")
             } else if let draft {
                 TextEditor(text: Binding(get: { draft }, set: { self.draft = $0 }))
-                    .font(.callout)
+                    .scaled(.callout)
                     .frame(height: 60)
                     .scrollContentBackground(.hidden)
                     .background(.background, in: RoundedRectangle(cornerRadius: 6))
@@ -272,7 +272,7 @@ private struct ReviewSummary: View {
                     // No `fixedSize`: it asks for the ideal height at whatever width is proposed, and
                     // during layout that width can be near zero — the text then wraps one character
                     // per line and drags the window to several screen-heights.
-                    Text(record.summary).font(.callout).frame(maxWidth: .infinity, alignment: .leading)
+                    Text(record.summary).scaled(.callout).frame(maxWidth: .infinity, alignment: .leading)
                     Spacer(minLength: 8)
                     if !record.isSubmitted {
                         Button { draft = record.summary } label: { Image(systemName: "pencil") }
@@ -283,10 +283,10 @@ private struct ReviewSummary: View {
             }
             if let raw = record.rawOutput {
                 DisclosureGroup("Claude's answer did not parse — show it") {
-                    Text(raw).font(.caption.monospaced()).textSelection(.enabled)
+                    Text(raw).scaled(.caption.monospaced()).textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .font(.caption)
+                .scaled(.caption)
             }
         }
         .padding(.horizontal, 12)
@@ -307,7 +307,7 @@ private struct PullRequestDescription: View {
                 }
                 .frame(maxHeight: 200)
             } label: {
-                Text("Description").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                Text("Description").scaled(.caption.weight(.semibold)).foregroundStyle(.secondary)
             }
         }
         .padding(.horizontal, 12)
@@ -324,7 +324,7 @@ private struct SubmittedBanner: View {
             Image(systemName: "checkmark.seal.fill").foregroundStyle(.green)
             Text("Submitted “\(submission.event.title)” \(Format.age(submission.at)) ago · \(submission.inlineCount) inline"
                 + (submission.foldedCount > 0 ? ", \(submission.foldedCount) in the body" : ""))
-                .font(.caption)
+                .scaled(.caption)
             Spacer()
             if !submission.url.isEmpty {
                 Button("View on GitHub") { model.open(submission.url) }.controlSize(.small)
@@ -343,7 +343,7 @@ private struct Banner: View {
     var body: some View {
         HStack(spacing: 8) {
             Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(color)
-            Text(text).font(.caption).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
+            Text(text).scaled(.caption).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
             Spacer()
         }
         .padding(.horizontal, 12)

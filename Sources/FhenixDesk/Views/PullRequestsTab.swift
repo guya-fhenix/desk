@@ -69,10 +69,10 @@ private struct StackedTitle: View {
                     Chip(text: "stack of \(row.stackSize)").fixedSize()
                 }
                 if let parent = model.state.stackParent(of: pr) {
-                    Text("on #\(parent.number)").font(.caption).foregroundStyle(.secondary).fixedSize()
+                    Text("on #\(parent.number)").scaled(.caption).foregroundStyle(.secondary).fixedSize()
                         .help("Stacked on #\(parent.number) by \(parent.author)")
                 } else if pr.baseRef != model.state.defaultBranches[pr.repoName] ?? "main" {
-                    Text("on \(pr.baseRef)").font(.caption).foregroundStyle(.orange).fixedSize()
+                    Text("on \(pr.baseRef)").scaled(.caption).foregroundStyle(.orange).fixedSize()
                         .help("Base branch has no open PR")
                 }
             }
@@ -103,11 +103,11 @@ private struct TicketMark: View {
         let ticket = model.state.ticket(key)
         let drift = model.state.drift(forKey: key)
         HStack(spacing: 3) {
-            Button { model.open(ticket?.url) } label: { Text(key).font(.caption.monospaced()) }
+            Button { model.open(ticket?.url) } label: { Text(key).scaled(.caption.monospaced()) }
                 .buttonStyle(.link)
                 .disabled(ticket == nil)
             if let drift {
-                Image(systemName: "arrow.right.circle.fill").font(.caption2).foregroundStyle(.orange)
+                Image(systemName: "arrow.right.circle.fill").scaled(.caption2).foregroundStyle(.orange)
                     .help("Jira says “\(drift.ticket.status)”; this PR says “\(drift.target)” — move it on the Tickets screen")
             }
         }

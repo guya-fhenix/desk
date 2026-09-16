@@ -12,26 +12,26 @@ struct MarkdownText: View {
                 switch block {
                 case .heading(let level, let text):
                     Text(Markdown.inline(text))
-                        .font(.system(size: level <= 1 ? 15 : level == 2 ? 13.5 : 12.5, weight: .semibold))
+                        .scaled(.size(level <= 1 ? 15 : level == 2 ? 13.5 : 12.5).weight(.semibold))
                         .padding(.top, 2)
                 case .paragraph(let text):
-                    Text(Markdown.inline(text)).font(.callout)
+                    Text(Markdown.inline(text)).scaled(.callout)
                 case .bullet(let indent, let text):
                     row(indent: indent, marker: "•", text: text)
                 case .task(let indent, let done, let text):
                     HStack(alignment: .firstTextBaseline, spacing: 6) {
                         Image(systemName: done ? "checkmark.square.fill" : "square")
-                            .font(.caption)
+                            .scaled(.caption)
                             .foregroundStyle(done ? Color.green : .secondary)
                             .frame(minWidth: 14, alignment: .trailing)
-                        Text(Markdown.inline(text)).font(.callout).frame(maxWidth: .infinity, alignment: .leading)
+                        Text(Markdown.inline(text)).scaled(.callout).frame(maxWidth: .infinity, alignment: .leading)
                     }
                     .padding(.leading, CGFloat(min(indent, 4)) * 14)
                 case .numbered(let indent, let number, let text):
                     row(indent: indent, marker: "\(number).", text: text)
                 case .code(_, let text):
                     Text(text)
-                        .font(.caption.monospaced())
+                        .scaled(.caption.monospaced())
                         .textSelection(.enabled)
                         .padding(8)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -39,7 +39,7 @@ struct MarkdownText: View {
                 case .quote(let text):
                     HStack(spacing: 8) {
                         Rectangle().fill(.tertiary).frame(width: 3)
-                        Text(Markdown.inline(text)).font(.callout).foregroundStyle(.secondary)
+                        Text(Markdown.inline(text)).scaled(.callout).foregroundStyle(.secondary)
                     }
                     .fixedSize(horizontal: false, vertical: true)
                 case .rule:
@@ -55,8 +55,8 @@ struct MarkdownText: View {
 
     private func row(indent: Int, marker: String, text: String) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
-            Text(marker).font(.callout).foregroundStyle(.secondary).frame(minWidth: 14, alignment: .trailing)
-            Text(Markdown.inline(text)).font(.callout).frame(maxWidth: .infinity, alignment: .leading)
+            Text(marker).scaled(.callout).foregroundStyle(.secondary).frame(minWidth: 14, alignment: .trailing)
+            Text(Markdown.inline(text)).scaled(.callout).frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.leading, CGFloat(min(indent, 4)) * 14)
     }

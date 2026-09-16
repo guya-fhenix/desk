@@ -5,6 +5,7 @@ import SwiftUI
 /// backlog. Done is left out: the screen is about what is still open.
 struct TicketsTab: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.textScale) private var scale: Double
 
     var body: some View {
         List {
@@ -27,7 +28,7 @@ struct TicketsTab: View {
                 }
             }
             if let error = model.state.errors[.jira] {
-                Section("Jira") { Text(error).font(.caption).foregroundStyle(.red).textSelection(.enabled) }
+                Section("Jira") { Text(error).scaled(.caption).foregroundStyle(.red).textSelection(.enabled) }
             }
         }
         .navigationTitle("Tickets")
@@ -36,9 +37,9 @@ struct TicketsTab: View {
     private func statusRow(_ group: TicketGroup) -> some View {
         HStack(spacing: 8) {
             StatusDot(color: color(group.category))
-            Text(group.status).font(.callout.weight(.semibold))
+            Text(group.status).scaled(.callout.weight(.semibold))
             Spacer()
-            Text("\(group.tickets.count)").font(.callout).monospacedDigit().foregroundStyle(.secondary)
+            Text("\(group.tickets.count)").scaled(.callout).monospacedDigit().foregroundStyle(.secondary)
         }
         .padding(.top, 2)
     }
@@ -47,15 +48,15 @@ struct TicketsTab: View {
         HStack(spacing: 8) {
             Button(ticket.key) { model.open(ticket.url) }
                 .buttonStyle(.link)
-                .font(.callout.monospaced())
-                .frame(width: 84, alignment: .leading)
+                .scaled(.callout.monospaced())
+                .frame(width: 84 * scale, alignment: .leading)
             Text(ticket.summary).lineLimit(1)
             Spacer()
             if let drift = model.state.drift(forKey: ticket.key) {
                 DriftButton(drift: drift, model: model)
             }
             if let priority = ticket.priority {
-                Text(priority).font(.caption).foregroundStyle(.tertiary)
+                Text(priority).scaled(.caption).foregroundStyle(.tertiary)
             }
         }
         .padding(.leading, 18)

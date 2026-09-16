@@ -61,9 +61,9 @@ private struct CommentLink: View {
             HStack(spacing: 6) {
                 StatusDot(color: DiffPalette.severity(comment.severity))
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(comment.text).font(.caption).lineLimit(2)
+                    Text(comment.text).scaled(.caption).lineLimit(2)
                     Text("\(comment.path.split(separator: "/").last.map(String.init) ?? comment.path):\(comment.line)")
-                        .font(.caption2).monospacedDigit().foregroundStyle(.tertiary).lineLimit(1)
+                        .scaled(.caption2).monospacedDigit().foregroundStyle(.tertiary).lineLimit(1)
                 }
                 Spacer(minLength: 0)
             }

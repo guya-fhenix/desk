@@ -60,8 +60,9 @@ enum DiffPalette {
 }
 
 enum DiffMetrics {
-    static let code = Font.system(size: 11.5, design: .monospaced)
     /// Uniform, so the lazy stack's offset estimates stay exact and `scrollTo` lands where it says.
+    /// These are the sizes at 100%; every use multiplies by the window's text scale, because the code
+    /// sitting in them does too. `AppTextStyle.code` is the font itself.
     static let rowHeight: CGFloat = 16
     static let numberWidth: CGFloat = 38
     static let gutterWidth: CGFloat = 88

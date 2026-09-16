@@ -58,9 +58,9 @@ struct SettingsTab: View {
             .fixedSize()
             Spacer()
             if let error = model.configError {
-                Text(error).font(.caption).foregroundStyle(.red).lineLimit(1).textSelection(.enabled)
+                Text(error).scaled(.caption).foregroundStyle(.red).lineLimit(1).textSelection(.enabled)
             } else if isDirty {
-                Text("Unsaved changes").font(.caption).foregroundStyle(.secondary)
+                Text("Unsaved changes").scaled(.caption).foregroundStyle(.secondary)
             }
             Button("Revert") { load() }.disabled(!isDirty)
             Button("Save") { save() }.keyboardShortcut(.defaultAction).disabled(!isDirty)
@@ -82,7 +82,7 @@ struct SettingsTab: View {
                 Text("Local clones")
             } footer: {
                 Text("Where your clones live. Only used to run a review against a checked-out repo — the list of repos comes from GitHub.")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .scaled(.caption).foregroundStyle(.secondary)
             }
             Section {
                 TextField("Bot logins (comma separated)", text: $botLoginsText)
@@ -90,7 +90,7 @@ struct SettingsTab: View {
                 Text("Noise")
             } footer: {
                 Text("PRs by these authors stay out of the review queue and the cycle-time metrics.")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .scaled(.caption).foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)
@@ -104,7 +104,7 @@ struct SettingsTab: View {
                     .textFieldStyle(.roundedBorder)
                     .frame(maxWidth: 260)
                 Text("\(draft.trackedRepos.count) tracked of \(model.repositories.count)")
-                    .font(.caption).foregroundStyle(.secondary).monospacedDigit()
+                    .scaled(.caption).foregroundStyle(.secondary).monospacedDigit()
                 Spacer()
                 if !draft.trackedRepos.isEmpty {
                     Button("Clear") { draft.trackedRepos = [] }.controlSize(.small)
@@ -122,7 +122,7 @@ struct SettingsTab: View {
             } else if draft.trackedRepos.isEmpty {
                 // A banner rather than an overlay: it must not sit on top of the row underneath it.
                 Text("Nothing is tracked, so the app is watching nothing. Pick the repos you work in.")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .scaled(.caption).foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 6)
@@ -135,7 +135,7 @@ struct SettingsTab: View {
                         Text(repo.name)
                         if repo.isArchived { Chip(text: "archived", color: .secondary) }
                         Spacer()
-                        Text(Format.age(repo.pushedAt)).font(.caption).monospacedDigit().foregroundStyle(.secondary)
+                        Text(Format.age(repo.pushedAt)).scaled(.caption).monospacedDigit().foregroundStyle(.secondary)
                     }
                 }
             }
@@ -150,12 +150,12 @@ struct SettingsTab: View {
                     LabeledContent("Site", value: account.site)
                     LabeledContent("Signed in as", value: account.email ?? "—")
                     Text("The Atlassian CLI holds the credentials. Fhenix Desk stores no Jira token.")
-                        .font(.caption).foregroundStyle(.green)
+                        .scaled(.caption).foregroundStyle(.green)
                 } else {
                     Text(draft.resolvedAcliPath == nil
                         ? "acli not found. Install it with `brew install acli`, or set the path below."
                         : "Not signed in. Run `acli jira auth login --web` in a terminal, then press Recheck.")
-                        .font(.caption).foregroundStyle(.red)
+                        .scaled(.caption).foregroundStyle(.red)
                 }
                 HStack {
                     Button("Recheck") { model.refreshJiraAccount() }.controlSize(.small)
@@ -165,7 +165,7 @@ struct SettingsTab: View {
                 Text("Account")
             } footer: {
                 Text("Signing in is a browser flow owned by acli. It grants the CLI access to your Atlassian products; this app only ever runs `acli jira`.")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .scaled(.caption).foregroundStyle(.secondary)
             }
             Section {
                 TextField("Project keys (comma separated)", text: $projectKeysText)
@@ -175,7 +175,7 @@ struct SettingsTab: View {
                 Text("Tickets")
             } footer: {
                 Text("Status names exactly as Jira spells them, emoji and all; empty turns that half off. Desk only marks the tickets that have fallen behind — moving one is a press on the Tickets screen.")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .scaled(.caption).foregroundStyle(.secondary)
             }
             Section("Tool") {
                 TextField("acli path (empty = auto)", text: $draft.acliPath)
@@ -189,7 +189,7 @@ struct SettingsTab: View {
             Section("Claude") {
                 TextField("claude path (empty = auto)", text: $draft.claudePath)
                 Text(draft.resolvedClaudePath.map { "Using \($0)" } ?? "claude not found. Install it or set the path.")
-                    .font(.caption).foregroundStyle(draft.resolvedClaudePath == nil ? .red : .secondary)
+                    .scaled(.caption).foregroundStyle(draft.resolvedClaudePath == nil ? .red : .secondary)
                 TextField("Model (empty = default)", text: $draft.reviewModel)
                 TextField("Effort (empty = default)", text: $draft.reviewEffort)
             }
@@ -199,7 +199,7 @@ struct SettingsTab: View {
                 Stepper("Spend at most \(Format.usd(draft.reviewBudgetUSD)) per run", value: $draft.reviewBudgetUSD, in: 1...100, step: 1)
                 if model.reviewSpendToday > 0 {
                     Text("Reviews have cost \(Format.usd(model.reviewSpendToday)) in the last 24 hours.")
-                        .font(.caption).foregroundStyle(.secondary)
+                        .scaled(.caption).foregroundStyle(.secondary)
                 }
             }
             Section {
@@ -215,7 +215,7 @@ struct SettingsTab: View {
                 comments instead of re-running. Nothing is posted until you press Submit in the review, \
                 and only the comments you approved go with it.
                 """)
-                .font(.caption).foregroundStyle(.secondary)
+                .scaled(.caption).foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)

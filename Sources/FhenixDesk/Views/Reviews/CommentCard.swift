@@ -33,7 +33,7 @@ struct CommentCard: View {
                 .controlSize(.small)
             } else {
                 Text(comment.text)
-                    .font(.callout)
+                    .scaled(.callout)
                     // Required inside the diff's horizontal ScrollView, which proposes infinite width:
                     // without it this renders on one line and stretches the whole diff sideways.
                     .fixedSize(horizontal: false, vertical: true)
@@ -51,7 +51,7 @@ struct CommentCard: View {
     private var header: some View {
         HStack(spacing: 6) {
             StatusDot(color: DiffPalette.severity(comment.severity))
-            Text(comment.severity.title).font(.caption.weight(.semibold))
+            Text(comment.severity.title).scaled(.caption.weight(.semibold))
             if comment.isOutdated {
                 Chip(text: "outdated", color: .secondary)
                     .help("The line this points at changed in a later push, so it will be sent in the review body")
@@ -77,7 +77,7 @@ struct CommentCard: View {
             Button { draft = comment.text } label: { Label("Edit", systemImage: "pencil") }
             Spacer(minLength: 0)
             Text("\(comment.path):\(comment.line)")
-                .font(.caption2).monospacedDigit().foregroundStyle(.tertiary).lineLimit(1)
+                .scaled(.caption2).monospacedDigit().foregroundStyle(.tertiary).lineLimit(1)
         }
         .buttonStyle(.borderless)
         .controlSize(.small)
@@ -108,14 +108,14 @@ private struct CommentEditor: View {
     var body: some View {
         ZStack(alignment: .topLeading) {
             Text(text.isEmpty ? " " : text)
-                .font(.callout)
+                .scaled(.callout)
                 .padding(.horizontal, 5)
                 .padding(.vertical, 8)
                 .frame(width: width, alignment: .leading)
                 .fixedSize(horizontal: false, vertical: true)
                 .hidden()
             TextEditor(text: $text)
-                .font(.callout)
+                .scaled(.callout)
                 .scrollDisabled(true)
                 .scrollContentBackground(.hidden)
                 .focused(focused, equals: id)

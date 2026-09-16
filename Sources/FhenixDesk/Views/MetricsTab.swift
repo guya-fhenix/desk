@@ -83,14 +83,14 @@ struct MetricsTab: View {
 
     private func tile(_ label: String, _ value: String) -> some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(value).font(.system(size: 26, weight: .semibold))
-            Text(label).font(.caption).foregroundStyle(.secondary)
+            Text(value).scaled(.size(26).weight(.semibold))
+            Text(label).scaled(.caption).foregroundStyle(.secondary)
         }
     }
 
     private var phaseChart: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Median hours per phase, by merge week").font(.headline)
+            Text("Median hours per phase, by merge week").scaled(.headline)
             Chart {
                 ForEach(weekly) { week in
                     ForEach(Self.phases) { phase in
@@ -139,12 +139,12 @@ struct MetricsTab: View {
 
     private func tooltip(_ week: WeeklyCycle) -> some View {
         VStack(alignment: .leading, spacing: 3) {
-            Text("Week of \(week.weekStart.formatted(.dateTime.month(.abbreviated).day()))  ·  \(week.merged) merged").font(.caption.weight(.semibold))
+            Text("Week of \(week.weekStart.formatted(.dateTime.month(.abbreviated).day()))  ·  \(week.merged) merged").scaled(.caption.weight(.semibold))
             ForEach(Self.phases) { phase in
                 HStack(spacing: 6) {
                     Circle().fill(phase.color).frame(width: 8, height: 8)
-                    Text(phase.name).font(.caption)
-                    Text(Format.duration(phase.value(week))).font(.caption).monospacedDigit().foregroundStyle(.secondary)
+                    Text(phase.name).scaled(.caption)
+                    Text(Format.duration(phase.value(week))).scaled(.caption).monospacedDigit().foregroundStyle(.secondary)
                 }
             }
         }
@@ -155,7 +155,7 @@ struct MetricsTab: View {
 
     private var weeklyTable: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Weeks").font(.headline)
+            Text("Weeks").scaled(.headline)
             Table(weekly.sorted(using: weeklyOrder), sortOrder: $weeklyOrder) {
                 TableColumn("Week", value: \.weekStart) { week in Text(week.weekStart.formatted(.dateTime.year().month(.abbreviated).day())) }.width(110)
                 TableColumn("Merged", value: \.merged) { week in Text("\(week.merged)").monospacedDigit() }.width(60)

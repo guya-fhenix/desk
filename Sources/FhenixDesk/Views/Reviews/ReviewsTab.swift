@@ -109,10 +109,10 @@ private struct ReviewQueue: View {
             }
             Spacer()
             if !model.canStartReview {
-                Text("\(model.busyReviews.count) running").font(.caption).foregroundStyle(.secondary)
+                Text("\(model.busyReviews.count) running").scaled(.caption).foregroundStyle(.secondary)
             }
             if model.reviewSpendToday > 0 {
-                Text("\(Format.usd(model.reviewSpendToday)) today").font(.caption).monospacedDigit().foregroundStyle(.tertiary)
+                Text("\(Format.usd(model.reviewSpendToday)) today").scaled(.caption).monospacedDigit().foregroundStyle(.tertiary)
             }
         }
         .padding(.horizontal, 12)
@@ -149,7 +149,7 @@ private struct QueueReviewCell: View {
         HStack(spacing: 6) {
             if model.busyReviews.contains(pr.url), model.state.review(for: pr) == nil {
                 ProgressView().controlSize(.mini)
-                Text("starting").font(.caption2).foregroundStyle(.secondary)
+                Text("starting").scaled(.caption2).foregroundStyle(.secondary)
             } else if model.state.localRepo(for: pr) == nil {
                 Chip(text: "no local clone", color: .secondary)
                     .help("Clone \(pr.repo) under a repo root to review it here")
@@ -162,7 +162,7 @@ private struct QueueReviewCell: View {
                 if let record = model.state.review(for: pr), need != .failed {
                     ReviewStatusChip(status: model.state.reviewStatus(for: record, pr: pr))
                     if record.costUSD > 0 {
-                        Text(Format.usd(record.costUSD)).font(.caption2).monospacedDigit().foregroundStyle(.tertiary)
+                        Text(Format.usd(record.costUSD)).scaled(.caption2).monospacedDigit().foregroundStyle(.tertiary)
                     }
                 }
             }
@@ -232,7 +232,7 @@ private struct PastReviews: View {
                     .buttonStyle(.link)
                     ReviewStatusChip(status: model.state.reviewStatus(for: record, pr: model.state.pullRequest(for: record)))
                     Spacer()
-                    Text(Format.age(record.lastRunAt)).font(.caption).foregroundStyle(.secondary)
+                    Text(Format.age(record.lastRunAt)).scaled(.caption).foregroundStyle(.secondary)
                     Button("Remove") { model.removeReview(record) }
                         .controlSize(.small).disabled(record.phase.isBusy)
                         .help("Delete the review and its worktree (kept when the worktree has local changes)")

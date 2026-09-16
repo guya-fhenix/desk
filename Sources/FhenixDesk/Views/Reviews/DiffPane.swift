@@ -9,6 +9,7 @@ import SwiftUI
 /// element ForEach for nothing. Actions go out as `model.method(…)` calls, which register no observation
 /// dependency; reading a property would. Keep it that way.
 struct DiffPane: View, Equatable {
+    @Environment(\.textScale) private var scale: Double
     let document: DiffDocument
     let comments: [DraftComment]
     let target: DiffScrollTarget?
@@ -64,14 +65,14 @@ struct DiffPane: View, Equatable {
             .defaultScrollAnchor(.topLeading)
             .scrollBounceBehavior(.basedOnSize)
             // Without this the pinned header covers whatever was just scrolled to.
-            .contentMargins(.top, DiffMetrics.headerHeight, for: .scrollContent)
+            .contentMargins(.top, DiffMetrics.headerHeight * scale, for: .scrollContent)
             .onChange(of: target) { _, new in scroll(to: new, with: proxy) }
             .onAppear { foldLargeFiles() }
         }
     }
 
     private var contentWidth: CGFloat {
-        DiffMetrics.gutterWidth + CGFloat(document.maxColumns) * DiffMetrics.charWidth + 24
+        DiffMetrics.gutterWidth * scale + CGFloat(document.maxColumns) * DiffMetrics.charWidth * scale + 24
     }
 
     private func commentsOn(_ row: DiffDocument.Row, in anchored: [CommentKey: [DraftComment]]) -> [DraftComment] {
@@ -112,6 +113,7 @@ struct DiffPane: View, Equatable {
 }
 
 private struct DiffFileHeader: View {
+    @Environment(\.textScale) private var scale: Double
     let file: DiffDocument.File
     let folded: Bool
     let comments: Int
@@ -120,12 +122,12 @@ private struct DiffFileHeader: View {
     var body: some View {
         HStack(spacing: 8) {
             Button(action: toggle) {
-                Image(systemName: folded ? "chevron.right" : "chevron.down").font(.caption2)
+                Image(systemName: folded ? "chevron.right" : "chevron.down").scaled(.caption2)
             }
             .buttonStyle(.borderless)
-            Text(file.path).font(.callout.weight(.medium)).lineLimit(1).truncationMode(.head)
+            Text(file.path).scaled(.callout.weight(.medium)).lineLimit(1).truncationMode(.head)
             if let previous = file.file.previousPath {
-                Text("was \(previous)").font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                Text("was \(previous)").scaled(.caption).foregroundStyle(.secondary).lineLimit(1)
             }
             if file.file.isBinary { Chip(text: "binary", color: .secondary) }
             if comments > 0 { Chip(text: "\(comments)", color: .orange) }
@@ -135,12 +137,12 @@ private struct DiffFileHeader: View {
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(file.path, forType: .string)
             } label: {
-                Image(systemName: "doc.on.doc").font(.caption2)
+                Image(systemName: "doc.on.doc").scaled(.caption2)
             }
             .buttonStyle(.borderless).help("Copy the path")
         }
         .padding(.horizontal, 10)
-        .frame(height: DiffMetrics.headerHeight)
+        .frame(height: DiffMetrics.headerHeight * scale)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(.bar)
         .overlay(alignment: .bottom) { Divider() }
@@ -148,6 +150,7 @@ private struct DiffFileHeader: View {
 }
 
 private struct DiffRowView: View {
+    @Environment(\.textScale) private var scale: Double
     let row: DiffDocument.Row
     let comments: [DraftComment]
     let readOnly: Bool
@@ -160,10 +163,10 @@ private struct DiffRowView: View {
         VStack(alignment: .leading, spacing: 0) {
             if let header = row.hunkHeader {
                 Text(header)
-                    .font(DiffMetrics.code)
+                    .scaled(.code)
                     .foregroundStyle(.secondary)
                     .padding(.leading, 8)
-                    .frame(height: DiffMetrics.rowHeight, alignment: .leading)
+                    .frame(height: DiffMetrics.rowHeight * scale, alignment: .leading)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(DiffPalette.hunk)
             } else if let line = row.line {
@@ -177,8 +180,8 @@ private struct DiffRowView: View {
                         .fixedSize(horizontal: true, vertical: false)
                     Spacer(minLength: 0)
                 }
-                .font(DiffMetrics.code)
-                .frame(height: DiffMetrics.rowHeight, alignment: .leading)
+                .scaled(.code)
+                .frame(height: DiffMetrics.rowHeight * scale, alignment: .leading)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(DiffPalette.row(line.kind))
                 .contextMenu {
@@ -193,7 +196,7 @@ private struct DiffRowView: View {
                     comment: comment, draft: draft(comment.id), readOnly: readOnly, model: model,
                     prUrl: prUrl, focused: focused
                 )
-                .padding(.leading, DiffMetrics.gutterWidth)
+                .padding(.leading, DiffMetrics.gutterWidth * scale)
                 .padding(.vertical, 4)
                 .id(DiffAnchor.comment(comment.id))
             }
@@ -206,20 +209,21 @@ private struct DiffRowView: View {
 }
 
 private struct DiffGutter: View {
+    @Environment(\.textScale) private var scale: Double
     let old: Int?
     let new: Int?
     let kind: DiffLineKind
 
     var body: some View {
         HStack(spacing: 0) {
-            Text(old.map(String.init) ?? "").frame(width: DiffMetrics.numberWidth, alignment: .trailing)
-            Text(new.map(String.init) ?? "").frame(width: DiffMetrics.numberWidth, alignment: .trailing)
+            Text(old.map(String.init) ?? "").frame(width: DiffMetrics.numberWidth * scale, alignment: .trailing)
+            Text(new.map(String.init) ?? "").frame(width: DiffMetrics.numberWidth * scale, alignment: .trailing)
         }
-        .font(DiffMetrics.code)
+        .scaled(.code)
         .monospacedDigit()
         .foregroundStyle(.tertiary)
         .padding(.trailing, 8)
-        .frame(width: DiffMetrics.gutterWidth, alignment: .trailing)
+        .frame(width: DiffMetrics.gutterWidth * scale, alignment: .trailing)
         .background(DiffPalette.gutter(kind))
     }
 }
@@ -227,6 +231,7 @@ private struct DiffGutter: View {
 /// Comments whose line has left the diff entirely. They cannot be drawn inline, and dropping them would
 /// lose findings the user may still want to send, so they sit under the file they came from.
 private struct LooseComments: View {
+    @Environment(\.textScale) private var scale: Double
     let comments: [DraftComment]
     let folded: Bool
     let readOnly: Bool
@@ -238,7 +243,7 @@ private struct LooseComments: View {
     var body: some View {
         if !comments.isEmpty, !folded {
             VStack(alignment: .leading, spacing: 4) {
-                Text("Not in the current diff").font(.caption).foregroundStyle(.secondary)
+                Text("Not in the current diff").scaled(.caption).foregroundStyle(.secondary)
                 ForEach(comments) { comment in
                     CommentCard(
                         comment: comment, draft: Binding(get: { drafts[comment.id] }, set: { drafts[comment.id] = $0 }),
@@ -247,7 +252,7 @@ private struct LooseComments: View {
                     .id(DiffAnchor.comment(comment.id))
                 }
             }
-            .padding(.leading, DiffMetrics.gutterWidth)
+            .padding(.leading, DiffMetrics.gutterWidth * scale)
             .padding(.vertical, 6)
         }
     }

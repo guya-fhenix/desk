@@ -7,7 +7,7 @@ struct Chip: View {
 
     var body: some View {
         Text(text)
-            .font(.caption2.weight(.medium))
+            .scaled(.caption2.weight(.medium))
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
             .background(color.opacity(0.15), in: Capsule())
@@ -112,31 +112,6 @@ struct RefreshControl: View {
     }
 }
 
-/// Browser-style zoom for everything inside it: the content lays out at 1/scale and is scaled back up,
-/// so text grows and the layout reflows around it.
-///
-/// This is the only mechanism that moves all of the window together. macOS has no Dynamic Type — SwiftUI's
-/// `dynamicTypeSize` renders identically here at every size including the accessibility ones, measured — and
-/// the app names an explicit font in 89 places, none of which a Table's own headers, a Picker's labels or a
-/// button's title would go through anyway.
-struct Zoomed<Content: View>: View {
-    var scale: Double
-    @ViewBuilder var content: Content
-
-    var body: some View {
-        if scale == 1 {
-            // The overwhelmingly common case pays for none of this: no GeometryReader, no transform.
-            content
-        } else {
-            GeometryReader { geo in
-                content
-                    .frame(width: geo.size.width / scale, height: geo.size.height / scale)
-                    .scaleEffect(scale, anchor: .topLeading)
-            }
-        }
-    }
-}
-
 /// Sits beside the refresh button and zooms the window. macOS offers no system text size, so this is the
 /// app's own — and it is remembered across launches.
 struct TextSizeControl: View {
@@ -146,7 +121,7 @@ struct TextSizeControl: View {
         HStack(spacing: 2) {
             step("minus", -1, "Smaller text", enabled: model.canZoomText.smaller)
             Text(percent)
-                .font(.caption).monospacedDigit()
+                .scaled(.caption).monospacedDigit()
                 .foregroundStyle(model.textScale == 1 ? .tertiary : .secondary)
                 .frame(width: 38)
                 .help("Text size")
@@ -175,7 +150,7 @@ struct DiffStat: View {
             Text("+\(pr.additions)").foregroundStyle(.green)
             Text("−\(pr.deletions)").foregroundStyle(.red)
         }
-        .font(.caption)
+        .scaled(.caption)
         .monospacedDigit()
     }
 }
@@ -186,8 +161,8 @@ struct SectionTitle: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            Text(title).font(.headline)
-            if let count { Text("\(count)").font(.caption).foregroundStyle(.secondary) }
+            Text(title).scaled(.headline)
+            if let count { Text("\(count)").scaled(.caption).foregroundStyle(.secondary) }
         }
     }
 }
@@ -196,12 +171,13 @@ struct EmptyText: View {
     var text: String
 
     var body: some View {
-        Text(text).font(.callout).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
+        Text(text).scaled(.callout).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
 struct PullRequestLine: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.textScale) private var scale: Double
     var pr: PullRequest
     var showRepo = true
 
@@ -212,11 +188,11 @@ struct PullRequestLine: View {
             HStack(spacing: 8) {
                 ChecksBadge(pr: pr)
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(pr.title).lineLimit(1).font(.callout)
+                    Text(pr.title).lineLimit(1).scaled(.callout)
                     HStack(spacing: 6) {
-                        Text(showRepo ? "\(pr.repoName)#\(pr.number)" : "#\(pr.number)").font(.caption).foregroundStyle(.secondary)
+                        Text(showRepo ? "\(pr.repoName)#\(pr.number)" : "#\(pr.number)").scaled(.caption).foregroundStyle(.secondary)
                         if let parent = model.state.stackParent(of: pr) {
-                            Text("↑ #\(parent.number)").font(.caption).foregroundStyle(.secondary).help("Stacked on #\(parent.number)")
+                            Text("↑ #\(parent.number)").scaled(.caption).foregroundStyle(.secondary).help("Stacked on #\(parent.number)")
                         }
                         if let reason = model.state.rebaseReason(pr) {
                             Chip(text: "rebase: \(reason.text)", color: .orange)
@@ -225,7 +201,7 @@ struct PullRequestLine: View {
                 }
                 Spacer(minLength: 4)
                 ReviewBadge(pr: pr)
-                Text(Format.age(pr.updatedAt)).font(.caption).monospacedDigit().foregroundStyle(.secondary).frame(width: 36, alignment: .trailing)
+                Text(Format.age(pr.updatedAt)).scaled(.caption).monospacedDigit().foregroundStyle(.secondary).frame(width: 36 * scale, alignment: .trailing)
             }
             .contentShape(Rectangle())
         }
@@ -243,7 +219,7 @@ struct AddDeleteCounts: View {
             Text("+\(additions)").foregroundStyle(.green)
             Text("−\(deletions)").foregroundStyle(.red)
         }
-        .font(.caption)
+        .scaled(.caption)
         .monospacedDigit()
     }
 }
@@ -258,13 +234,13 @@ struct ReviewStatusChip: View {
             switch status.phase {
             case .queued, .preparing:
                 ProgressView().controlSize(.mini)
-                Text("starting").font(.caption2).foregroundStyle(.secondary)
+                Text("starting").scaled(.caption2).foregroundStyle(.secondary)
             case .running:
                 ProgressView().controlSize(.mini)
-                Text("reviewing").font(.caption2).foregroundStyle(.secondary)
+                Text("reviewing").scaled(.caption2).foregroundStyle(.secondary)
             case .submitting:
                 ProgressView().controlSize(.mini)
-                Text("sending").font(.caption2).foregroundStyle(.secondary)
+                Text("sending").scaled(.caption2).foregroundStyle(.secondary)
             case .failed:
                 Chip(text: "failed", color: .red)
             case .submitted:

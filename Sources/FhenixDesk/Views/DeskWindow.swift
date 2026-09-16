@@ -36,9 +36,8 @@ struct DeskWindow: View {
     @State private var tab: Tab? = Tab(rawValue: ProcessInfo.processInfo.environment["FHENIX_DESK_OPEN_WINDOW"] ?? "") ?? .tickets
 
     var body: some View {
-        Zoomed(scale: model.textScale) {
-            splitView
-        }
+        splitView
+            .textScale(model.textScale)
         // A regular app while the window shows, so ⌘-Tab and the Dock can bring it back.
         .onAppear { NSApp.setActivationPolicy(.regular) }
         // The menu bar and the nudges ask for a tab by setting this; clearing it keeps it a one-shot.
@@ -57,8 +56,8 @@ struct DeskWindow: View {
         }
     }
 
-    /// The window's whole content, apart from the toolbar: the toolbar is drawn by AppKit outside the
-    /// zoom, which is what keeps these buttons the same size at every setting.
+    /// The window's whole content, apart from the toolbar: the toolbar keeps the system size at every
+    /// setting, so the control that changes the text never moves under the pointer.
     private var splitView: some View {
         NavigationSplitView {
             List(Tab.allCases, selection: $tab) { tab in
