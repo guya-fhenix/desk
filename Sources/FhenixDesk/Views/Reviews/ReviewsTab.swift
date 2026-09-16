@@ -88,8 +88,10 @@ private struct ReviewQueue: View {
     }
 
     /// The answer to "what should I press Review on?", which is the only thing that starts a review.
+    /// Counted over the rows on screen, like the scope counts beside it: a number that outlived the
+    /// filters would point at rows the table is not showing.
     private var header: some View {
-        let ready = model.state.reviewsToRun.count
+        let ready = queue(scope).count { model.state.reviewNeed(for: $0) != nil }
         return HStack(spacing: 8) {
             Picker("Scope", selection: $scope) {
                 ForEach(ReviewScope.allCases) { scope in
@@ -105,7 +107,7 @@ private struct ReviewQueue: View {
                 .help("Show only pull requests opened in the last two weeks")
             if ready > 0 {
                 Chip(text: "\(ready) ready to run", color: .orange)
-                    .help("Press Review on a row to run it. Nothing runs on its own.")
+                    .help("Of the rows shown. Press Review on one to run it; nothing runs on its own.")
             }
             Spacer()
             if !model.canStartReview {
