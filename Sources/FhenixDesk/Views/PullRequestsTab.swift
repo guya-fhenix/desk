@@ -25,10 +25,15 @@ struct PullRequestsTab: View {
         Table(model.state.stackedMine(order: sortOrder), sortOrder: $sortOrder) {
             TableColumn("Repo", value: \.pullRequest.repoName) { row in Text(row.pullRequest.repoName) }.width(min: 90, ideal: 120)
             TableColumn("Pull request", value: \.pullRequest.number) { row in StackedTitle(row: row, model: model) }.width(min: 200, ideal: 360)
-            TableColumn("Agent") { row in ClaudeSessionButton(pr: row.pullRequest, model: model) }.width(50)
-            TableColumn("Checks") { row in ChecksBadge(pr: row.pullRequest) }.width(50)
-            TableColumn("Review") { row in ReviewBadge(pr: row.pullRequest) }.width(90)
-            TableColumn("Merge") { row in MergeBadge(pr: row.pullRequest) }.width(80)
+            TableColumn("Jira ticket") { row in TicketMark(pr: row.pullRequest, model: model) }.width(min: 80, ideal: 100)
+            // Grouped only to get past the ten a table's column builder takes. Only the badge columns:
+            // a group has one sort type, so a sortable column cannot sit among these.
+            Group {
+                TableColumn("Agent") { (row: StackedPullRequest) in ClaudeSessionButton(pr: row.pullRequest, model: model) }.width(50)
+                TableColumn("Checks") { (row: StackedPullRequest) in ChecksBadge(pr: row.pullRequest) }.width(50)
+                TableColumn("Review") { (row: StackedPullRequest) in ReviewBadge(pr: row.pullRequest) }.width(90)
+                TableColumn("Merge") { (row: StackedPullRequest) in MergeBadge(pr: row.pullRequest) }.width(80)
+            }
             TableColumn("Threads", value: \.pullRequest.unresolvedThreads) { row in UnresolvedThreads(count: row.pullRequest.unresolvedThreads) }.width(80)
             TableColumn("Size", value: \.pullRequest.size) { row in DiffStat(pr: row.pullRequest) }.width(120)
             TableColumn("Age", value: \.pullRequest.createdAt) { row in Text(Format.age(row.pullRequest.createdAt)).monospacedDigit() }.width(50)
@@ -61,9 +66,6 @@ private struct StackedTitle: View {
                     .padding(.leading, CGFloat(row.depth - 1) * 16)
             }
             Button { model.open(pr.url) } label: { Text("#\(pr.number) \(pr.title)").lineLimit(1) }.buttonStyle(.link)
-            if let key = model.state.ticketKeys[pr.url]?.first {
-                TicketMark(key: key, model: model)
-            }
             if row.depth == 0 {
                 if row.stackSize > 1 {
                     Chip(text: "stack of \(row.stackSize)").fixedSize()
@@ -96,13 +98,21 @@ private struct UnresolvedThreads: View {
 /// The Jira ticket a pull request is about, and whether the two still agree. Read-only on purpose: the
 /// press that moves a ticket lives on the Tickets screen, where the ticket does.
 private struct TicketMark: View {
-    var key: String
+    var pr: PullRequest
     var model: AppModel
 
     var body: some View {
+        if let key = model.state.ticketKeys[pr.url]?.first {
+            link(key)
+        } else {
+            Text("–").foregroundStyle(.secondary).help("No Jira key in the branch name or title")
+        }
+    }
+
+    private func link(_ key: String) -> some View {
         let ticket = model.state.ticket(key)
         let drift = model.state.drift(forKey: key)
-        HStack(spacing: 3) {
+        return         HStack(spacing: 3) {
             Button { model.open(ticket?.url) } label: { Text(key).scaled(.caption.monospaced()) }
                 .buttonStyle(.link)
                 .disabled(ticket == nil)

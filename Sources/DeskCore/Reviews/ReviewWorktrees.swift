@@ -51,6 +51,10 @@ public actor ReviewWorktrees {
     public func prepareBranch(pr: PullRequest, repoRoot: String) async throws -> String {
         try await serialized(repoRoot) {
             let path = Self.branchWorktree(branch: pr.headRef, repoRoot: repoRoot)
+            // A record for a directory that is gone goes on claiming its branch, and `worktree add`
+            // refuses to check a branch out twice. Pruning first is what lets the branch be used again;
+            // it only ever drops records whose directory has already vanished.
+            _ = try? await self.git(["worktree", "prune"], cwd: repoRoot)
             if try await self.isWorktree(path, of: repoRoot) { return path }
             if FileManager.default.fileExists(atPath: path) { throw ReviewWorktreeError.notAWorktree(path) }
             try FileManager.default.createDirectory(atPath: (path as NSString).deletingLastPathComponent, withIntermediateDirectories: true)

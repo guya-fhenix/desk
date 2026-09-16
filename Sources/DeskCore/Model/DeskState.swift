@@ -85,8 +85,12 @@ public struct DeskState: Sendable {
         (github?.reviewRequests ?? []).filter { !$0.isDraft && !$0.isAutomated(config.automation) }
     }
     /// Worktrees the user works in. Review worktrees are detached PR heads the app owns; they would
-    /// otherwise read as local work and raise "unpushed work" nudges.
-    public var worktrees: [Worktree] { (gitScan?.worktrees ?? []).filter { !isReviewWorktree($0.path) } }
+    /// otherwise read as local work and raise "unpushed work" nudges. A prunable one is a record git
+    /// still keeps for a directory the disk no longer has — every background Claude session whose job
+    /// has since been deleted leaves one behind — and it is no place to start anything.
+    public var worktrees: [Worktree] {
+        (gitScan?.worktrees ?? []).filter { !isReviewWorktree($0.path) && !$0.isPrunable }
+    }
     public var reviewWorktrees: [Worktree] { (gitScan?.worktrees ?? []).filter { isReviewWorktree($0.path) } }
 
     /// Open PRs nobody has put on you and you have not reviewed. Once you review one it drops out of
