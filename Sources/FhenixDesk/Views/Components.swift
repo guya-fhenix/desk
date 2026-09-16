@@ -112,6 +112,59 @@ struct RefreshControl: View {
     }
 }
 
+/// Browser-style zoom for everything inside it: the content lays out at 1/scale and is scaled back up,
+/// so text grows and the layout reflows around it.
+///
+/// This is the only mechanism that moves all of the window together. macOS has no Dynamic Type — SwiftUI's
+/// `dynamicTypeSize` renders identically here at every size including the accessibility ones, measured — and
+/// the app names an explicit font in 89 places, none of which a Table's own headers, a Picker's labels or a
+/// button's title would go through anyway.
+struct Zoomed<Content: View>: View {
+    var scale: Double
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        if scale == 1 {
+            // The overwhelmingly common case pays for none of this: no GeometryReader, no transform.
+            content
+        } else {
+            GeometryReader { geo in
+                content
+                    .frame(width: geo.size.width / scale, height: geo.size.height / scale)
+                    .scaleEffect(scale, anchor: .topLeading)
+            }
+        }
+    }
+}
+
+/// Sits beside the refresh button and zooms the window. macOS offers no system text size, so this is the
+/// app's own — and it is remembered across launches.
+struct TextSizeControl: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        HStack(spacing: 2) {
+            step("minus", -1, "Smaller text", enabled: model.canZoomText.smaller)
+            Text(percent)
+                .font(.caption).monospacedDigit()
+                .foregroundStyle(model.textScale == 1 ? .tertiary : .secondary)
+                .frame(width: 38)
+                .help("Text size")
+            step("plus", 1, "Larger text", enabled: model.canZoomText.larger)
+        }
+    }
+
+    private var percent: String { "\(Int((model.textScale * 100).rounded()))%" }
+
+    private func step(_ icon: String, _ steps: Int, _ label: String, enabled: Bool) -> some View {
+        Button { model.zoomText(steps) } label: {
+            Image(systemName: icon).frame(width: 18, height: 18)
+        }
+        .disabled(!enabled)
+        .help("\(label) (\(percent))")
+    }
+}
+
 /// GitHub's diff stat: the size bucket, then additions in green and deletions in red.
 struct DiffStat: View {
     var pr: PullRequest

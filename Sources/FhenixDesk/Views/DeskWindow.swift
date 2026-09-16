@@ -36,19 +36,8 @@ struct DeskWindow: View {
     @State private var tab: Tab? = Tab(rawValue: ProcessInfo.processInfo.environment["FHENIX_DESK_OPEN_WINDOW"] ?? "") ?? .tickets
 
     var body: some View {
-        NavigationSplitView {
-            List(Tab.allCases, selection: $tab) { tab in
-                Label(tab.title, systemImage: tab.icon).badge(badge(for: tab))
-            }
-            .navigationSplitViewColumnWidth(min: 170, ideal: 190)
-        } detail: {
-            switch tab ?? .tickets {
-            case .tickets: TicketsTab()
-            case .pullRequests: PullRequestsTab()
-            case .reviews: ReviewsTab()
-            case .metrics: MetricsTab()
-            case .settings: SettingsTab()
-            }
+        Zoomed(scale: model.textScale) {
+            splitView
         }
         // A regular app while the window shows, so ⌘-Tab and the Dock can bring it back.
         .onAppear { NSApp.setActivationPolicy(.regular) }
@@ -63,7 +52,27 @@ struct DeskWindow: View {
         // closes while the window's environment is gone. The item carries the model itself so a late
         // update cannot hit "No Observable object of type AppModel found".
         .toolbar {
+            ToolbarItem(placement: .primaryAction) { TextSizeControl().environment(model) }
             ToolbarItem(placement: .primaryAction) { RefreshControl().environment(model) }
+        }
+    }
+
+    /// The window's whole content, apart from the toolbar: the toolbar is drawn by AppKit outside the
+    /// zoom, which is what keeps these buttons the same size at every setting.
+    private var splitView: some View {
+        NavigationSplitView {
+            List(Tab.allCases, selection: $tab) { tab in
+                Label(tab.title, systemImage: tab.icon).badge(badge(for: tab))
+            }
+            .navigationSplitViewColumnWidth(min: 170, ideal: 190)
+        } detail: {
+            switch tab ?? .tickets {
+            case .tickets: TicketsTab()
+            case .pullRequests: PullRequestsTab()
+            case .reviews: ReviewsTab()
+            case .metrics: MetricsTab()
+            case .settings: SettingsTab()
+            }
         }
     }
 
