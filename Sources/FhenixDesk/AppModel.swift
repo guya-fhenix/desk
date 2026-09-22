@@ -370,14 +370,14 @@ final class AppModel {
     ///
     /// The ticket only moves once the session is running. A press that started nothing must not leave
     /// Jira claiming work is underway.
-    func planTicket(_ ticket: Ticket, in repo: RepoRef) {
+    func planTicket(_ ticket: Ticket, in repo: RepoRef, note: String = "") {
         let key = ticket.key
         guard !planningTickets.contains(key) else { return }
         planningTickets.insert(key)
         Task {
             defer { planningTickets.remove(key) }
             do {
-                _ = try await service.startTicketSession(ticket: ticket, repoRoot: repo.root)
+                _ = try await service.startTicketSession(ticket: ticket, repoRoot: repo.root, note: note)
                 sessionErrors[key] = nil
             } catch {
                 sessionErrors[key] = "\(error)"

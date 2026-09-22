@@ -109,16 +109,18 @@ public actor DeskService {
     /// Starts a background Claude session to plan a ticket, in a repository's own checkout. Nothing ties
     /// the session to the ticket: planning ends in a pull request, and the pull request is what this app
     /// follows — so pressing again is another session, deliberately.
-    public func startTicketSession(ticket: Ticket, repoRoot: String) async throws -> String {
+    public func startTicketSession(ticket: Ticket, repoRoot: String, note: String = "") async throws -> String {
         guard let claude = config.resolvedClaudePath else { throw DeskError.claudeNotFound }
-        let output = try await Shell.output(claude, ["--bg", Self.ticketPrompt(for: ticket)], cwd: repoRoot, timeout: 120)
+        let prompt = Self.ticketPrompt(for: ticket, note: note)
+        let output = try await Shell.output(claude, ["--bg", prompt], cwd: repoRoot, timeout: 120)
         guard let id = ClaudeJobs.startedID(in: output) else { throw DeskError.sessionNotStarted(output) }
         return id
     }
 
     /// What a planning session is told. The description rides along so the session need not reach Jira —
-    /// it has no credentials of its own, and this app already has the text.
-    public static func ticketPrompt(for ticket: Ticket) -> String {
+    /// it has no credentials of its own, and this app already has the text. `note` is whatever you typed
+    /// on the way in, and it sits closest to the instruction because it is the part the ticket does not say.
+    public static func ticketPrompt(for ticket: Ticket, note: String = "") -> String {
         var paragraphs = [
             """
             Plan \(ticket.key) — \(ticket.summary)
@@ -127,6 +129,10 @@ public actor DeskService {
         ]
         if !ticket.description.isEmpty {
             paragraphs.append("The ticket says:\n\n\(ticket.description)")
+        }
+        let note = note.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !note.isEmpty {
+            paragraphs.append("What I want from the plan:\n\n\(note)")
         }
         paragraphs.append("""
             Work out how to do this in this repository: what it touches, in what order, and what is \

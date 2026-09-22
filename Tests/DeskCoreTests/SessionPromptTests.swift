@@ -74,4 +74,25 @@ import Testing
         #expect(!prompt.contains("The ticket says:"))
         #expect(prompt.components(separatedBy: "\n\n").count == 2)
     }
+
+    /// What you typed on the way in, sitting between the ticket and the instruction.
+    @Test func theNoteIsCarriedAndComesLast() {
+        var ticket = Fixtures.ticket("PRO-579")
+        ticket.description = "Some background."
+        let prompt = DeskService.ticketPrompt(for: ticket, note: "Keep it to the migration; ignore the UI.")
+        #expect(prompt.contains("What I want from the plan:"))
+        #expect(prompt.contains("Keep it to the migration; ignore the UI."))
+        let note = try! #require(prompt.range(of: "Keep it to the migration"))
+        let ticketSays = try! #require(prompt.range(of: "Some background."))
+        let instruction = try! #require(prompt.range(of: "Write the plan and wait"))
+        #expect(ticketSays.lowerBound < note.lowerBound)
+        #expect(note.lowerBound < instruction.lowerBound)
+    }
+
+    /// Pressing Plan without typing must read exactly as it did before there was a box to type in.
+    @Test func aBlankNoteChangesNothing() {
+        let ticket = Fixtures.ticket("PRO-580")
+        #expect(DeskService.ticketPrompt(for: ticket, note: "   \n  ") == DeskService.ticketPrompt(for: ticket))
+        #expect(!DeskService.ticketPrompt(for: ticket, note: "").contains("What I want"))
+    }
 }

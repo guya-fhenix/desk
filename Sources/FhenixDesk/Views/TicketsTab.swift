@@ -8,6 +8,9 @@ struct TicketsTab: View {
     @Environment(\.textScale) private var scale: Double
     /// Which descriptions are open. By key, so a poll that replaces every ticket leaves them open.
     @State private var expanded: Set<String> = []
+    /// The ticket and repository a plan has been asked for, while the note is still being written.
+    @State private var planning: PlanRequest?
+    @State private var planNote = ""
 
     var body: some View {
         List {
@@ -34,6 +37,9 @@ struct TicketsTab: View {
             }
         }
         .navigationTitle("Tickets")
+        .sheet(item: $planning) { request in
+            PlanSheet(request: request, model: model, note: $planNote) { planning = nil }
+        }
     }
 
     private func statusRow(_ group: TicketGroup) -> some View {
@@ -59,7 +65,10 @@ struct TicketsTab: View {
                 if let drift = model.state.drift(forKey: ticket.key) {
                     DriftButton(drift: drift, model: model)
                 }
-                PlanButton(ticket: ticket, model: model)
+                PlanButton(ticket: ticket, model: model) { repo in
+                    planNote = ""
+                    planning = PlanRequest(ticket: ticket, repo: repo)
+                }
                 if let priority = ticket.priority {
                     Text(priority).scaled(.caption).foregroundStyle(.tertiary)
                 }
@@ -137,6 +146,8 @@ private struct DriftButton: View {
 private struct PlanButton: View {
     var ticket: Ticket
     var model: AppModel
+    /// Picking the repository does not start anything: it opens the sheet that asks what the plan is for.
+    var onPick: (RepoRef) -> Void
 
     var body: some View {
         let repos = (model.state.gitScan?.repos ?? []).sorted { $0.name < $1.name }
@@ -145,7 +156,7 @@ private struct PlanButton: View {
         } else if !repos.isEmpty {
             Menu {
                 ForEach(repos, id: \.root) { repo in
-                    Button(repo.name) { model.planTicket(ticket, in: repo) }
+                    Button(repo.name) { onPick(repo) }
                 }
             } label: {
                 // The hollow terminal the Pull Requests screen uses for "no session yet, pressing starts
@@ -162,5 +173,61 @@ private struct PlanButton: View {
         let status = model.config.jiraInProgressStatus
         let move = status.isEmpty ? "" : ", and move it to “\(status)”"
         return "Plan \(ticket.key) in a background Claude session\(move)"
+    }
+}
+
+/// A plan asked for but not yet started: the repository is chosen, the note is not yet written.
+private struct PlanRequest: Identifiable {
+    var ticket: Ticket
+    var repo: RepoRef
+
+    var id: String { "\(ticket.key)|\(repo.root)" }
+}
+
+/// The last step before a planning session starts. The ticket and its description go along whatever
+/// happens here; this is for the part the ticket does not say — what to focus on, what to leave alone,
+/// how far to take it.
+private struct PlanSheet: View {
+    var request: PlanRequest
+    var model: AppModel
+    @Binding var note: String
+    var dismiss: () -> Void
+
+    @FocusState private var writing: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Plan \(request.ticket.key) in \(request.repo.name)").scaled(.headline)
+            Text(request.ticket.summary).scaled(.callout).foregroundStyle(.secondary).lineLimit(2)
+            Text("Anything you want from the plan? The ticket and its description are sent either way.")
+                .scaled(.caption)
+                .foregroundStyle(.secondary)
+            TextEditor(text: $note)
+                .scaled(.callout)
+                .focused($writing)
+                .frame(minHeight: 96)
+                .padding(4)
+                .overlay(RoundedRectangle(cornerRadius: 5).stroke(.quaternary))
+            HStack(spacing: 8) {
+                Text(model.config.jiraInProgressStatus.isEmpty
+                    ? "Starts a background session."
+                    : "Starts a background session and moves the ticket to “\(model.config.jiraInProgressStatus)”.")
+                    .scaled(.caption)
+                    .foregroundStyle(.tertiary)
+                Spacer()
+                Button("Cancel", role: .cancel) { dismiss() }
+                    .keyboardShortcut(.cancelAction)
+                Button("Plan") {
+                    model.planTicket(request.ticket, in: request.repo, note: note)
+                    dismiss()
+                }
+                .buttonStyle(.borderedProminent)
+                // Return belongs to the editor, so the press that starts it is ⌘-Return.
+                .keyboardShortcut(.return, modifiers: .command)
+            }
+        }
+        .padding(16)
+        .frame(width: 460)
+        .onAppear { writing = true }
     }
 }
