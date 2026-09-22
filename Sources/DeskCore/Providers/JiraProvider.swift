@@ -85,7 +85,7 @@ public actor JiraProvider {
             "jira", "workitem", "search", "--jql", jql,
             // acli allows only this handful; `updated` is not among them, which is why `Ticket` carries no
             // timestamp. The JQL still orders by it.
-            "--fields", "key,summary,status,priority",
+            "--fields", "key,summary,status,priority,description",
             "--json", "--paginate",
         ])
         return try JiraDecoding.tickets(from: data, site: account.site, assignedToMe: assignedToMe, placement: placement)
@@ -144,7 +144,8 @@ public enum JiraDecoding {
             priority: issue.fields.priority?.name,
             url: "https://\(site)/browse/\(issue.key)",
             assignedToMe: assignedToMe,
-            placement: placement
+            placement: placement,
+            description: JiraDescription.markdown(issue.fields.description)
         )
     }
 
@@ -157,6 +158,7 @@ public enum JiraDecoding {
         public var summary: String
         public var status: Status
         public var priority: Named?
+        public var description: ADFNode?
     }
 
     public struct Status: Decodable {

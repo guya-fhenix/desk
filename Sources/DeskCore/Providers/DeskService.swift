@@ -106,6 +106,35 @@ public actor DeskService {
         )
     }
 
+    /// Starts a background Claude session to plan a ticket, in a repository's own checkout. Nothing ties
+    /// the session to the ticket: planning ends in a pull request, and the pull request is what this app
+    /// follows — so pressing again is another session, deliberately.
+    public func startTicketSession(ticket: Ticket, repoRoot: String) async throws -> String {
+        guard let claude = config.resolvedClaudePath else { throw DeskError.claudeNotFound }
+        let output = try await Shell.output(claude, ["--bg", Self.ticketPrompt(for: ticket)], cwd: repoRoot, timeout: 120)
+        guard let id = ClaudeJobs.startedID(in: output) else { throw DeskError.sessionNotStarted(output) }
+        return id
+    }
+
+    /// What a planning session is told. The description rides along so the session need not reach Jira —
+    /// it has no credentials of its own, and this app already has the text.
+    public static func ticketPrompt(for ticket: Ticket) -> String {
+        var paragraphs = [
+            """
+            Plan \(ticket.key) — \(ticket.summary)
+            \(ticket.url)
+            """
+        ]
+        if !ticket.description.isEmpty {
+            paragraphs.append("The ticket says:\n\n\(ticket.description)")
+        }
+        paragraphs.append("""
+            Work out how to do this in this repository: what it touches, in what order, and what is \
+            unclear enough to ask about first. Write the plan and wait — do not change anything yet.
+            """)
+        return paragraphs.joined(separator: "\n\n")
+    }
+
     /// What a background session is started with. The two extra paragraphs are there only when the PR
     /// actually has that problem: Desk knows whether it does, so the session is told rather than asked to
     /// go looking. Both ask for a proposal and neither for a change — the session stops and waits, the way

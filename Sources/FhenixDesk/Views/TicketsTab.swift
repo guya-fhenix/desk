@@ -6,6 +6,8 @@ import SwiftUI
 struct TicketsTab: View {
     @Environment(AppModel.self) private var model
     @Environment(\.textScale) private var scale: Double
+    /// Which descriptions are open. By key, so a poll that replaces every ticket leaves them open.
+    @State private var expanded: Set<String> = []
 
     var body: some View {
         List {
@@ -45,21 +47,51 @@ struct TicketsTab: View {
     }
 
     private func ticketRow(_ ticket: Ticket) -> some View {
-        HStack(spacing: 8) {
-            Button(ticket.key) { model.open(ticket.url) }
-                .buttonStyle(.link)
-                .scaled(.callout.monospaced())
-                .frame(width: 84 * scale, alignment: .leading)
-            Text(ticket.summary).lineLimit(1)
-            Spacer()
-            if let drift = model.state.drift(forKey: ticket.key) {
-                DriftButton(drift: drift, model: model)
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                disclosure(ticket)
+                Button(ticket.key) { model.open(ticket.url) }
+                    .buttonStyle(.link)
+                    .scaled(.callout.monospaced())
+                    .frame(width: 84 * scale, alignment: .leading)
+                Text(ticket.summary).lineLimit(1)
+                Spacer()
+                if let drift = model.state.drift(forKey: ticket.key) {
+                    DriftButton(drift: drift, model: model)
+                }
+                PlanButton(ticket: ticket, model: model)
+                if let priority = ticket.priority {
+                    Text(priority).scaled(.caption).foregroundStyle(.tertiary)
+                }
             }
-            if let priority = ticket.priority {
-                Text(priority).scaled(.caption).foregroundStyle(.tertiary)
+            if expanded.contains(ticket.key) {
+                MarkdownText(text: ticket.description)
+                    .padding(.leading, 20 * scale)
+                    .padding(.bottom, 4)
             }
         }
         .padding(.leading, 18)
+    }
+
+    /// The accordion. Absent rather than disabled on a ticket with nothing to show, but still taking its
+    /// width, so every key in the list stays in one column.
+    @ViewBuilder private func disclosure(_ ticket: Ticket) -> some View {
+        let isOpen = expanded.contains(ticket.key)
+        Group {
+            if ticket.description.isEmpty {
+                Color.clear
+            } else {
+                Button {
+                    if isOpen { expanded.remove(ticket.key) } else { expanded.insert(ticket.key) }
+                } label: {
+                    Image(systemName: isOpen ? "chevron.down" : "chevron.right").foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help(isOpen ? "Hide the description" : "Read the description")
+            }
+        }
+        .scaled(.caption)
+        .frame(width: 10 * scale)
     }
 
     private func color(_ category: TicketStatusCategory) -> Color {
@@ -94,5 +126,39 @@ private struct DriftButton: View {
         let prs = drift.pullRequests.map { "\($0.repoName)#\($0.number)" }.joined(separator: ", ")
         let because = drift.stage == .done ? "\(prs) merged" : "\(prs) open for review"
         return "\(because) — move \(drift.ticket.key) to “\(drift.target)”"
+    }
+}
+
+/// Starts a background Claude session to plan this ticket, in a repository you pick — a ticket names no
+/// repository, and a plan is worth little without the code it is about.
+///
+/// Nothing binds the session to the ticket, so this stays a plain press rather than a state: the session
+/// is expected to reach a pull request, and that is what the app follows from then on.
+private struct PlanButton: View {
+    var ticket: Ticket
+    var model: AppModel
+
+    var body: some View {
+        let repos = (model.state.gitScan?.repos ?? []).sorted { $0.name < $1.name }
+        if model.planningTickets.contains(ticket.key) {
+            ProgressView().controlSize(.mini).help("Starting a session to plan \(ticket.key)")
+        } else if !repos.isEmpty {
+            Menu {
+                ForEach(repos, id: \.root) { repo in
+                    Button(repo.name) { model.planTicket(ticket, in: repo) }
+                }
+            } label: {
+                Image(systemName: "list.bullet.rectangle")
+                    .foregroundStyle(model.sessionErrors[ticket.key] == nil ? Color.accentColor : .red)
+            }
+            .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+            .help(model.sessionErrors[ticket.key] ?? help)
+        }
+    }
+
+    private var help: String {
+        let status = model.config.jiraInProgressStatus
+        let move = status.isEmpty ? "" : ", and move it to “\(status)”"
+        return "Plan \(ticket.key) in a background Claude session\(move)"
     }
 }

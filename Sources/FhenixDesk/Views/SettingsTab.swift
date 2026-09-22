@@ -169,6 +169,7 @@ struct SettingsTab: View {
             }
             Section {
                 TextField("Project keys (comma separated)", text: $projectKeysText)
+                TextField("Status when planning starts", text: $draft.jiraInProgressStatus)
                 TextField("Status while a PR is open for review", text: $draft.jiraReviewStatus)
                 TextField("Status once every PR has merged", text: $draft.jiraDoneStatus)
             } header: {

@@ -15,6 +15,8 @@ public struct DeskConfig: Codable, Sendable, Equatable {
     /// The status a ticket takes while one of its pull requests waits for review, and the one it takes
     /// once they have all landed. Names, not ids: they are what `acli jira workitem transition --status`
     /// wants, emoji and all. Empty turns that half of the sync off.
+    /// Where a ticket goes when you start planning it, so the next glance says somebody is on it.
+    public var jiraInProgressStatus: String = "In Progress"
     public var jiraReviewStatus: String = "👀 Review Ready"
     public var jiraDoneStatus: String = "Done"
     public var githubPollSeconds: Int = 180
@@ -45,7 +47,7 @@ public struct DeskConfig: Codable, Sendable, Equatable {
 
     private enum CodingKeys: String, CodingKey {
         case repoRoots, githubOrg, trackedRepos, ghPath, botLogins, automatedTitlePrefixes, jiraProjectKeys
-        case jiraReviewStatus, jiraDoneStatus
+        case jiraInProgressStatus, jiraReviewStatus, jiraDoneStatus
         case githubPollSeconds, gitPollSeconds, jiraPollSeconds
         case stalePullRequestDays, metricsWeeks, notificationsEnabled
         case claudePath, acliPath, reviewRoot, reviewModel, reviewEffort, reviewBudgetUSD, cleanupReviewsOnMerge
@@ -64,6 +66,7 @@ public struct DeskConfig: Codable, Sendable, Equatable {
         botLogins = try c.decodeIfPresent([String].self, forKey: .botLogins) ?? d.botLogins
         automatedTitlePrefixes = try c.decodeIfPresent([String].self, forKey: .automatedTitlePrefixes) ?? d.automatedTitlePrefixes
         jiraProjectKeys = try c.decodeIfPresent([String].self, forKey: .jiraProjectKeys) ?? d.jiraProjectKeys
+        jiraInProgressStatus = try c.decodeIfPresent(String.self, forKey: .jiraInProgressStatus) ?? d.jiraInProgressStatus
         jiraReviewStatus = try c.decodeIfPresent(String.self, forKey: .jiraReviewStatus) ?? d.jiraReviewStatus
         jiraDoneStatus = try c.decodeIfPresent(String.self, forKey: .jiraDoneStatus) ?? d.jiraDoneStatus
         githubPollSeconds = try c.decodeIfPresent(Int.self, forKey: .githubPollSeconds) ?? d.githubPollSeconds

@@ -53,3 +53,25 @@ import Testing
         #expect(prompt.components(separatedBy: "\n\n").count == 4)
     }
 }
+
+/// What a planning session is told. It carries the description because the session has no Jira
+/// credentials of its own, and asks for a plan rather than a change.
+@Suite struct TicketPromptTests {
+    @Test func namesTheTicketAndAsksForAPlan() {
+        var ticket = Fixtures.ticket("PRO-577")
+        ticket.description = "The three listeners hold events from 44+ days ago."
+        let prompt = DeskService.ticketPrompt(for: ticket)
+        #expect(prompt.contains("Plan PRO-577 — Summary PRO-577"))
+        #expect(prompt.contains("https://j/browse/PRO-577"))
+        #expect(prompt.contains("The ticket says:"))
+        #expect(prompt.contains("44+ days ago"))
+        #expect(prompt.contains("do not change anything yet"))
+    }
+
+    /// A ticket with no description says so by omission rather than with an empty heading.
+    @Test func anEmptyDescriptionIsLeftOut() {
+        let prompt = DeskService.ticketPrompt(for: Fixtures.ticket("PRO-578"))
+        #expect(!prompt.contains("The ticket says:"))
+        #expect(prompt.components(separatedBy: "\n\n").count == 2)
+    }
+}

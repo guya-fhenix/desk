@@ -37,10 +37,14 @@ public struct Ticket: Codable, Sendable, Hashable, Identifiable {
     public var url: String
     public var assignedToMe: Bool
     public var placement: TicketPlacement
+    /// The Jira description as markdown. Jira sends it as a node tree; `JiraDescription` flattens it so
+    /// the same renderer that draws a pull request body can draw this.
+    public var description: String
 
     public init(
         key: String, summary: String, status: String, category: TicketStatusCategory,
-        priority: String? = nil, url: String, assignedToMe: Bool, placement: TicketPlacement = .unknown
+        priority: String? = nil, url: String, assignedToMe: Bool, placement: TicketPlacement = .unknown,
+        description: String = ""
     ) {
         self.key = key
         self.summary = summary
@@ -50,5 +54,6 @@ public struct Ticket: Codable, Sendable, Hashable, Identifiable {
         self.url = url
         self.assignedToMe = assignedToMe
         self.placement = placement
+        self.description = description
     }
 }

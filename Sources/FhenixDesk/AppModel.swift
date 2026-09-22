@@ -28,9 +28,11 @@ final class AppModel {
     var busyReviews: Set<String> = []
     /// Ticket keys with a transition in flight, for the button that must not fire twice.
     var movingTickets: Set<String> = []
+    /// Ticket keys with a planning session starting, for the same reason.
+    var planningTickets: Set<String> = []
     /// PR urls with a background session being started, for the same reason.
     var startingSessions: Set<String> = []
-    /// Why the session button last failed, per PR url. It is the button's own tooltip: a press that
+    /// Why the session button last failed, per PR url or ticket key. It is the button's own tooltip: a press that
     /// does nothing is the one thing this must not be.
     var sessionErrors: [String: String] = [:]
     /// What reviews have cost in the last 24 hours. Shown because every run is now a deliberate spend.
@@ -360,6 +362,45 @@ final class AppModel {
 
     var canZoomText: (smaller: Bool, larger: Bool) {
         (textScale > Self.textScaleRange.lowerBound, textScale < Self.textScaleRange.upperBound)
+    }
+
+    /// Starts a background Claude session to plan a ticket, then moves the ticket to in progress so a
+    /// later glance says somebody is already on it. The session is tied to nothing: press again and you
+    /// get another, which is the point — it is the pull request it ends in that the app follows.
+    ///
+    /// The ticket only moves once the session is running. A press that started nothing must not leave
+    /// Jira claiming work is underway.
+    func planTicket(_ ticket: Ticket, in repo: RepoRef) {
+        let key = ticket.key
+        guard !planningTickets.contains(key) else { return }
+        planningTickets.insert(key)
+        Task {
+            defer { planningTickets.remove(key) }
+            do {
+                _ = try await service.startTicketSession(ticket: ticket, repoRoot: repo.root)
+                sessionErrors[key] = nil
+            } catch {
+                sessionErrors[key] = "\(error)"
+                Self.log.error("plan \(key, privacy: .public): \(String(describing: error), privacy: .public)")
+                return
+            }
+            await startProgress(on: ticket)
+        }
+    }
+
+    /// Moves a ticket to the in-progress status, unless it is already there or already finished. A refusal
+    /// here is worth saying out loud but never undoes the session that has just started.
+    private func startProgress(on ticket: Ticket) async {
+        let target = config.jiraInProgressStatus
+        guard !target.isEmpty, ticket.status != target, ticket.category != .done else { return }
+        do {
+            try await service.transitionTicket(key: ticket.key, to: target)
+            state.errors[.jira] = nil
+        } catch {
+            state.errors[.jira] = "\(error)"
+            Self.log.error("plan \(ticket.key, privacy: .public): \(String(describing: error), privacy: .public)")
+        }
+        await refresh(.jira)
     }
 
     func open(_ url: String?) {
