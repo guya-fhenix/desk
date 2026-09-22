@@ -148,8 +148,10 @@ private struct PlanButton: View {
                     Button(repo.name) { model.planTicket(ticket, in: repo) }
                 }
             } label: {
-                Image(systemName: "list.bullet.rectangle")
-                    .foregroundStyle(model.sessionErrors[ticket.key] == nil ? Color.accentColor : .red)
+                // The hollow terminal the Pull Requests screen uses for "no session yet, pressing starts
+                // one". It never fills here: a planning session is tied to nothing to fill it.
+                Image(systemName: "terminal")
+                    .foregroundStyle(model.sessionErrors[ticket.key] == nil ? Color.secondary : .red)
             }
             .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
             .help(model.sessionErrors[ticket.key] ?? help)
