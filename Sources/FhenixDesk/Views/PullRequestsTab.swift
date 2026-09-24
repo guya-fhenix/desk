@@ -5,6 +5,8 @@ struct PullRequestsTab: View {
     @Environment(AppModel.self) private var model
     @State private var sortOrder: [KeyPathComparator<StackedPullRequest>] = []
     @AppStorage("sort.pullRequests") private var storedSort = ""
+    @State private var selection: String?
+    @State private var search = ""
 
     private static let sort = TableSort<StackedPullRequest>(
         [
@@ -22,27 +24,45 @@ struct PullRequestsTab: View {
     )
 
     var body: some View {
-        Table(model.state.stackedMine(order: sortOrder), sortOrder: $sortOrder) {
+        Table(rows, selection: $selection, sortOrder: $sortOrder) {
             TableColumn("Repo", value: \.pullRequest.repoName) { row in Text(row.pullRequest.repoName) }.width(min: 90, ideal: 120)
-            TableColumn("Pull request", value: \.pullRequest.number) { row in StackedTitle(row: row, model: model) }.width(min: 200, ideal: 360)
-            TableColumn("Jira ticket") { row in TicketMark(pr: row.pullRequest, model: model) }.width(min: 80, ideal: 100)
-            // Grouped only to get past the ten a table's column builder takes. Only the badge columns:
-            // a group has one sort type, so a sortable column cannot sit among these.
+            TableColumn("Pull request", value: \.pullRequest.number) { row in StackedTitle(row: row, model: model) }.width(min: 200, ideal: 340)
+            TableColumn("Ticket") { row in TicketMark(pr: row.pullRequest, model: model) }.width(min: 70, ideal: 90)
+            // Grouped only because a group has one sort type, so no sortable column can sit among these.
             Group {
-                TableColumn("Agent") { (row: StackedPullRequest) in ClaudeSessionButton(pr: row.pullRequest, model: model) }.width(50)
-                TableColumn("Checks") { (row: StackedPullRequest) in ChecksBadge(pr: row.pullRequest) }.width(50)
-                TableColumn("Review") { (row: StackedPullRequest) in ReviewBadge(pr: row.pullRequest) }.width(90)
-                TableColumn("Merge") { (row: StackedPullRequest) in MergeBadge(pr: row.pullRequest) }.width(80)
+                TableColumn("Agent") { (row: StackedPullRequest) in ClaudeSessionButton(pr: row.pullRequest, model: model) }.width(44)
+                TableColumn("Status") { (row: StackedPullRequest) in PullRequestStatus(pr: row.pullRequest) }.width(min: 150, ideal: 170)
             }
-            TableColumn("Threads", value: \.pullRequest.unresolvedThreads) { row in UnresolvedThreads(count: row.pullRequest.unresolvedThreads) }.width(80)
-            TableColumn("Size", value: \.pullRequest.size) { row in DiffStat(pr: row.pullRequest) }.width(120)
-            TableColumn("Age", value: \.pullRequest.createdAt) { row in Text(Format.age(row.pullRequest.createdAt)).monospacedDigit() }.width(50)
-            TableColumn("Updated", value: \.pullRequest.updatedAt) { row in Text(Format.age(row.pullRequest.updatedAt)).monospacedDigit() }.width(60)
+            TableColumn("Threads", value: \.pullRequest.unresolvedThreads) { row in UnresolvedThreads(count: row.pullRequest.unresolvedThreads) }.width(70)
+            TableColumn("Size", value: \.pullRequest.size) { row in DiffStat(pr: row.pullRequest) }.width(110)
+            TableColumn("Age", value: \.pullRequest.createdAt) { row in Text(Format.age(row.pullRequest.createdAt)).monospacedDigit() }.width(44)
+            TableColumn("Updated", value: \.pullRequest.updatedAt) { row in Text(Format.age(row.pullRequest.updatedAt)).monospacedDigit() }.width(56)
         }
         .remembersSort(Self.sort, order: $sortOrder, stored: $storedSort)
+        .searchable(text: $search, placement: .toolbar, prompt: "Repo, number or title")
         .navigationTitle("Pull Requests")
         .overlay {
             if model.state.mine.isEmpty { EmptyText(text: model.state.errors[.github] ?? "No open PRs.").padding() }
+        }
+        .deskInspector("pullRequests") {
+            if let pr = model.state.mine.first(where: { $0.url == selection }) {
+                PullRequestInspector(pr: pr, model: model)
+            } else {
+                EmptyText(text: "Select a pull request.").padding()
+                Spacer()
+            }
+        }
+    }
+
+    /// The stacked rows, filtered by the search field. A child that matches keeps its indent even when its
+    /// root does not: the arrow still says it is stacked, and the inspector names the parent.
+    private var rows: [StackedPullRequest] {
+        let all = model.state.stackedMine(order: sortOrder)
+        let needle = search.trimmingCharacters(in: .whitespaces).lowercased()
+        guard !needle.isEmpty else { return all }
+        return all.filter { row in
+            let pr = row.pullRequest
+            return "\(pr.repoName)#\(pr.number) \(pr.title) \(pr.headRef)".lowercased().contains(needle)
         }
     }
 }
@@ -123,5 +143,122 @@ private struct TicketMark: View {
         }
         .fixedSize()
         .help(ticket.map { "\(key) — \($0.status)" } ?? "\(key) — not among your tickets")
+    }
+}
+
+/// Everything about the selected pull request that the row has no room for, and every press that acts on it.
+private struct PullRequestInspector: View {
+    var pr: PullRequest
+    var model: AppModel
+
+    var body: some View {
+        Form {
+            Section {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("#\(pr.number) \(pr.title)").scaled(.headline).fixedSize(horizontal: false, vertical: true)
+                    Text("\(pr.repoName) · \(pr.headRef) → \(pr.baseRef)")
+                        .scaled(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+                }
+                HStack {
+                    Button("Open on GitHub") { model.open(pr.url) }
+                    Button("Copy branch") {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(pr.headRef, forType: .string)
+                    }
+                }
+                .controlSize(.small)
+            }
+            Section("Status") {
+                LabeledContent("Checks") { HStack(spacing: 4) { ChecksBadge(pr: pr); Text(checksText) } }
+                LabeledContent("Review") { ReviewBadge(pr: pr) }
+                LabeledContent("Merge") { MergeBadge(pr: pr) }
+                if let reason = model.state.rebaseReason(pr) {
+                    LabeledContent("Rebase") { Text(reason.text).foregroundStyle(.orange) }
+                }
+                LabeledContent("Threads", value: pr.unresolvedThreads == 0 ? "None open" : "\(pr.unresolvedThreads) unresolved")
+                LabeledContent("Size") { DiffStat(pr: pr) }
+                LabeledContent("Opened", value: "\(Format.age(pr.createdAt)) ago, updated \(Format.age(pr.updatedAt)) ago")
+            }
+            if parent != nil || !children.isEmpty {
+                Section("Stack") {
+                    if let parent { stackLine("On", parent) }
+                    ForEach(children) { stackLine("Under it", $0) }
+                }
+            }
+            Section("Jira") { jira }
+            Section("Background session") { sessions }
+        }
+        .formStyle(.grouped)
+    }
+
+    private var checksText: String {
+        switch pr.checks {
+        case .success: return "Passed"
+        case .failure, .error: return "Failed"
+        case .pending, .expected: return "Running"
+        case .none: return "No checks"
+        }
+    }
+
+    private var parent: PullRequest? { model.state.stackParent(of: pr) }
+
+    private var children: [PullRequest] {
+        (model.state.github?.allOpen ?? []).filter { model.state.stackParents[$0.url] == pr.url }
+    }
+
+    private func stackLine(_ label: String, _ other: PullRequest) -> some View {
+        LabeledContent(label) {
+            Button { model.open(other.url) } label: { Text("#\(other.number) \(other.title)").lineLimit(1) }
+                .buttonStyle(.link)
+        }
+    }
+
+    @ViewBuilder private var jira: some View {
+        let keys = model.state.ticketKeys[pr.url] ?? []
+        if keys.isEmpty {
+            Text("No Jira key in the branch name or title.").foregroundStyle(.secondary)
+        }
+        ForEach(keys, id: \.self) { key in
+            let ticket = model.state.ticket(key)
+            LabeledContent {
+                Text(ticket?.status ?? "Not among your tickets").foregroundStyle(.secondary)
+            } label: {
+                Button(key) { model.open(ticket?.url) }.buttonStyle(.link).disabled(ticket == nil)
+            }
+            if let drift = model.state.drift(forKey: key) {
+                HStack {
+                    Text("Jira says “\(drift.ticket.status)”; this PR says “\(drift.target)”.").scaled(.caption)
+                    Spacer()
+                    DriftButton(drift: drift, model: model)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder private var sessions: some View {
+        let jobs = model.state.claudeJobs(for: pr)
+        if jobs.isEmpty {
+            Text("No background session mentions this PR.").foregroundStyle(.secondary)
+            HStack {
+                Button("Start on \(pr.headRef)") { model.startSession(for: pr) }
+                    .disabled(model.state.localRepo(for: pr) == nil || model.startingSessions.contains(pr.url))
+                if model.startingSessions.contains(pr.url) { ProgressView().controlSize(.mini) }
+            }
+            .controlSize(.small)
+        }
+        ForEach(jobs) { job in
+            LabeledContent {
+                Button("Attach") { model.attach(job, for: pr) }.controlSize(.small)
+            } label: {
+                HStack(spacing: 6) {
+                    StatusDot(color: job.isRunning ? .green : .secondary)
+                    Text(job.name).lineLimit(1)
+                    Text(job.state).scaled(.caption).foregroundStyle(.secondary)
+                }
+            }
+        }
+        if let error = model.sessionErrors[pr.url] {
+            Text(error).scaled(.caption).foregroundStyle(.red).textSelection(.enabled)
+        }
     }
 }

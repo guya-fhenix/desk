@@ -348,3 +348,17 @@ struct DriftButton: View {
         return "\(because) — move \(drift.ticket.key) to “\(drift.target)”"
     }
 }
+
+/// Checks, review decision and merge state in one cell: three columns of mostly-quiet badges read better
+/// as one, and the inspector spells each out.
+struct PullRequestStatus: View {
+    var pr: PullRequest
+
+    var body: some View {
+        HStack(spacing: 5) {
+            ChecksBadge(pr: pr)
+            ReviewBadge(pr: pr)
+            MergeBadge(pr: pr)
+        }
+    }
+}
