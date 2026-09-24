@@ -187,7 +187,11 @@ private struct DeskInspector<Inspector: View>: ViewModifier {
     func body(content: Content) -> some View {
         content
             .inspector(isPresented: $shown) {
-                inspector().inspectorColumnWidth(min: 260, ideal: width, max: 560)
+                inspector()
+                    // A grouped form in a column this narrow runs its cards under the scroller; this lane
+                    // keeps them clear of it, and the scroller stays at the edge.
+                    .contentMargins(.trailing, 14, for: .scrollContent)
+                    .inspectorColumnWidth(min: 260, ideal: width, max: 560)
             }
             // On the content, not inside the inspector: there it would leave with the column it reopens.
             .toolbar {
