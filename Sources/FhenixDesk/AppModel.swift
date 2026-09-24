@@ -184,6 +184,24 @@ final class AppModel {
         }
     }
 
+    /// The Metrics toolbar's window. Saved like any setting and recomputed on the spot from what is here;
+    /// a wider window also reaches further back in the merged-PR search, so GitHub is asked again.
+    func setMetricsWeeks(_ weeks: Int) {
+        guard weeks != config.metricsWeeks else { return }
+        config.metricsWeeks = weeks
+        state.recompute()
+        do {
+            try support.save(config, to: DeskService.configFile)
+            configError = nil
+        } catch {
+            configError = "\(error)"
+        }
+        Task {
+            await service.update(config: config)
+            await refresh(.github)
+        }
+    }
+
     /// Re-reads acli's sign-in state, for after the user has logged in from a terminal.
     func refreshJiraAccount() {
         Task {

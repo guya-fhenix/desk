@@ -69,10 +69,13 @@ struct MetricsTab: View {
         }
         .remembersSort(Self.sort, order: $weeklyOrder, stored: $storedSort)
         .navigationTitle("Metrics")
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) { WindowPicker(model: model) }
+        }
     }
 
     private var statTiles: some View {
-        HStack(alignment: .top, spacing: 28) {
+        HStack(alignment: .top, spacing: 10) {
             tile("Median cycle, \(model.config.metricsWeeks) weeks", Format.duration(CycleTime.median(cycles.compactMap(\.total))))
             tile("Median to first review", Format.duration(CycleTime.median(cycles.compactMap(\.toFirstReview))))
             tile("Merged PRs", "\(cycles.count)")
@@ -83,9 +86,13 @@ struct MetricsTab: View {
 
     private func tile(_ label: String, _ value: String) -> some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(value).scaled(.size(26).weight(.semibold))
+            Text(value).scaled(.size(24).weight(.semibold)).monospacedDigit()
             Text(label).scaled(.caption).foregroundStyle(.secondary)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 10))
     }
 
     private var phaseChart: some View {
@@ -178,5 +185,24 @@ struct MetricsTab: View {
             }
             .frame(height: CGFloat(weekly.count + 1) * Self.rowHeight + 8)
         }
+    }
+}
+
+/// How many weeks the screen covers. The same saved setting as Settings → General; here because it is
+/// the one knob you turn while looking at the chart.
+private struct WindowPicker: View {
+    var model: AppModel
+    private static let choices = [4, 8, 12, 26]
+
+    var body: some View {
+        Picker("Window", selection: Binding(get: { model.config.metricsWeeks }, set: { model.setMetricsWeeks($0) })) {
+            // A value set by hand in Settings stays selectable rather than leaving the picker blank.
+            ForEach(Array(Set(Self.choices + [model.config.metricsWeeks])).sorted(), id: \.self) { weeks in
+                Text("Last \(weeks) weeks").tag(weeks)
+            }
+        }
+        .pickerStyle(.menu)
+        .labelsHidden()
+        .fixedSize()
     }
 }
