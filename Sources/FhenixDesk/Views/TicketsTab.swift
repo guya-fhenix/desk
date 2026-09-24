@@ -2,27 +2,29 @@ import DeskCore
 import SwiftUI
 
 /// Your Jira tickets by status, split by whether they are in the running sprint or waiting in the
-/// backlog. Done is left out: the screen is about what is still open.
+/// backlog. Done is left out: the screen is about what is still open. Selecting one opens it in the
+/// inspector, which is where its description is read.
 struct TicketsTab: View {
     @Environment(AppModel.self) private var model
     @Environment(\.textScale) private var scale: Double
-    /// Which descriptions are open. By key, so a poll that replaces every ticket leaves them open.
-    @State private var expanded: Set<String> = []
+    /// By key, so a poll that replaces every ticket keeps the selection.
+    @State private var selection: String?
+    @State private var search = ""
     /// The ticket and repository a plan has been asked for, while the note is still being written.
     @State private var planning: PlanRequest?
     @State private var planNote = ""
 
     var body: some View {
-        List {
+        List(selection: $selection) {
             ForEach([TicketPlacement.sprint, .backlog], id: \.self) { placement in
-                let groups = model.state.ticketGroups(placement)
+                let groups = filtered(model.state.ticketGroups(placement))
                 Section {
                     if groups.isEmpty {
-                        EmptyText(text: placement == .sprint ? "Nothing of yours in the open sprint." : "Nothing of yours in the backlog.")
+                        EmptyText(text: emptyText(placement))
                     }
                     ForEach(groups) { group in
                         statusRow(group)
-                        ForEach(group.tickets) { ticket in ticketRow(ticket) }
+                        ForEach(group.tickets) { ticket in ticketRow(ticket).tag(ticket.key) }
                     }
                 } header: {
                     HStack {
@@ -36,80 +38,157 @@ struct TicketsTab: View {
                 Section("Jira") { Text(error).scaled(.caption).foregroundStyle(.red).textSelection(.enabled) }
             }
         }
+        .searchable(text: $search, placement: .toolbar, prompt: "Key or summary")
         .navigationTitle("Tickets")
+        .deskInspector("tickets") {
+            if let key = selection, let ticket = model.state.ticket(key) {
+                TicketInspector(ticket: ticket, model: model, plan: plan)
+            } else {
+                EmptyText(text: "Select a ticket to read it.").padding()
+                Spacer()
+            }
+        }
         .sheet(item: $planning) { request in
             PlanSheet(request: request, model: model, note: $planNote) { planning = nil }
         }
     }
 
+    private func plan(_ ticket: Ticket, _ repo: RepoRef) {
+        planNote = ""
+        planning = PlanRequest(ticket: ticket, repo: repo)
+    }
+
+    private func filtered(_ groups: [TicketGroup]) -> [TicketGroup] {
+        let needle = search.trimmingCharacters(in: .whitespaces).lowercased()
+        guard !needle.isEmpty else { return groups }
+        return groups.compactMap { group in
+            var group = group
+            group.tickets = group.tickets.filter { "\($0.key) \($0.summary)".lowercased().contains(needle) }
+            return group.tickets.isEmpty ? nil : group
+        }
+    }
+
+    private func emptyText(_ placement: TicketPlacement) -> String {
+        if !search.isEmpty { return "No match." }
+        return placement == .sprint ? "Nothing of yours in the open sprint." : "Nothing of yours in the backlog."
+    }
+
     private func statusRow(_ group: TicketGroup) -> some View {
         HStack(spacing: 8) {
-            StatusDot(color: color(group.category))
+            StatusDot(color: TicketColor.of(group.category))
             Text(group.status).scaled(.callout.weight(.semibold))
             Spacer()
             Text("\(group.tickets.count)").scaled(.callout).monospacedDigit().foregroundStyle(.secondary)
         }
         .padding(.top, 2)
+        .selectionDisabled()
     }
 
     private func ticketRow(_ ticket: Ticket) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 8) {
-                disclosure(ticket)
-                Button(ticket.key) { model.open(ticket.url) }
-                    .buttonStyle(.link)
-                    .scaled(.callout.monospaced())
-                    .frame(width: 84 * scale, alignment: .leading)
-                Text(ticket.summary).lineLimit(1)
-                Spacer()
-                if let drift = model.state.drift(forKey: ticket.key) {
-                    DriftButton(drift: drift, model: model)
-                }
-                PlanButton(ticket: ticket, model: model) { repo in
-                    planNote = ""
-                    planning = PlanRequest(ticket: ticket, repo: repo)
-                }
-                if let priority = ticket.priority {
-                    Text(priority).scaled(.caption).foregroundStyle(.tertiary)
-                }
+        HStack(spacing: 8) {
+            Text(ticket.key)
+                .scaled(.callout.monospaced())
+                .frame(width: 84 * scale, alignment: .leading)
+            Text(ticket.summary).lineLimit(1)
+            Spacer()
+            if let drift = model.state.drift(forKey: ticket.key) {
+                DriftButton(drift: drift, model: model)
             }
-            if expanded.contains(ticket.key) {
-                MarkdownText(text: ticket.description)
-                    .padding(.leading, 20 * scale)
-                    .padding(.bottom, 4)
+            let linked = model.state.pullRequests(forTicket: ticket.key).count
+            if linked > 0 {
+                Label("\(linked)", systemImage: "arrow.triangle.pull")
+                    .scaled(.caption).foregroundStyle(.secondary)
+                    .help("\(linked) open \(linked == 1 ? "pull request names" : "pull requests name") this ticket")
+            }
+            PlanButton(ticket: ticket, model: model) { plan(ticket, $0) }
+            if let priority = ticket.priority {
+                Text(priority).scaled(.caption).foregroundStyle(.tertiary)
             }
         }
         .padding(.leading, 18)
     }
+}
 
-    /// The accordion. Absent rather than disabled on a ticket with nothing to show, but still taking its
-    /// width, so every key in the list stays in one column.
-    @ViewBuilder private func disclosure(_ ticket: Ticket) -> some View {
-        let isOpen = expanded.contains(ticket.key)
-        Group {
-            if ticket.description.isEmpty {
-                Color.clear
-            } else {
-                Button {
-                    if isOpen { expanded.remove(ticket.key) } else { expanded.insert(ticket.key) }
-                } label: {
-                    Image(systemName: isOpen ? "chevron.down" : "chevron.right").foregroundStyle(.secondary)
-                }
-                .buttonStyle(.plain)
-                .help(isOpen ? "Hide the description" : "Read the description")
-            }
-        }
-        .scaled(.caption)
-        .frame(width: 10 * scale)
-    }
-
-    private func color(_ category: TicketStatusCategory) -> Color {
+enum TicketColor {
+    static func of(_ category: TicketStatusCategory) -> Color {
         switch category {
         case .todo: return .secondary
         case .inProgress: return .blue
         case .done: return .green
         case .unknown: return .orange
         }
+    }
+}
+
+/// The selected ticket: where it stands, what it says, which pull requests name it, and the presses that
+/// act on it — the same two the row carries.
+private struct TicketInspector: View {
+    var ticket: Ticket
+    var model: AppModel
+    var plan: (Ticket, RepoRef) -> Void
+
+    var body: some View {
+        Form {
+            Section {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(ticket.key).scaled(.caption.monospaced()).foregroundStyle(.secondary).textSelection(.enabled)
+                    Text(ticket.summary).scaled(.headline).fixedSize(horizontal: false, vertical: true)
+                }
+                LabeledContent("Status") {
+                    HStack(spacing: 6) { StatusDot(color: TicketColor.of(ticket.category)); Text(ticket.status) }
+                }
+                if let priority = ticket.priority { LabeledContent("Priority", value: priority) }
+                HStack {
+                    Button("Open in Jira") { model.open(ticket.url) }
+                    planMenu
+                }
+                .controlSize(.small)
+            }
+            if let drift = model.state.drift(forKey: ticket.key) {
+                Section("Jira is behind") {
+                    Text(reason(drift)).scaled(.caption)
+                    HStack { Spacer(); DriftButton(drift: drift, model: model) }
+                }
+            }
+            Section("Pull requests") {
+                let prs = model.state.pullRequests(forTicket: ticket.key)
+                if prs.isEmpty { Text("None open.").foregroundStyle(.secondary) }
+                ForEach(prs) { pr in
+                    HStack(spacing: 6) {
+                        ChecksBadge(pr: pr)
+                        Button { model.open(pr.url) } label: { Text("\(pr.repoName)#\(pr.number) \(pr.title)").lineLimit(1) }
+                            .buttonStyle(.link)
+                    }
+                }
+            }
+            Section("Description") {
+                if ticket.description.isEmpty {
+                    Text("No description.").foregroundStyle(.secondary)
+                } else {
+                    MarkdownText(text: ticket.description)
+                }
+            }
+        }
+        .formStyle(.grouped)
+    }
+
+    @ViewBuilder private var planMenu: some View {
+        let repos = (model.state.gitScan?.repos ?? []).sorted { $0.name < $1.name }
+        if model.planningTickets.contains(ticket.key) {
+            ProgressView().controlSize(.mini)
+        } else if !repos.isEmpty {
+            Menu("Plan in…") {
+                ForEach(repos, id: \.root) { repo in Button(repo.name) { plan(ticket, repo) } }
+            }
+            .fixedSize()
+            .help(model.sessionErrors[ticket.key] ?? "Plan \(ticket.key) in a background Claude session")
+        }
+    }
+
+    private func reason(_ drift: TicketDrift) -> String {
+        let prs = drift.pullRequests.map { "\($0.repoName)#\($0.number)" }.joined(separator: ", ")
+        let because = drift.stage == .done ? "\(prs) merged" : "\(prs) open for review"
+        return "Jira says “\(drift.ticket.status)”. \(because), so it should be “\(drift.target)”."
     }
 }
 

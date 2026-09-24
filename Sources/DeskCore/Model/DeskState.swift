@@ -137,6 +137,11 @@ public struct DeskState: Sendable {
 
     public func ticket(_ key: String) -> Ticket? { tickets.first { $0.key == key } }
 
+    /// My open pull requests that name this ticket in their branch or title.
+    public func pullRequests(forTicket key: String) -> [PullRequest] {
+        mine.filter { ticketKeys[$0.url]?.contains(key) == true }
+    }
+
     /// Where this ticket should move, or nil when Jira already agrees with GitHub.
     public func drift(forKey key: String) -> TicketDrift? { ticketDrifts.first { $0.ticket.key == key } }
 
