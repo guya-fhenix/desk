@@ -72,8 +72,7 @@ public struct DeskState: Sendable {
 
     public var login: String { github?.login ?? "" }
 
-    /// What waits on you on one screen. The sidebar badge is this number, and it is the only place the
-    /// nudges surface in the window now.
+    /// What waits on you on one screen. The sidebar badge is this number; Today lists the nudges themselves.
     public func waiting(on screen: NudgeScreen) -> Int {
         nudges.count { $0.kind.screen == screen }
     }

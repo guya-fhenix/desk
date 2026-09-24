@@ -13,8 +13,12 @@ make install  # build .app, copy to ~/Applications, open
 swift run FhenixDesk --review <pr-url>   # review one PR headlessly and print every comment
 ```
 
-Jira needs an API token: Desk window → Settings → paste token. Create one at
-https://id.atlassian.com/manage-profile/security/api-tokens.
+Jira goes through the Atlassian CLI: run `acli jira auth login --web` once, then Settings (⌘,) → Jira →
+Recheck. Desk stores no Jira token.
+
+The window opens on Today: every nudge (CI failed, changes requested, needs rebase, ready to merge, review
+waiting, Claude reviewed, quiet PRs) and every ticket that has fallen behind its PRs, each with the button
+that deals with it. Pull Requests, Reviews and Tickets show a trailing inspector for the selected row.
 
 Claude reviews: the Reviews tab lists the PRs waiting on you and marks which are ready to run — never
 reviewed, re-requested since the last run, or a run that failed. Nothing starts on its own; you press

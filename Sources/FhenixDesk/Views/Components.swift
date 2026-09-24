@@ -175,40 +175,6 @@ struct EmptyText: View {
     }
 }
 
-struct PullRequestLine: View {
-    @Environment(AppModel.self) private var model
-    @Environment(\.textScale) private var scale: Double
-    var pr: PullRequest
-    var showRepo = true
-
-    var body: some View {
-        Button {
-            model.open(pr.url)
-        } label: {
-            HStack(spacing: 8) {
-                ChecksBadge(pr: pr)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(pr.title).lineLimit(1).scaled(.callout)
-                    HStack(spacing: 6) {
-                        Text(showRepo ? "\(pr.repoName)#\(pr.number)" : "#\(pr.number)").scaled(.caption).foregroundStyle(.secondary)
-                        if let parent = model.state.stackParent(of: pr) {
-                            Text("↑ #\(parent.number)").scaled(.caption).foregroundStyle(.secondary).help("Stacked on #\(parent.number)")
-                        }
-                        if let reason = model.state.rebaseReason(pr) {
-                            Chip(text: "rebase: \(reason.text)", color: .orange)
-                        }
-                    }
-                }
-                Spacer(minLength: 4)
-                ReviewBadge(pr: pr)
-                Text(Format.age(pr.updatedAt)).scaled(.caption).monospacedDigit().foregroundStyle(.secondary).frame(width: 36 * scale, alignment: .trailing)
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-    }
-}
-
 /// GitHub's +/− pair, shared by the PR tables, the file list and the diff headers.
 struct AddDeleteCounts: View {
     var additions: Int

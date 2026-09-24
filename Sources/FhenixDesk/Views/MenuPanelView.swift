@@ -2,8 +2,8 @@ import AppKit
 import DeskCore
 import SwiftUI
 
-/// The secondary-click panel: how much is waiting, and the two ways out. Anything that needs reading
-/// rather than counting belongs in the window.
+/// The secondary-click panel: how much is waiting, the few things that most need you, and the ways out.
+/// Anything longer than the top of Today belongs in the window.
 struct MenuPanelView: View {
     @Environment(AppModel.self) private var model
 
@@ -17,6 +17,7 @@ struct MenuPanelView: View {
                 Divider().frame(height: 34 * model.textScale)
                 counter("Tickets", model.state.openTickets.count)
             }
+            if !model.state.nudges.isEmpty { topNudges }
             footer
         }
         .padding(12)
@@ -45,15 +46,49 @@ struct MenuPanelView: View {
         .frame(maxWidth: .infinity)
     }
 
+    /// The head of Today, already sorted most urgent first. A PR opens on GitHub, as its notification does;
+    /// a finished review opens in the Desk, where it can be acted on.
+    private var topNudges: some View {
+        let nudges = model.state.nudges
+        return VStack(alignment: .leading, spacing: 2) {
+            ForEach(nudges.prefix(4)) { nudge in
+                Button { open(nudge) } label: {
+                    HStack(spacing: 8) {
+                        if nudge.kind == .readyToMerge { StatusDot(color: .green) } else { SeverityDot(severity: nudge.severity) }
+                        VStack(alignment: .leading, spacing: 0) {
+                            Text(nudge.title).scaled(.callout).lineLimit(1)
+                            Text(nudge.detail).scaled(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                        }
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.vertical, 3)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+            if nudges.count > 4 {
+                Button("All \(nudges.count) in Today…") {
+                    model.pendingTab = .today
+                    AppDelegate.openDesk?()
+                }
+                .buttonStyle(.link)
+                .scaled(.caption)
+            }
+        }
+    }
+
+    private func open(_ nudge: Nudge) {
+        if nudge.kind == .reviewReady, let url = nudge.url, model.state.reviews[url] != nil {
+            model.openInWindow(url)
+            AppDelegate.openDesk?()
+        } else {
+            model.open(nudge.url)
+        }
+    }
+
     private var footer: some View {
         HStack(spacing: 10) {
-            ForEach(Source.allCases, id: \.self) { source in
-                HStack(spacing: 3) {
-                    StatusDot(color: model.state.errors[source] == nil ? (model.state.lastRefresh[source] == nil ? .gray : .green) : .red)
-                    Text(source.title).scaled(.caption2).foregroundStyle(.secondary)
-                }
-                .help(model.state.errors[source] ?? "Updated \(Format.age(model.state.lastRefresh[source])) ago")
-            }
+            SourceDots()
             Spacer()
             Button("Quit") { NSApp.terminate(nil) }.buttonStyle(.plain).scaled(.caption).foregroundStyle(.secondary)
         }
