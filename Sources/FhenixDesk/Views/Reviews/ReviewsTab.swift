@@ -21,7 +21,7 @@ struct ReviewsTab: View {
         fallback: [KeyPathComparator(\PullRequest.createdAt)]
     )
     // Hoisted for the same reason as the sort: coming back from a workspace should not reset the scope.
-    @State private var scope: ReviewScope = .all
+    @State private var scope: ReviewPane = .queue(.all)
     // Most of the queue is old and settled; the recent window is what you actually act on.
     @State private var recentOnly = true
 
@@ -37,18 +37,46 @@ struct ReviewsTab: View {
             }
         }
         .remembersSort(Self.sort, order: $sortOrder, stored: $storedSort)
-        .navigationTitle("Reviews")
+    }
+}
+
+/// The queue's scopes, plus the reviews that have left it. Past is a scope rather than a strip under the
+/// table so the queue keeps the whole height.
+enum ReviewPane: Hashable, Identifiable {
+    case queue(ReviewScope)
+    case past
+
+    static let all: [ReviewPane] = ReviewScope.allCases.map { .queue($0) } + [.past]
+
+    var id: Self { self }
+
+    var title: String {
+        switch self {
+        case .queue(let scope): return scope.title
+        case .past: return "Past"
+        }
     }
 }
 
 private struct ReviewQueue: View {
     @Binding var sortOrder: [KeyPathComparator<PullRequest>]
-    @Binding var scope: ReviewScope
+    @Binding var scope: ReviewPane
     @Binding var recentOnly: Bool
     var model: AppModel
+    @State private var selection: String?
 
     private func queue(_ scope: ReviewScope) -> [PullRequest] { model.state.reviewQueue(scope, recentOnly: recentOnly) }
-    private var rows: [PullRequest] { queue(scope).sorted(using: sortOrder) }
+    private func count(_ pane: ReviewPane) -> Int {
+        switch pane {
+        case .queue(let scope): return queue(scope).count
+        case .past: return model.state.pastReviews.count
+        }
+    }
+    private var queueScope: ReviewScope? {
+        if case .queue(let scope) = scope { return scope }
+        return nil
+    }
+    private var rows: [PullRequest] { queueScope.map { queue($0).sorted(using: sortOrder) } ?? [] }
     /// The ones GitHub actually put on you, so a row in the mixed list says which it is.
     private var onMe: Set<String> { Set(model.state.reviewRequests.map(\.url)) }
 
@@ -56,31 +84,42 @@ private struct ReviewQueue: View {
         VStack(alignment: .leading, spacing: 0) {
             header
             Divider()
-            Table(rows, sortOrder: $sortOrder) {
-                TableColumn("Repo", value: \.repoName) { pr in Text(pr.repoName) }.width(min: 90, ideal: 110)
-                TableColumn("Pull request", value: \.number) { pr in
-                    QueueTitle(pr: pr, model: model, onMe: onMe.contains(pr.url))
-                }
-                .width(min: 220, ideal: 340)
-                TableColumn("Author", value: \.author) { pr in Text(pr.author) }.width(100)
-                TableColumn("Size", value: \.size) { pr in DiffStat(pr: pr) }.width(110)
-                TableColumn("Checks") { pr in ChecksBadge(pr: pr) }.width(50)
-                TableColumn("Waiting", value: \.createdAt) { pr in Text(Format.age(pr.createdAt)).monospacedDigit() }.width(64)
-                TableColumn("Review") { pr in QueueReviewCell(pr: pr, model: model) }.width(min: 210, ideal: 260)
-                TableColumn("") { pr in QueueActions(pr: pr, model: model) }.width(136)
+            if scope == .past {
+                PastReviews(model: model)
+            } else {
+                queueTable
             }
-            .overlay {
-                if rows.isEmpty {
-                    EmptyText(text: model.state.errors[.github] ?? emptyText).padding()
-                }
+        }
+        .navigationTitle("Reviews")
+    }
+
+    private var queueTable: some View {
+        Table(rows, selection: $selection, sortOrder: $sortOrder) {
+            TableColumn("Repo", value: \.repoName) { pr in Text(pr.repoName) }.width(min: 90, ideal: 110)
+            TableColumn("Pull request", value: \.number) { pr in
+                QueueTitle(pr: pr, model: model, onMe: onMe.contains(pr.url))
             }
-            Divider()
-            PastReviews(model: model)
+            .width(min: 220, ideal: 340)
+            TableColumn("Author", value: \.author) { pr in Text(pr.author) }.width(100)
+            TableColumn("Size", value: \.size) { pr in DiffStat(pr: pr) }.width(110)
+            TableColumn("Checks") { pr in ChecksBadge(pr: pr) }.width(50)
+            TableColumn("Waiting", value: \.createdAt) { pr in Text(Format.age(pr.createdAt)).monospacedDigit() }.width(64)
+            TableColumn("Review") { pr in QueueReviewCell(pr: pr, model: model) }.width(min: 210, ideal: 260)
+            TableColumn("") { pr in QueueActions(pr: pr, model: model) }.width(136)
+        }
+        // Double-click opens the review, when there is one to open.
+        .contextMenu(forSelectionType: String.self) { _ in } primaryAction: { urls in
+            if let url = urls.first, model.state.reviews[url] != nil { model.openWorkspace(url) }
+        }
+        .overlay {
+            if rows.isEmpty {
+                EmptyText(text: model.state.errors[.github] ?? emptyText).padding()
+            }
         }
     }
 
     private var emptyText: String {
-        switch scope {
+        switch queueScope ?? .all {
         case .onMe: return recentOnly ? "Nothing from the last two weeks waits on you." : "Nothing waits on your review."
         case .open: return recentOnly ? "No unreviewed PRs opened in the last two weeks." : "No open PRs left unreviewed in the tracked repos."
         case .all: return recentOnly ? "Nothing opened in the last two weeks." : "Nothing to review."
@@ -91,20 +130,22 @@ private struct ReviewQueue: View {
     /// Counted over the rows on screen, like the scope counts beside it: a number that outlived the
     /// filters would point at rows the table is not showing.
     private var header: some View {
-        let ready = queue(scope).count { model.state.reviewNeed(for: $0) != nil }
+        let ready = rows.count { model.state.reviewNeed(for: $0) != nil }
         return HStack(spacing: 8) {
             Picker("Scope", selection: $scope) {
-                ForEach(ReviewScope.allCases) { scope in
-                    Text("\(scope.title) \(queue(scope).count)").tag(scope)
+                ForEach(ReviewPane.all) { pane in
+                    Text("\(pane.title) \(count(pane))").tag(pane)
                 }
             }
             .pickerStyle(.segmented)
             .labelsHidden()
             .fixedSize()
-            Toggle(isOn: $recentOnly) { Text(recentOnly ? "Last 2 weeks" : "All time") }
-                .toggleStyle(.button)
-                .controlSize(.small)
-                .help("Show only pull requests opened in the last two weeks")
+            if scope != .past {
+                Toggle(isOn: $recentOnly) { Text(recentOnly ? "Last 2 weeks" : "All time") }
+                    .toggleStyle(.button)
+                    .controlSize(.small)
+                    .help("Show only pull requests opened in the last two weeks")
+            }
             if ready > 0 {
                 Chip(text: "\(ready) ready to run", color: .orange)
                     .help("Of the rows shown. Press Review on one to run it; nothing runs on its own.")
@@ -219,25 +260,32 @@ private struct PastReviews: View {
     var model: AppModel
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            SectionTitle(title: "Past reviews", count: model.state.pastReviews.count)
-            if model.state.pastReviews.isEmpty { EmptyText(text: "No reviews outside the queue.") }
-            ForEach(model.state.pastReviews) { record in
-                HStack(spacing: 10) {
-                    Button { model.openWorkspace(record.prUrl) } label: {
-                        Text("\(record.label) \(record.title)").lineLimit(1)
-                    }
+        Table(model.state.pastReviews) {
+            TableColumn("Repo") { record in Text(record.repo.split(separator: "/").last.map(String.init) ?? record.repo) }
+                .width(min: 90, ideal: 110)
+            TableColumn("Pull request") { record in
+                Button { model.openWorkspace(record.prUrl) } label: { Text("\(record.label) \(record.title)").lineLimit(1) }
                     .buttonStyle(.link)
-                    ReviewStatusChip(status: model.state.reviewStatus(for: record, pr: model.state.pullRequest(for: record)))
-                    Spacer()
-                    Text(Format.age(record.lastRunAt)).scaled(.caption).foregroundStyle(.secondary)
+            }
+            .width(min: 220, ideal: 360)
+            TableColumn("Review") { record in
+                ReviewStatusChip(status: model.state.reviewStatus(for: record, pr: model.state.pullRequest(for: record)))
+            }
+            .width(min: 160, ideal: 220)
+            TableColumn("Last run") { record in Text(Format.age(record.lastRunAt)).monospacedDigit() }.width(64)
+            TableColumn("") { record in
+                HStack(spacing: 4) {
+                    Button("Open") { model.openWorkspace(record.prUrl) }
                     Button("Remove") { model.removeReview(record) }
-                        .controlSize(.small).disabled(record.phase.isBusy)
+                        .disabled(record.phase.isBusy)
                         .help("Delete the review and its worktree (kept when the worktree has local changes)")
                 }
+                .controlSize(.small)
             }
+            .width(130)
         }
-        .padding(12)
-        .frame(maxHeight: 200)
+        .overlay {
+            if model.state.pastReviews.isEmpty { EmptyText(text: "No reviews outside the queue.").padding() }
+        }
     }
 }

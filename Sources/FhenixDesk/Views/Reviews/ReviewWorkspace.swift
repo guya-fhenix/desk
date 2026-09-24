@@ -1,7 +1,8 @@
 import DeskCore
 import SwiftUI
 
-/// One PR's review: the summary, the diff, the comments, and the one button that posts.
+/// One PR's review: the diff and its comments fill the window, the verdict and the one button that posts
+/// sit in the toolbar, and what you read around the diff — description, summary, run — is in the inspector.
 struct ReviewWorkspace: View, Equatable {
     let record: ReviewRecord
     let pr: PullRequest?
@@ -14,6 +15,7 @@ struct ReviewWorkspace: View, Equatable {
     /// Comment bodies being edited. Held here, above the lazy stack, so scrolling a card out of view
     /// cannot take the edit with it.
     @State private var drafts: [UUID: String] = [:]
+    @State private var confirming = false
 
     nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.record == rhs.record && lhs.pr == rhs.pr && lhs.model === rhs.model
@@ -21,21 +23,42 @@ struct ReviewWorkspace: View, Equatable {
 
     var body: some View {
         VStack(spacing: 0) {
-            ReviewHeaderBar(record: record, pr: pr, model: model, hasDrafts: !drafts.isEmpty)
-            if let body = pr?.body, !body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                PullRequestDescription(text: body)
-            }
             if let submission = record.submission { SubmittedBanner(submission: submission, model: model) }
             if let error = record.submitError { Banner(text: error, color: .red) }
             if let error = record.error { Banner(text: error, color: .orange) }
-            ReviewSummary(record: record, model: model)
-            Divider()
             content
         }
         // Without this the workspace reports its content's ideal size as the window's, and a diff grows
         // the window past the screen. The window sizes the workspace, never the other way round.
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .task(id: record.headSha) { await load() }
+        .navigationTitle(record.label)
+        .navigationSubtitle(record.title)
+        // Toolbar items are hosted apart from this view and can outlive its environment, so each one is
+        // handed the model rather than reading it from there.
+        .toolbar {
+            ToolbarItem(placement: .navigation) {
+                Button { model.closeWorkspace() } label: { Label("Back", systemImage: "chevron.left") }
+                    // Not Escape: that belongs to the comment editor's Cancel.
+                    .keyboardShortcut("[", modifiers: .command)
+                    .help("Back to the queue (⌘[)")
+            }
+            ToolbarItem(placement: .primaryAction) { ReviewProgress(record: record, pr: pr, model: model) }
+            ToolbarItem(placement: .primaryAction) {
+                RerunButton(record: record, pr: pr, model: model, hasDrafts: !drafts.isEmpty)
+            }
+            ToolbarItem(placement: .primaryAction) { VerdictPicker(record: record, model: model) }
+            ToolbarItem(placement: .primaryAction) {
+                SubmitButton(record: record, model: model) { confirming = true }
+            }
+        }
+        .confirmationDialog("Post this review to GitHub?", isPresented: $confirming, titleVisibility: .visible) {
+            Button(record.effectiveVerdict.title) { model.submitReview(record.prUrl) }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(confirmation)
+        }
+        .deskInspector("review") { ReviewInspector(record: record, pr: pr, model: model) }
     }
 
     @ViewBuilder private var content: some View {
@@ -96,58 +119,45 @@ struct ReviewWorkspace: View, Equatable {
             loadError = "Could not load the diff: \(error)"
         }
     }
+
+    private var confirmation: String {
+        let counts = record.counts
+        var parts = ["Posts \(counts.approved) \(counts.approved == 1 ? "comment" : "comments") and “\(record.effectiveVerdict.title)” to \(record.label)."]
+        if counts.outdated > 0 {
+            parts.append("Outdated comments go in the review body rather than on a line.")
+        }
+        if counts.pending > 0 {
+            parts.append("\(counts.pending) undecided \(counts.pending == 1 ? "comment" : "comments") will not be posted.")
+        }
+        parts.append("The author is notified immediately.")
+        return parts.joined(separator: " ")
+    }
 }
 
-private struct ReviewHeaderBar: View {
+/// Where the run stands, how far your decisions have got, what it cost, and what Claude concluded.
+private struct ReviewProgress: View {
     let record: ReviewRecord
     let pr: PullRequest?
     var model: AppModel
-    let hasDrafts: Bool
-    @State private var confirming = false
 
     var body: some View {
-        HStack(spacing: 10) {
-            Button { model.closeWorkspace() } label: { Label("Back", systemImage: "chevron.left") }
-                .buttonStyle(.borderless)
-                // Not Escape: that belongs to the comment editor's Cancel.
-                .keyboardShortcut("[", modifiers: .command)
-            Button { model.open(record.prUrl) } label: { Text(record.label).scaled(.headline) }
-                .buttonStyle(.link)
-            Text(record.title).lineLimit(1).foregroundStyle(.secondary)
+        HStack(spacing: 8) {
             if let pr { ChecksBadge(pr: pr) }
-            Spacer(minLength: 12)
-            status
+            if record.phase.isBusy || model.busyReviews.contains(record.prUrl) {
+                ProgressView().controlSize(.small)
+                Text(record.phase.label).scaled(.caption).foregroundStyle(.secondary)
+            }
+            let counts = record.counts
+            if counts.total > 0 {
+                Text("\(counts.approved) of \(counts.total) approved")
+                    .scaled(.caption).monospacedDigit().foregroundStyle(.secondary)
+            }
+            if record.costUSD > 0 {
+                Text(Format.usd(record.costUSD)).scaled(.caption).monospacedDigit().foregroundStyle(.tertiary)
+            }
             suggestedVerdict
-            Button { model.review(prForRerun) } label: { Image(systemName: "arrow.clockwise") }
-                .buttonStyle(.borderless)
-                .disabled(rerunDisabled)
-                .help(hasDrafts ? "Finish or discard your comment edits first" : "Review again")
-            verdictPicker
-            submitButton
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .confirmationDialog("Post this review to GitHub?", isPresented: $confirming, titleVisibility: .visible) {
-            Button(record.effectiveVerdict.title) { model.submitReview(record.prUrl) }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text(confirmation)
-        }
-    }
-
-    @ViewBuilder private var status: some View {
-        if record.phase.isBusy || model.busyReviews.contains(record.prUrl) {
-            ProgressView().controlSize(.small)
-            Text(record.phase.label).scaled(.caption).foregroundStyle(.secondary)
-        }
-        let counts = record.counts
-        if counts.total > 0 {
-            Text("\(counts.approved) of \(counts.total) approved")
-                .scaled(.caption).monospacedDigit().foregroundStyle(.secondary)
-        }
-        if record.costUSD > 0 {
-            Text(Format.usd(record.costUSD)).scaled(.caption).monospacedDigit().foregroundStyle(.tertiary)
-        }
+        .fixedSize()
     }
 
     /// What Claude decided. The picker beside it is yours to override, so the two are shown apart —
@@ -161,9 +171,36 @@ private struct ReviewHeaderBar: View {
                 .help(overridden ? "Claude suggested \(verdict.title); you changed it" : "Claude's verdict for this run")
         }
     }
+}
 
-    private var verdictPicker: some View {
-        Picker("", selection: Binding(
+private struct RerunButton: View {
+    let record: ReviewRecord
+    let pr: PullRequest?
+    var model: AppModel
+    let hasDrafts: Bool
+
+    var body: some View {
+        Button { model.review(prForRerun) } label: { Label("Review again", systemImage: "arrow.clockwise") }
+            .disabled(record.phase.isBusy || record.isSubmitted || hasDrafts || model.busyReviews.contains(record.prUrl))
+            .help(hasDrafts ? "Finish or discard your comment edits first" : "Review again")
+    }
+
+    /// The live PR when the snapshot still has it, else one rebuilt from the record so a re-run still works.
+    private var prForRerun: PullRequest {
+        pr ?? PullRequest(
+            number: record.number, title: record.title, url: record.prUrl, repo: record.repo,
+            createdAt: record.startedAt, updatedAt: record.lastRunAt, baseRef: record.baseRef,
+            headRef: "", headSha: record.headSha, author: record.author
+        )
+    }
+}
+
+private struct VerdictPicker: View {
+    let record: ReviewRecord
+    var model: AppModel
+
+    var body: some View {
+        Picker("Verdict", selection: Binding(
             get: { record.effectiveVerdict },
             set: { model.setVerdict($0, in: record.prUrl) }
         )) {
@@ -176,25 +213,31 @@ private struct ReviewHeaderBar: View {
         .fixedSize()
         .disabled(record.isSubmitted)
     }
+}
 
-    @ViewBuilder private var submitButton: some View {
+private struct SubmitButton: View {
+    let record: ReviewRecord
+    var model: AppModel
+    let confirm: () -> Void
+
+    var body: some View {
         // Never `.defaultAction`: the app's only outward write must not be reachable by pressing Return.
-        Button("Submit") { confirming = true }
-            .controlSize(.small)
-            .disabled(submitDisabled)
-            .help(submitHelp)
+        Button("Submit…", action: confirm)
+            .buttonStyle(.borderedProminent)
+            .disabled(disabled)
+            .help(help)
     }
 
     private var isOwnPR: Bool { record.author == model.state.login }
 
-    private var submitDisabled: Bool {
+    private var disabled: Bool {
         if record.isSubmitted || record.phase.isBusy || model.busyReviews.contains(record.prUrl) { return true }
         // GitHub refuses a verdict on your own PR, and a comment review with nothing in it.
         if isOwnPR, record.effectiveVerdict != .comment { return true }
         return record.effectiveVerdict == .comment && record.counts.approved == 0 && record.summary.isEmpty
     }
 
-    private var submitHelp: String {
+    private var help: String {
         if record.isSubmitted { return "Already submitted" }
         if isOwnPR, record.effectiveVerdict != .comment { return "GitHub does not let you approve or request changes on your own PR" }
         if record.effectiveVerdict == .comment && record.counts.approved == 0 && record.summary.isEmpty {
@@ -202,31 +245,55 @@ private struct ReviewHeaderBar: View {
         }
         return "Post one review with the comments you approved"
     }
+}
 
-    private var rerunDisabled: Bool {
-        record.phase.isBusy || record.isSubmitted || hasDrafts || model.busyReviews.contains(record.prUrl)
-    }
+/// What you read around the diff: the author's description, the summary you will post, and the run itself.
+private struct ReviewInspector: View {
+    let record: ReviewRecord
+    let pr: PullRequest?
+    var model: AppModel
 
-    /// The live PR when the snapshot still has it, else one rebuilt from the record so a re-run still works.
-    private var prForRerun: PullRequest {
-        pr ?? PullRequest(
-            number: record.number, title: record.title, url: record.prUrl, repo: record.repo,
-            createdAt: record.startedAt, updatedAt: record.lastRunAt, baseRef: record.baseRef,
-            headRef: "", headSha: record.headSha, author: record.author
-        )
-    }
-
-    private var confirmation: String {
-        let counts = record.counts
-        var parts = ["Posts \(counts.approved) \(counts.approved == 1 ? "comment" : "comments") and “\(record.effectiveVerdict.title)” to \(record.label)."]
-        if counts.outdated > 0 {
-            parts.append("Outdated comments go in the review body rather than on a line.")
+    var body: some View {
+        Form {
+            Section {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("\(record.label) \(record.title)").scaled(.headline).fixedSize(horizontal: false, vertical: true)
+                    Text("by \(record.author) · into \(record.baseRef)").scaled(.caption).foregroundStyle(.secondary)
+                }
+                Button("Open on GitHub") { model.open(record.prUrl) }.controlSize(.small)
+            }
+            if let body = pr?.body, !body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                Section("Description") { MarkdownText(text: body) }
+            }
+            Section {
+                ReviewSummary(record: record, model: model)
+            } header: {
+                Text("Summary")
+            } footer: {
+                Text("Posted as the review body when you submit.").scaled(.caption).foregroundStyle(.secondary)
+            }
+            Section("This run") {
+                LabeledContent("Status") {
+                    ReviewStatusChip(status: model.state.reviewStatus(for: record, pr: pr))
+                }
+                LabeledContent("Ran", value: "\(Format.age(record.lastRunAt)) ago · \(record.runs) \(record.runs == 1 ? "run" : "runs")")
+                if !record.headSha.isEmpty {
+                    LabeledContent("Head") { Text(record.headSha.prefix(7)).scaled(.callout.monospaced()).textSelection(.enabled) }
+                }
+                if record.costUSD > 0 { LabeledContent("Cost", value: Format.usd(record.costUSD)) }
+                LabeledContent("Worktree") {
+                    Text(record.worktreePath).scaled(.caption).lineLimit(1).truncationMode(.head).help(record.worktreePath)
+                }
+                HStack {
+                    Button("Reveal worktree") { model.reveal(record.worktreePath) }
+                    Button("Remove review", role: .destructive) { model.removeReview(record) }
+                        .disabled(record.phase.isBusy)
+                        .help("Delete the review and its worktree (kept when the worktree has local changes)")
+                }
+                .controlSize(.small)
+            }
         }
-        if counts.pending > 0 {
-            parts.append("\(counts.pending) undecided \(counts.pending == 1 ? "comment" : "comments") will not be posted.")
-        }
-        parts.append("The author is notified immediately.")
-        return parts.joined(separator: " ")
+        .formStyle(.grouped)
     }
 }
 
@@ -250,8 +317,7 @@ private struct ReviewSummary: View {
         VStack(alignment: .leading, spacing: 6) {
             if draft == nil, record.summary.isEmpty, record.rawOutput == nil {
                 Button("Add a summary") { draft = "" }
-                    .buttonStyle(.borderless).controlSize(.small).scaled(.caption)
-                    .help("Posted as the review body when you submit")
+                    .controlSize(.small)
             } else if let draft {
                 TextEditor(text: Binding(get: { draft }, set: { self.draft = $0 }))
                     .scaled(.callout)
@@ -289,29 +355,6 @@ private struct ReviewSummary: View {
                 .scaled(.caption)
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.bottom, 8)
-    }
-}
-
-/// What the author wrote. Collapsible and height-capped: it is context for the diff, not the screen.
-private struct PullRequestDescription: View {
-    let text: String
-    @AppStorage("review.showDescription") private var expanded = true
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            DisclosureGroup(isExpanded: $expanded) {
-                ScrollView {
-                    MarkdownText(text: text).padding(.top, 4).padding(.trailing, 8)
-                }
-                .frame(maxHeight: 200)
-            } label: {
-                Text("Description").scaled(.caption.weight(.semibold)).foregroundStyle(.secondary)
-            }
-        }
-        .padding(.horizontal, 12)
-        .padding(.bottom, 8)
     }
 }
 
