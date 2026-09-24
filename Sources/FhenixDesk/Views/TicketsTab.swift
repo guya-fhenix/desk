@@ -96,8 +96,11 @@ struct TicketsTab: View {
             }
             let linked = model.state.pullRequests(forTicket: ticket.key).count
             if linked > 0 {
-                Label("\(linked)", systemImage: "arrow.triangle.pull")
-                    .scaled(.caption).foregroundStyle(.secondary)
+                // Inline rather than a Label: the symbol then keeps the text's line height instead of
+                // stretching the row past its separator.
+                Text("\(Image(systemName: "arrow.triangle.pull")) \(linked)")
+                    .scaled(.caption).monospacedDigit().foregroundStyle(.secondary)
+                    .fixedSize()
                     .help("\(linked) open \(linked == 1 ? "pull request names" : "pull requests name") this ticket")
             }
             PlanButton(ticket: ticket, model: model) { plan(ticket, $0) }
