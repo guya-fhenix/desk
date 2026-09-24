@@ -51,6 +51,8 @@ struct MarkdownText: View {
                     .lineSpacing(2)
                     .padding(10)
             }
+            // The same for a long code line's scroller.
+            .contentMargins(.bottom, 6, for: .scrollContent)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(.quaternary.opacity(0.45), in: RoundedRectangle(cornerRadius: 6))
         case .quote(let text):
@@ -127,6 +129,8 @@ private struct MarkdownTable: View {
             .clipShape(RoundedRectangle(cornerRadius: 4))
         }
         .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
+        // Room under the grid for the horizontal scroller, which otherwise draws over the last row.
+        .contentMargins(.bottom, 12, for: .scrollContent)
     }
 
     private func cell(_ row: [String], _ column: Int, isHeader: Bool) -> some View {

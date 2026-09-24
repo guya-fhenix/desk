@@ -110,6 +110,8 @@ struct TicketsTab: View {
             }
         }
         .padding(.leading, 18)
+        // Clear of the list's scroller, which floats over the trailing edge.
+        .padding(.trailing, 12)
     }
 }
 
