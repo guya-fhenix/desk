@@ -99,26 +99,40 @@ struct DeskWindow: View {
     }
 }
 
-/// Pinned under the sidebar: what is running, whether each source answered, and the way into Settings.
+/// Pinned under the sidebar: the way into Settings, drawn as one more sidebar row, then a quiet status
+/// strip — what is running and whether each source answered.
 private struct SidebarFooter: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Divider()
-            if let running {
-                HStack(spacing: 6) {
-                    ProgressView().controlSize(.mini)
-                    Text(running).scaled(.caption).foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 0) {
+            SettingsLink {
+                HStack(spacing: 7) {
+                    Image(systemName: "gearshape").foregroundStyle(.tint).frame(width: 18)
+                    Text("Settings")
+                    Spacer()
                 }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 5)
+                .contentShape(Rectangle())
             }
-            SourceDots()
-            SettingsLink { Label("Settings…", systemImage: "gearshape") }
-                .buttonStyle(.borderless)
-                .scaled(.callout)
+            .buttonStyle(.plain)
+            .help("Settings (⌘,)")
+            .padding(.horizontal, 10)
+            .padding(.bottom, 6)
+            Divider()
+            VStack(alignment: .leading, spacing: 5) {
+                if let running {
+                    HStack(spacing: 6) {
+                        ProgressView().controlSize(.mini)
+                        Text(running).scaled(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                SourceDots()
+            }
+            .padding(.horizontal, 18)
+            .padding(.vertical, 8)
         }
-        .padding(.horizontal, 12)
-        .padding(.bottom, 10)
     }
 
     private var running: String? {
