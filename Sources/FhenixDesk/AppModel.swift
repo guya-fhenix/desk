@@ -220,6 +220,14 @@ final class AppModel {
     /// them, so a fifth review would stall every other source for minutes.
     var canStartReview: Bool { busyReviews.count < max(1, config.reviewConcurrency) }
 
+    /// Whether the Review button for this PR may be pressed now: a local clone to run in, nothing already
+    /// running on it, and a free slot.
+    func canReview(_ pr: PullRequest) -> Bool {
+        guard state.localRepo(for: pr) != nil, !busyReviews.contains(pr.url) else { return false }
+        guard state.review(for: pr)?.phase.isBusy != true else { return false }
+        return canStartReview
+    }
+
     private func run(_ pr: PullRequest, gitScan: GitScan) {
         guard !busyReviews.contains(pr.url), canStartReview else { return }
         busyReviews.insert(pr.url)

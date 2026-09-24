@@ -1,27 +1,10 @@
 import DeskCore
 import SwiftUI
 
-struct SettingsTab: View {
-    /// Settings split into panes. One long form buried the repo picker and the Save button alike; each
-    /// pane is short enough to read at a glance, and the repo list gets a screen of its own.
-    enum Pane: String, CaseIterable, Identifiable {
-        case github, repos, jira, reviews, advanced
-
-        var id: Pane { self }
-
-        var title: String {
-            switch self {
-            case .github: return "GitHub"
-            case .repos: return "Repos"
-            case .jira: return "Jira"
-            case .reviews: return "Reviews"
-            case .advanced: return "Advanced"
-            }
-        }
-    }
-
+/// The app's Settings window (⌘,). One pane per tab in the window's toolbar, the way every Mac app does
+/// it; the draft lives here, above the tabs, so switching panes never loses an edit.
+struct SettingsView: View {
     @Environment(AppModel.self) private var model
-    @State private var pane: Pane = .github
     @State private var draft = DeskConfig()
     @State private var repoRootsText = ""
     @State private var botLoginsText = ""
@@ -30,43 +13,41 @@ struct SettingsTab: View {
     @State private var loaded = false
 
     var body: some View {
-        VStack(spacing: 0) {
-            actions
-            Divider()
-            switch pane {
-            case .github: githubPane
-            case .repos: reposPane
-            case .jira: jiraPane
-            case .reviews: reviewsPane
-            case .advanced: advancedPane
-            }
+        TabView {
+            pane(generalPane).tabItem { Label("General", systemImage: "gearshape") }
+            pane(githubPane).tabItem { Label("GitHub", systemImage: "chevron.left.forwardslash.chevron.right") }
+            pane(reposPane).tabItem { Label("Repos", systemImage: "folder") }
+            pane(jiraPane).tabItem { Label("Jira", systemImage: "checklist") }
+            pane(reviewsPane).tabItem { Label("Reviews", systemImage: "eye") }
         }
-        .navigationTitle("Settings")
+        .frame(width: 580, height: 520)
         .onAppear { if !loaded { load() } }
         .task { model.loadRepositories() }
+        // The Metrics toolbar writes this setting too; an open window must follow rather than call it an edit.
+        .onChange(of: model.config.metricsWeeks) { _, weeks in draft.metricsWeeks = weeks }
     }
 
-    /// Pinned above every pane: the pane picker on one side, the two buttons on the other. They stay
-    /// dead until something actually differs from what is saved, and a pane switch never loses an edit.
+    private func pane(_ content: some View) -> some View {
+        content.safeAreaInset(edge: .bottom, spacing: 0) { actions }
+    }
+
+    /// Pinned under every pane. The buttons stay dead until something actually differs from what is saved.
     private var actions: some View {
-        HStack(spacing: 12) {
-            Picker("Pane", selection: $pane) {
-                ForEach(Pane.allCases) { Text($0.title).tag($0) }
+        VStack(spacing: 0) {
+            Divider()
+            HStack(spacing: 12) {
+                if let error = model.configError {
+                    Text(error).scaled(.caption).foregroundStyle(.red).lineLimit(1).textSelection(.enabled)
+                } else if isDirty {
+                    Text("Unsaved changes").scaled(.caption).foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button("Revert") { load() }.disabled(!isDirty)
+                Button("Save") { save() }.keyboardShortcut(.defaultAction).disabled(!isDirty)
             }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .fixedSize()
-            Spacer()
-            if let error = model.configError {
-                Text(error).scaled(.caption).foregroundStyle(.red).lineLimit(1).textSelection(.enabled)
-            } else if isDirty {
-                Text("Unsaved changes").scaled(.caption).foregroundStyle(.secondary)
-            }
-            Button("Revert") { load() }.disabled(!isDirty)
-            Button("Save") { save() }.keyboardShortcut(.defaultAction).disabled(!isDirty)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
         .background(.bar)
     }
 
@@ -222,7 +203,7 @@ struct SettingsTab: View {
         .formStyle(.grouped)
     }
 
-    private var advancedPane: some View {
+    private var generalPane: some View {
         Form {
             Section("Polling (seconds)") {
                 Stepper("GitHub: \(draft.githubPollSeconds)", value: $draft.githubPollSeconds, in: 30...3_600, step: 30)
@@ -233,8 +214,14 @@ struct SettingsTab: View {
                 Stepper("Stale PR after \(draft.stalePullRequestDays) days", value: $draft.stalePullRequestDays, in: 1...30)
                 Stepper("Metrics window: \(draft.metricsWeeks) weeks", value: $draft.metricsWeeks, in: 2...26)
             }
-            Section("Notifications") {
+            Section {
+                LabeledContent("Text size") { TextSizeControl() }
                 Toggle("macOS notifications", isOn: $draft.notificationsEnabled)
+            } header: {
+                Text("Appearance and alerts")
+            } footer: {
+                Text("Text size applies at once, like the buttons in the Desk toolbar.")
+                    .scaled(.caption).foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)

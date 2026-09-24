@@ -14,7 +14,10 @@ struct FhenixDeskApp: App {
         Window("Fhenix Desk", id: DeskWindow.id) {
             DeskRoot(model: model, delegate: delegate)
         }
-        .defaultSize(width: 1080, height: 700)
+        .defaultSize(width: 1180, height: 720)
+        Settings {
+            SettingsView().environment(model).textScale(model.textScale)
+        }
     }
 }
 

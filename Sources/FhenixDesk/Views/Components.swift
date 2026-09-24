@@ -323,3 +323,28 @@ struct ClaudeSessionButton: View {
         return "Start a background Claude session on \(pr.headRef)"
     }
 }
+
+/// Where a ticket's pull requests say it should be, and the press that moves it. The only thing in this
+/// app that writes to Jira — so it names the pull requests it is arguing from, and it is never automatic.
+struct DriftButton: View {
+    var drift: TicketDrift
+    var model: AppModel
+
+    var body: some View {
+        if model.movingTickets.contains(drift.ticket.key) {
+            ProgressView().controlSize(.mini)
+        } else {
+            Button { model.moveTicket(drift) } label: {
+                Chip(text: "→ \(drift.target)", color: drift.stage == .done ? .green : .blue)
+            }
+            .buttonStyle(.plain)
+            .help(help)
+        }
+    }
+
+    private var help: String {
+        let prs = drift.pullRequests.map { "\($0.repoName)#\($0.number)" }.joined(separator: ", ")
+        let because = drift.stage == .done ? "\(prs) merged" : "\(prs) open for review"
+        return "\(because) — move \(drift.ticket.key) to “\(drift.target)”"
+    }
+}

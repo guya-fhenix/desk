@@ -204,11 +204,7 @@ private struct QueueActions: View {
         }
     }
 
-    private var canStart: Bool {
-        guard model.state.localRepo(for: pr) != nil, !model.busyReviews.contains(pr.url) else { return false }
-        guard model.state.review(for: pr)?.phase.isBusy != true else { return false }
-        return model.canStartReview
-    }
+    private var canStart: Bool { model.canReview(pr) }
 
     private var startHelp: String {
         if model.state.localRepo(for: pr) == nil { return "No local clone of \(pr.repo) to review in" }

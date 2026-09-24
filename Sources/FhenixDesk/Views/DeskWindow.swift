@@ -6,34 +6,34 @@ struct DeskWindow: View {
     static let id = "desk"
 
     enum Tab: String, CaseIterable, Identifiable {
-        case tickets, pullRequests, reviews, metrics, settings
+        case today, pullRequests, reviews, tickets, metrics
 
         /// The row tag must be the same type as the selection binding, or clicks never select.
         var id: Tab { self }
 
         var title: String {
             switch self {
-            case .tickets: return "Tickets"
+            case .today: return "Today"
             case .pullRequests: return "Pull Requests"
             case .reviews: return "Reviews"
+            case .tickets: return "Tickets"
             case .metrics: return "Metrics"
-            case .settings: return "Settings"
             }
         }
 
         var icon: String {
             switch self {
-            case .tickets: return "checklist"
+            case .today: return "tray"
             case .pullRequests: return "arrow.triangle.pull"
             case .reviews: return "eye"
+            case .tickets: return "checklist"
             case .metrics: return "chart.bar"
-            case .settings: return "gearshape"
             }
         }
     }
 
     @Environment(AppModel.self) private var model
-    @State private var tab: Tab? = Tab(rawValue: ProcessInfo.processInfo.environment["FHENIX_DESK_OPEN_WINDOW"] ?? "") ?? .tickets
+    @State private var tab: Tab? = Tab(rawValue: ProcessInfo.processInfo.environment["FHENIX_DESK_OPEN_WINDOW"] ?? "") ?? .today
 
     var body: some View {
         splitView
@@ -60,28 +60,122 @@ struct DeskWindow: View {
     /// setting, so the control that changes the text never moves under the pointer.
     private var splitView: some View {
         NavigationSplitView {
-            List(Tab.allCases, selection: $tab) { tab in
-                Label(tab.title, systemImage: tab.icon).badge(badge(for: tab))
+            List(selection: $tab) {
+                row(.today)
+                Section("Work") {
+                    row(.pullRequests)
+                    row(.reviews)
+                    row(.tickets)
+                }
+                Section("Insights") { row(.metrics) }
             }
-            .navigationSplitViewColumnWidth(min: 170, ideal: 190)
+            .safeAreaInset(edge: .bottom) { SidebarFooter() }
+            .navigationSplitViewColumnWidth(min: 180, ideal: 200)
         } detail: {
-            switch tab ?? .tickets {
-            case .tickets: TicketsTab()
+            switch tab ?? .today {
+            case .today: TodayTab()
             case .pullRequests: PullRequestsTab()
             case .reviews: ReviewsTab()
+            case .tickets: TicketsTab()
             case .metrics: MetricsTab()
-            case .settings: SettingsTab()
             }
         }
     }
 
-    /// The badge is what waits for you on that screen, so the sidebar is the whole to-do list.
+    private func row(_ tab: Tab) -> some View {
+        Label(tab.title, systemImage: tab.icon).badge(badge(for: tab)).tag(tab)
+    }
+
+    /// The badge is what waits for you on that screen, so the sidebar is the whole to-do list. Today counts
+    /// only what is urgent — the same number the menu bar icon shows — or it would repeat the other three.
     private func badge(for tab: Tab) -> Int {
         switch tab {
+        case .today: return model.urgentCount
         case .tickets: return model.state.openTickets.count
         case .pullRequests: return model.state.waiting(on: .pullRequests)
         case .reviews: return model.state.waiting(on: .reviews)
-        default: return 0
+        case .metrics: return 0
         }
+    }
+}
+
+/// Pinned under the sidebar: what is running, whether each source answered, and the way into Settings.
+private struct SidebarFooter: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Divider()
+            if let running {
+                HStack(spacing: 6) {
+                    ProgressView().controlSize(.mini)
+                    Text(running).scaled(.caption).foregroundStyle(.secondary)
+                }
+            }
+            SourceDots()
+            SettingsLink { Label("Settings…", systemImage: "gearshape") }
+                .buttonStyle(.borderless)
+                .scaled(.callout)
+        }
+        .padding(.horizontal, 12)
+        .padding(.bottom, 10)
+    }
+
+    private var running: String? {
+        let reviews = model.busyReviews.count
+        let sessions = model.state.claudeJobs.count { $0.isRunning }
+        var parts: [String] = []
+        if reviews > 0 { parts.append("\(reviews) \(reviews == 1 ? "review" : "reviews")") }
+        if sessions > 0 { parts.append("\(sessions) \(sessions == 1 ? "session" : "sessions")") }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ") + " running"
+    }
+}
+
+/// One dot per source: green once it answered, red with the error as its tooltip, grey before the first poll.
+struct SourceDots: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        HStack(spacing: 10) {
+            ForEach(Source.allCases, id: \.self) { source in
+                HStack(spacing: 3) {
+                    StatusDot(color: model.state.errors[source] == nil ? (model.state.lastRefresh[source] == nil ? .gray : .green) : .red)
+                    Text(source.title).scaled(.caption2).foregroundStyle(.secondary)
+                }
+                .help(model.state.errors[source] ?? "Updated \(Format.age(model.state.lastRefresh[source])) ago")
+            }
+        }
+    }
+}
+
+/// The trailing inspector the table screens share, and the toolbar button that shows and hides it. The
+/// flag is remembered per screen, so closing it on one does not close it everywhere.
+extension View {
+    func deskInspector<Inspector: View>(_ key: String, @ViewBuilder content: @escaping () -> Inspector) -> some View {
+        modifier(DeskInspector(key: key, inspector: content))
+    }
+}
+
+private struct DeskInspector<Inspector: View>: ViewModifier {
+    @AppStorage private var shown: Bool
+    let inspector: () -> Inspector
+
+    init(key: String, inspector: @escaping () -> Inspector) {
+        _shown = AppStorage(wrappedValue: true, "inspector.\(key)")
+        self.inspector = inspector
+    }
+
+    func body(content: Content) -> some View {
+        content
+            .inspector(isPresented: $shown) {
+                inspector().inspectorColumnWidth(min: 260, ideal: 300, max: 440)
+            }
+            // On the content, not inside the inspector: there it would leave with the column it reopens.
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    Button { shown.toggle() } label: { Label("Inspector", systemImage: "sidebar.trailing") }
+                        .help(shown ? "Hide the inspector" : "Show the inspector")
+                }
+            }
     }
 }
