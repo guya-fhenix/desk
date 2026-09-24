@@ -40,7 +40,8 @@ struct TicketsTab: View {
         }
         .searchable(text: $search, placement: .toolbar, prompt: "Key or summary")
         .navigationTitle("Tickets")
-        .deskInspector("tickets") {
+        // Wider than the others: this one is for reading a description, tables and all.
+        .deskInspector("tickets", width: 420) {
             if let key = selection, let ticket = model.state.ticket(key) {
                 TicketInspector(ticket: ticket, model: model, plan: plan)
             } else {

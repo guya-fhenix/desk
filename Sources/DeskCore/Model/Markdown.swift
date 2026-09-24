@@ -11,6 +11,8 @@ public enum MarkdownBlock: Sendable, Hashable, Identifiable {
     case numbered(indent: Int, number: String, text: String)
     case code(language: String?, text: String)
     case quote(String)
+    /// A pipe table. `header` is nil when the table has no separator row under its first line.
+    case table(header: [String]?, rows: [[String]])
     case rule
 
     public var id: String {
@@ -22,6 +24,7 @@ public enum MarkdownBlock: Sendable, Hashable, Identifiable {
         case .numbered(let indent, let number, let text): return "n\(indent):\(number):\(text)"
         case .code(let language, let text): return "c:\(language ?? ""):\(text)"
         case .quote(let text): return "q:\(text)"
+        case .table(let header, let rows): return "tbl:\(header ?? []):\(rows)"
         case .rule: return "hr"
         }
     }
@@ -29,20 +32,41 @@ public enum MarkdownBlock: Sendable, Hashable, Identifiable {
 
 public enum Markdown {
     /// Fenced code wins over everything: a `#` or `-` inside a fence is code, not a heading or a bullet.
+    ///
+    /// A line ending in a backslash or two spaces is a hard break (CommonMark's): the next plain line
+    /// stays on a line of its own in the same paragraph or list item instead of being run into it. Jira
+    /// descriptions are full of them, and joining them turns a list of steps into one long sentence.
     public static func blocks(_ text: String) -> [MarkdownBlock] {
         var blocks: [MarkdownBlock] = []
-        var paragraph: [String] = []
+        var paragraph = ""
         var fence: (language: String?, lines: [String])?
+        var table: [String] = []
+        var brokeLine = false
 
         func flushParagraph() {
             guard !paragraph.isEmpty else { return }
-            blocks.append(.paragraph(paragraph.joined(separator: " ")))
-            paragraph = []
+            blocks.append(.paragraph(paragraph))
+            paragraph = ""
+        }
+
+        func flushTable() {
+            guard !table.isEmpty else { return }
+            blocks.append(tableBlock(table))
+            table = []
         }
 
         for rawLine in text.replacingOccurrences(of: "\r\n", with: "\n").split(separator: "\n", omittingEmptySubsequences: false) {
             let line = String(rawLine)
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            var trimmed = line.trimmingCharacters(in: .whitespaces)
+            let continues = brokeLine
+            brokeLine = false
+
+            if fence == nil, trimmed.hasPrefix("|") {
+                flushParagraph()
+                table.append(trimmed)
+                continue
+            }
+            flushTable()
 
             if trimmed.hasPrefix("```") {
                 if let open = fence {
@@ -62,6 +86,16 @@ public enum Markdown {
             if trimmed.isEmpty {
                 flushParagraph()
                 continue
+            }
+            if line.hasSuffix("  ") || (trimmed.hasSuffix("\\") && !trimmed.hasSuffix("\\\\")) {
+                brokeLine = true
+                if trimmed.hasSuffix("\\") { trimmed = String(trimmed.dropLast()).trimmingCharacters(in: .whitespaces) }
+                // Two breaks in a row are a blank line: the block ends there, as it does in Jira.
+                if trimmed.isEmpty {
+                    flushParagraph()
+                    brokeLine = false
+                    continue
+                }
             }
             if trimmed == "---" || trimmed == "***" || trimmed == "___" {
                 flushParagraph()
@@ -94,8 +128,16 @@ public enum Markdown {
                 blocks.append(numbered)
                 continue
             }
-            paragraph.append(trimmed)
+            // A line after a hard break continues whatever it broke: the paragraph, or the list item above.
+            if continues, paragraph.isEmpty, let last = blocks.popLast() {
+                blocks.append(appending(trimmed, to: last))
+            } else if paragraph.isEmpty {
+                paragraph = trimmed
+            } else {
+                paragraph += (continues ? "\n" : " ") + trimmed
+            }
         }
+        flushTable()
 
         // An unterminated fence is still code; dropping it would lose the text entirely. The trailing
         // blank line a file's final newline leaves behind is not part of it.
@@ -106,6 +148,61 @@ public enum Markdown {
         }
         flushParagraph()
         return blocks
+    }
+
+    /// Adds a broken-off line to the block it belongs to. Only text-carrying items can take one; anything
+    /// else keeps its shape and the line starts a paragraph of its own after it.
+    private static func appending(_ line: String, to block: MarkdownBlock) -> MarkdownBlock {
+        switch block {
+        case .bullet(let indent, let text): return .bullet(indent: indent, text: text + "\n" + line)
+        case .task(let indent, let done, let text): return .task(indent: indent, done: done, text: text + "\n" + line)
+        case .numbered(let indent, let number, let text): return .numbered(indent: indent, number: number, text: text + "\n" + line)
+        case .paragraph(let text): return .paragraph(text + "\n" + line)
+        default: return block
+        }
+    }
+
+    /// Consecutive `|` lines. A second line of only dashes (and colons) makes the first one the header.
+    private static func tableBlock(_ lines: [String]) -> MarkdownBlock {
+        var rows = lines.map(cells)
+        let isSeparator: ([String]) -> Bool = { row in
+            !row.isEmpty && row.allSatisfy { cell in
+                let bare = cell.trimmingCharacters(in: CharacterSet(charactersIn: ":"))
+                return bare.count >= 3 && bare.allSatisfy { $0 == "-" }
+            }
+        }
+        var header: [String]?
+        if rows.count > 1, isSeparator(rows[1]) {
+            header = rows[0]
+            rows.removeFirst(2)
+        }
+        return .table(header: header, rows: rows)
+    }
+
+    /// The cells of one `| a | b |` line. `\|` is a pipe inside a cell, not a border.
+    private static func cells(_ line: String) -> [String] {
+        var cells: [String] = []
+        var current = ""
+        var escaped = false
+        for character in line {
+            if escaped {
+                current.append(character == "|" ? "|" : "\\\(character)")
+                escaped = false
+            } else if character == "\\" {
+                escaped = true
+            } else if character == "|" {
+                cells.append(current.trimmingCharacters(in: .whitespaces))
+                current = ""
+            } else {
+                current.append(character)
+            }
+        }
+        if escaped { current.append("\\") }
+        cells.append(current.trimmingCharacters(in: .whitespaces))
+        // The borders at either end leave an empty cell outside the table.
+        if cells.first == "" { cells.removeFirst() }
+        if cells.last == "" { cells.removeLast() }
+        return cells
     }
 
     private static func checkbox(_ item: String) -> (done: Bool, text: String)? {

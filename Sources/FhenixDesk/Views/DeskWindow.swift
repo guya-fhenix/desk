@@ -165,16 +165,21 @@ struct SourceDots: View {
 /// The trailing inspector the table screens share, and the toolbar button that shows and hides it. The
 /// flag is remembered per screen, so closing it on one does not close it everywhere.
 extension View {
-    func deskInspector<Inspector: View>(_ key: String, @ViewBuilder content: @escaping () -> Inspector) -> some View {
-        modifier(DeskInspector(key: key, inspector: content))
+    /// `width` is where the column starts; the user can drag it anywhere from 260 to 560.
+    func deskInspector<Inspector: View>(
+        _ key: String, width: CGFloat = 300, @ViewBuilder content: @escaping () -> Inspector
+    ) -> some View {
+        modifier(DeskInspector(key: key, width: width, inspector: content))
     }
 }
 
 private struct DeskInspector<Inspector: View>: ViewModifier {
     @AppStorage private var shown: Bool
+    let width: CGFloat
     let inspector: () -> Inspector
 
-    init(key: String, inspector: @escaping () -> Inspector) {
+    init(key: String, width: CGFloat, inspector: @escaping () -> Inspector) {
+        self.width = width
         _shown = AppStorage(wrappedValue: true, "inspector.\(key)")
         self.inspector = inspector
     }
@@ -182,7 +187,7 @@ private struct DeskInspector<Inspector: View>: ViewModifier {
     func body(content: Content) -> some View {
         content
             .inspector(isPresented: $shown) {
-                inspector().inspectorColumnWidth(min: 260, ideal: 300, max: 440)
+                inspector().inspectorColumnWidth(min: 260, ideal: width, max: 560)
             }
             // On the content, not inside the inspector: there it would leave with the column it reopens.
             .toolbar {

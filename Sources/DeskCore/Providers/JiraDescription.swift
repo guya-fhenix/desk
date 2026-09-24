@@ -67,11 +67,7 @@ public enum JiraDescription {
         case "listItem":
             return children.flatMap { blocks($0, depth: depth) }
         case "table":
-            return children.flatMap { blocks($0, depth: depth) }
-        case "tableRow":
-            // `Markdown` draws no tables, so a row reads as its cells: still the information, in order.
-            let cells = children.map { inline($0.content ?? []) }.filter { !$0.isEmpty }
-            return cells.isEmpty ? [] : [cells.joined(separator: " · ")]
+            return table(children)
         case "rule":
             return ["---"]
         case "doc", nil:
@@ -83,6 +79,26 @@ public enum JiraDescription {
         }
     }
 
+    /// A pipe table, one line per row. The first row is the header when Jira marked its cells as headers;
+    /// a cell's paragraphs and breaks fold onto its one line, since a row cannot span lines.
+    private static func table(_ rows: [ADFNode]) -> [String] {
+        let lines = rows.filter { $0.type == "tableRow" }.map { row in
+            (row.content ?? []).map { cell in
+                (cell.content ?? []).flatMap { blocks($0) }.joined(separator: " ")
+                    .replacingOccurrences(of: "\\\n", with: " ")
+                    .replacingOccurrences(of: "\n", with: " ")
+                    .replacingOccurrences(of: "|", with: "\\|")
+            }
+        }
+        guard let first = lines.first, !first.isEmpty else { return [] }
+        let hasHeader = rows.first?.content?.contains { $0.type == "tableHeader" } == true
+        func line(_ cells: [String]) -> String { "| " + cells.joined(separator: " | ") + " |" }
+        var out = lines.map(line)
+        // No separator row without header cells: the first row is data, and `Markdown` reads it as such.
+        if hasHeader { out.insert(line(first.map { _ in "---" }), at: 1) }
+        return [out.joined(separator: "\n")]
+    }
+
     /// The text of a run of inline nodes, with the marks Jira puts on them.
     private static func inline(_ nodes: [ADFNode]) -> String {
         nodes.map(inline).joined()
@@ -90,7 +106,8 @@ public enum JiraDescription {
 
     private static func inline(_ node: ADFNode) -> String {
         switch node.type {
-        case "hardBreak": return "\n"
+        // CommonMark's hard break, which `Markdown` keeps as a line of its own rather than running it on.
+        case "hardBreak": return "\\\n"
         case "inlineCard": return node.attrs?.url ?? ""
         case "text": return marked(node.text ?? "", by: node.marks ?? [])
         default:

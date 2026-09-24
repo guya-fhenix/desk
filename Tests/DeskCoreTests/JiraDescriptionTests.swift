@@ -43,7 +43,8 @@ import Testing
           {"type":"text","text":"One"},{"type":"hardBreak"},{"type":"text","text":"Two"}
         ]}]}
         """)
-        #expect(text == "One\nTwo")
+        #expect(text == "One\\\nTwo")
+        #expect(Markdown.blocks(text) == [.paragraph("One\nTwo")])
     }
 
     /// One block, not one per bullet: the renderer reads separated lines as separate paragraphs, and the
@@ -84,17 +85,25 @@ import Testing
         #expect(text == "```sql\nselect 1\n```")
     }
 
-    /// `Markdown` draws no tables, so a row has to survive as its cells rather than vanish.
-    @Test func tableRowsKeepTheirCells() {
+    /// A table stays a table: header cells become the header row, and a pipe or break inside a cell
+    /// cannot split its row.
+    @Test func aTableBecomesAPipeTable() {
         let text = markdown("""
         {"type":"doc","content":[{"type":"table","content":[
           {"type":"tableRow","content":[
             {"type":"tableHeader","content":[{"type":"paragraph","content":[{"type":"text","text":"Policy"}]}]},
-            {"type":"tableCell","content":[{"type":"paragraph","content":[{"type":"text","text":"Condition"}]}]}
+            {"type":"tableHeader","content":[{"type":"paragraph","content":[{"type":"text","text":"Condition"}]}]}
+          ]},
+          {"type":"tableRow","content":[
+            {"type":"tableCell","content":[{"type":"paragraph","content":[{"type":"text","text":"a|b"}]}]},
+            {"type":"tableCell","content":[{"type":"paragraph","content":[
+              {"type":"text","text":"one"},{"type":"hardBreak"},{"type":"text","text":"two"}
+            ]}]}
           ]}
         ]}]}
         """)
-        #expect(text == "Policy · Condition")
+        #expect(text == "| Policy | Condition |\n| --- | --- |\n| a\\|b | one two |")
+        #expect(Markdown.blocks(text) == [.table(header: ["Policy", "Condition"], rows: [["a|b", "one two"]])])
     }
 
     @Test func anInlineCardBecomesItsLink() {

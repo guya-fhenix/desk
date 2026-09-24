@@ -171,6 +171,28 @@ import Testing
         #expect(blocks.contains(.code(language: nil, text: "stranded")))
     }
 
+    /// Jira's hard breaks: the next line stays on its own line in the same block, and a numbered line
+    /// after one is still a list.
+    @Test func aHardBreakKeepsItsLine() {
+        #expect(Markdown.blocks("One\\\nTwo  \nThree\nfour") == [.paragraph("One\nTwo\nThree four")])
+        #expect(Markdown.blocks("- item\\\nmore of it\n- next") == [
+            .bullet(indent: 0, text: "item\nmore of it"), .bullet(indent: 0, text: "next"),
+        ])
+        #expect(Markdown.blocks("Steps:\\\n1. build") == [.paragraph("Steps:"), .numbered(indent: 0, number: "1", text: "build")])
+        // Two breaks in a row are a blank line, so what follows is a paragraph of its own.
+        #expect(Markdown.blocks("1. last\\\n\\\nAfter:\\\nmore") == [
+            .numbered(indent: 0, number: "1", text: "last"), .paragraph("After:\nmore"),
+        ])
+    }
+
+    @Test func aPipeTableKeepsItsHeaderAndCells() {
+        #expect(Markdown.blocks("| Policy | Condition |\n| --- | :---: |\n| a \\| b | `x` |\nafter") == [
+            .table(header: ["Policy", "Condition"], rows: [["a | b", "`x`"]]),
+            .paragraph("after"),
+        ])
+        #expect(Markdown.blocks("| a | b |") == [.table(header: nil, rows: [["a", "b"]])])
+    }
+
     @Test func emptyAndPlainTextSurvive() {
         #expect(Markdown.blocks("").isEmpty)
         #expect(Markdown.blocks("just words") == [.paragraph("just words")])
