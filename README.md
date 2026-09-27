@@ -1,8 +1,8 @@
 # Fhenix Desk
 
 Menu bar app that tracks the Fhenix development cycle. It reads, you do not type — the exceptions are
-submitting a review, starting a background session, and moving a Jira ticket, and all three only ever
-happen when you press the button.
+putting a Claude review into your draft review on a PR, starting a background session, and moving a Jira
+ticket, and all three only ever happen when you press the button.
 
 Sources: GitHub PRs (`gh`), local git worktrees, Claude Code sessions (`~/.claude`), Jira.
 
@@ -10,7 +10,7 @@ Sources: GitHub PRs (`gh`), local git worktrees, Claude Code sessions (`~/.claud
 make doctor   # print all data as text
 make run      # run from the build tree
 make install  # build .app, copy to ~/Applications, open
-swift run FhenixDesk --review <pr-url>   # review one PR headlessly and print every comment
+swift run FhenixDesk --review <pr-url>   # review one PR headlessly into your draft review on it
 ```
 
 Jira goes through the Atlassian CLI: run `acli jira auth login --web` once, then Settings (⌘,) → Jira →
@@ -28,16 +28,19 @@ attach to. Every other clone under the repo roots is fetched first and offered a
 branch (`git -C <root> show origin/main:<file>`), so the review reads current code there, not whatever
 branch happens to be checked out.
 
-The tab then shows the diff with Claude's comments pinned to the lines they are about. Approve, reject or
-rewrite each one, pick a verdict, and Submit posts a single GitHub review carrying exactly the comments
-you approved — comments whose line has left the diff go in the review body rather than being dropped.
-That press is the only thing in this app that writes to GitHub; Claude itself cannot reach it.
+When the run finishes, its comments go into your **pending review** on the PR — a draft only you can see,
+which notifies nobody. Each comment starts with its severity (`**Blocker**`, `**Nit**`, …); one whose line
+has left the diff, in a file the PR changes, becomes a comment on that file naming the line. Then you
+finish the review on GitHub, in the PR's Files tab: edit or delete comments, write the body, pick the
+verdict, submit. The row says where the draft stands — `draft · 7`, submitted, or discarded — and Open on
+GitHub goes straight there. Claude itself cannot reach GitHub; the app never submits, approves or
+requests changes.
 
-The one thing that does happen on its own costs nothing: when a PR gets new commits, the existing
-comments are re-pointed at the new head, keeping the ones whose line only moved and marking the rest
-outdated, and the row says "new commits". Re-running keeps every decision you have already made and adds
-what is new. Drafts and bot PRs stay out of the queue altogether, and the app removes a review and its
-worktree once the PR is merged.
+GitHub allows one pending review per person per PR, so a draft you already started by hand is added to,
+never replaced. Review again adds only comments on lines the draft does not already cover. New commits
+start nothing: GitHub marks the draft's comments on changed lines outdated by itself. Drafts and bot PRs
+stay out of the queue altogether, and the app forgets a review and removes its worktree once the PR is
+merged — the draft, if you left one, stays on GitHub.
 
 Runs are capped at two at once so a review cannot starve the git and GitHub polls, each run has its own
 dollar cap, and the tab shows what reviews have cost in the last 24 hours.
