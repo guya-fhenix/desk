@@ -1,17 +1,16 @@
 import Foundation
 
-/// A finished Claude pre-review of a PR that still waits on the user.
+/// A draft review with Claude's comments in it, waiting on you.
 public struct ReadyReview: Sendable, Hashable {
     public var pr: PullRequest
-    public var summary: String
+    /// Every comment in the draft, yours included.
     public var comments: Int
-    public var runs: Int
+    public var draftId: String
 
-    public init(pr: PullRequest, summary: String, comments: Int, runs: Int) {
+    public init(pr: PullRequest, comments: Int, draftId: String) {
         self.pr = pr
-        self.summary = summary
         self.comments = comments
-        self.runs = runs
+        self.draftId = draftId
     }
 }
 
@@ -75,13 +74,13 @@ public enum NudgeEngine {
 
         for review in input.readyReviews {
             let pr = review.pr
-            let detail = review.comments > 0
-                ? "\(review.comments) comments waiting in your draft review"
-                : (review.summary.isEmpty ? pr.title : review.summary)
-            // The Files tab, which is where a pending review's comments are read and finished.
+            // The Files tab, which is where a pending review's comments are read and finished. Keyed by
+            // the draft, so a new draft on the same PR is news again.
             nudges.append(Nudge(
-                id: "prereview:\(pr.url):\(review.runs)", kind: .reviewReady, severity: .info,
-                title: "Claude reviewed \(pr.repoName)#\(pr.number)", detail: detail, url: "\(pr.url)/files"
+                id: "prereview:\(review.draftId)", kind: .reviewReady, severity: .info,
+                title: "Claude reviewed \(pr.repoName)#\(pr.number)",
+                detail: "\(review.comments) \(review.comments == 1 ? "comment" : "comments") waiting in your draft review",
+                url: "\(pr.url)/files"
             ))
         }
 

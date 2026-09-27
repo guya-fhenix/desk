@@ -20,27 +20,27 @@ import Testing
         #expect(state.reviewWorktrees.map(\.path) == ["/r/.reviews/cofhe/pr-9"])
     }
 
-    @Test func reviewStatusComesFromTheRecordAndThePullRequest() {
+    @Test func reviewStatusComesFromThePullRequestAndThisSessionsRun() {
         var state = state
         var pr = Fixtures.pr(number: 9, head: "y")
-        pr.pendingReview = PendingReview(id: "draft1", comments: 4)
+        pr.pendingReview = Fixtures.pending(comments: 4, claude: 3, commit: "older")
         state.github?.reviewRequests = [pr]
-        state.reviews[pr.url] = Fixtures.record(pr: pr, head: "older", runs: 2, cost: 2)
-        let status = try! #require(state.reviewStatus(for: pr))
-        #expect(status.phase == .posted)
-        #expect(status.costUSD == 2)
+        state.reviewRuns[pr.url] = ReviewRun(phase: .posted, posted: 3)
+        let status = state.reviewStatus(for: pr)
+        #expect(status.run?.phase == .posted)
         #expect(status.headMoved)
-        #expect(status.draft == .pending(comments: 4))
+        #expect(status.draft == .pending(comments: 4, claude: 3))
     }
 
-    /// The "Claude reviewed" nudge is for a draft that is still waiting, with something in it.
+    /// The "Claude reviewed" nudge is for a draft with Claude's comments that is still waiting.
     @Test func aPendingDraftIsWhatNudges() {
         var state = state
         var waiting = Fixtures.pr(number: 1, head: "a", author: "alice")
-        waiting.pendingReview = PendingReview(id: "draft1", comments: 3)
-        let sent = Fixtures.pr(number: 2, head: "b", author: "alice")
-        state.github?.reviewRequests = [waiting, sent]
-        state.reviews = [waiting.url: Fixtures.record(pr: waiting), sent.url: Fixtures.record(pr: sent)]
+        waiting.pendingReview = Fixtures.pending(comments: 3, claude: 2)
+        var yours = Fixtures.pr(number: 2, head: "b", author: "alice")
+        yours.pendingReview = Fixtures.pending(comments: 1, claude: 0)
+        let sent = Fixtures.pr(number: 3, head: "c", author: "alice")
+        state.github?.reviewRequests = [waiting, yours, sent]
         state.recompute(now: Fixtures.t0)
         let ready = state.nudges.filter { $0.kind == .reviewReady }
         #expect(ready.map(\.url) == ["\(waiting.url)/files"])
@@ -59,25 +59,16 @@ import Testing
         #expect(state.nudges.filter { $0.kind == .reviewRequested }.map(\.url) == [ready.url])
     }
 
-    @Test func aReviewWhosePullRequestLeftEverySearchHasNoPullRequest() {
-        var state = state
-        let reviewed = Fixtures.pr(number: 2, head: "b", author: "alice")
-        state.reviews = [reviewed.url: Fixtures.record(pr: reviewed)]
-        #expect(state.pullRequest(for: state.reviews[reviewed.url]!) == nil)
-    }
-
     @Test func stateMarksWhichPullRequestsAreReadyToRun() {
         var state = state
         state.gitScan = GitScan(repos: [Fixtures.repo()], worktrees: [])
         let fresh = Fixtures.pr(number: 1, head: "a", author: "alice")
         var reRequested = Fixtures.pr(number: 2, head: "b", author: "alice")
+        reRequested.reviews = [Fixtures.review(at: Fixtures.t0)]
         reRequested.reviewRequestEvents = [Fixtures.event(at: Fixtures.hours(1))]
-        let done = Fixtures.pr(number: 3, head: "c", author: "alice")
+        var done = Fixtures.pr(number: 3, head: "c", author: "alice")
+        done.reviews = [Fixtures.review(at: Fixtures.t0)]
         state.github?.reviewRequests = [fresh, reRequested, done]
-        state.reviews = [
-            reRequested.url: Fixtures.record(pr: reRequested, lastRun: Fixtures.t0),
-            done.url: Fixtures.record(pr: done, lastRun: Fixtures.t0),
-        ]
         state.recompute(now: Fixtures.hours(2))
         #expect(state.reviewNeed(for: fresh) == .notReviewed)
         #expect(state.reviewNeed(for: reRequested) == .reRequested)
@@ -86,15 +77,6 @@ import Testing
         #expect(state.reviewsToRun.map(\.number) == [1, 2])
     }
 
-    @Test func aRunningReviewRaisesNoNudgeYet() {
-        var state = state
-        var pr = Fixtures.pr(number: 9, head: "y", author: "alice")
-        pr.pendingReview = PendingReview(id: "draft1", comments: 2)
-        state.github?.reviewRequests = [pr]
-        state.reviews[pr.url] = Fixtures.record(pr: pr, phase: .running)
-        state.recompute(now: Fixtures.t0)
-        #expect(!state.nudges.contains { $0.kind == .reviewReady })
-    }
 
 }
 

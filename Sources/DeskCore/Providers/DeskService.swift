@@ -78,10 +78,7 @@ public actor DeskService {
     }
 
     public func refreshGit() async -> GitScan {
-        let scan = await git.scan(roots: config.expandedRepoRoots, slugs: config.trackedRepoSlugs)
-        // Only does anything once, after a ledger version reset left worktrees nobody claims.
-        await reviews.sweepOrphans(repoRoots: scan.repos.map(\.root))
-        return scan
+        await git.scan(roots: config.expandedRepoRoots, slugs: config.trackedRepoSlugs)
     }
 
     /// Claude Code's background sessions. Small local files, read with the git scan.
@@ -195,22 +192,25 @@ public actor DeskService {
 
     // MARK: Reviews
 
-    public func reviews() async -> [String: ReviewRecord] { await reviews.records }
+    /// This session's review runs. Where each review stands after that is the PR's to say.
+    public func reviewRuns() async -> [String: ReviewRun] { await reviews.runs }
 
     /// How many reviews are running, for the button that must not start a fifth.
     public func runningReviews() async -> Int { await reviews.running }
 
-    /// What reviews have cost in the last 24 hours, across every PR.
-    public func reviewSpendToday() async -> Double { await reviews.spentToday() }
-
     /// Runs one review and posts what it found into your pending review on the PR. The app's only write
     /// to GitHub, and never more than a draft: submitting it is yours to do there.
-    public func review(pr: PullRequest, gitScan: GitScan) async {
+    @discardableResult
+    public func review(pr: PullRequest, gitScan: GitScan) async -> ReviewRun {
         await reviews.review(pr, repos: gitScan.repos)
     }
 
-    public func removeReview(_ record: ReviewRecord) async throws { try await reviews.remove(record) }
+    public func removeReviewWorktree(for pr: PullRequest, gitScan: GitScan) async throws {
+        try await reviews.removeWorktree(for: pr, repos: gitScan.repos)
+    }
 
-    public func cleanupClosedReviews(github: GitHubSnapshot) async { await reviews.cleanupClosed(github: github) }
+    public func cleanupClosedReviews(github: GitHubSnapshot, reviewWorktrees: [Worktree], repos: [RepoRef]) async {
+        await reviews.cleanupClosed(github: github, reviewWorktrees: reviewWorktrees, repos: repos)
+    }
 
 }

@@ -55,11 +55,17 @@ public struct Review: Codable, Sendable, Hashable {
 public struct PendingReview: Codable, Sendable, Hashable {
     /// GraphQL node id, the handle every review mutation takes.
     public var id: String
+    /// The commit its comments were written against.
+    public var commitId: String
     public var comments: Int
+    /// Comments carrying the app's marker: Claude's, as opposed to ones you wrote.
+    public var claudeComments: Int
 
-    public init(id: String, comments: Int) {
+    public init(id: String, commitId: String = "", comments: Int, claudeComments: Int = 0) {
         self.id = id
+        self.commitId = commitId
         self.comments = comments
+        self.claudeComments = claudeComments
     }
 }
 

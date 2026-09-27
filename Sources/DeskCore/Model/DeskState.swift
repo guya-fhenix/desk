@@ -40,7 +40,8 @@ public struct DeskState: Sendable {
     public var config: DeskConfig
     public var github: GitHubSnapshot?
     public var gitScan: GitScan?
-    public var reviews: [String: ReviewRecord] = [:]
+    /// Claude review runs this session, by PR url. Where each review stands is read off the PR itself.
+    public var reviewRuns: [String: ReviewRun] = [:]
     public var tickets: [Ticket] = []
     /// Claude Code's background sessions that mention a PR. Local files, so they ride the git poll
     /// rather than being a polled `Source` of their own.
@@ -162,7 +163,7 @@ public struct DeskState: Sendable {
         weekly = CycleTime.weekly(cycles, weeks: config.metricsWeeks, now: now)
         reviewLatencies = CycleTime.reviewLatencies(github?.reviewedByMe ?? [], login: login)
         reviewNeeds = ReviewReadiness.needs(ReviewReadinessInput(
-            now: now, login: login, queue: reviewRequests + openForReview, records: reviews, repos: gitScan?.repos ?? []
+            login: login, queue: reviewRequests + openForReview, runs: reviewRuns, repos: gitScan?.repos ?? []
         ))
         let matcher = TicketKeyMatcher(projectKeys: config.jiraProjectKeys)
         ticketKeys = Dictionary(uniqueKeysWithValues: mine.map { ($0.url, TicketSync.keys(for: $0, matcher: matcher)) })
@@ -204,7 +205,7 @@ public struct DeskState: Sendable {
         gitScan.flatMap { Linker.repo(for: pr, in: $0.repos) }
     }
 
-    public func review(for pr: PullRequest) -> ReviewRecord? { reviews[pr.url] }
+    public func reviewRun(for pr: PullRequest) -> ReviewRun? { reviewRuns[pr.url] }
 
     /// Why this PR wants a review run on it, or nil when it does not.
     public func reviewNeed(for pr: PullRequest) -> ReviewNeed? { reviewNeeds[pr.url] }
@@ -214,28 +215,15 @@ public struct DeskState: Sendable {
         reviewRequests.filter { reviewNeeds[$0.url] != nil }.sorted { $0.createdAt < $1.createdAt }
     }
 
-    public func reviewStatus(for record: ReviewRecord, pr: PullRequest?) -> ReviewStatus {
-        ReviewStatus.derive(record: record, pr: pr, login: login)
+    public func reviewStatus(for pr: PullRequest) -> ReviewStatus {
+        ReviewStatus.derive(pr: pr, run: reviewRuns[pr.url], login: login)
     }
 
-    public func reviewStatus(for pr: PullRequest) -> ReviewStatus? {
-        review(for: pr).map { reviewStatus(for: $0, pr: pr) }
-    }
-
-    /// The PR of a record wherever the snapshot still has it; nil once it has left every search.
-    public func pullRequest(for record: ReviewRecord) -> PullRequest? {
-        guard let github else { return nil }
-        return (github.allOpen + github.reviewedByMe + github.mergedRecent).first { $0.url == record.prUrl }
-    }
-
-    /// Drafts Claude filled that still wait on GitHub, for the nudge that says so.
+    /// Drafts with Claude's comments that still wait on you, for the nudge that says so.
     private var readyReviews: [ReadyReview] {
         reviewRequests.compactMap { pr in
-            guard let record = reviews[pr.url], record.phase == .posted,
-                  case .pending(let comments)? = ReviewStatus.draftStatus(record.draft, pr: pr, login: login),
-                  comments > 0
-            else { return nil }
-            return ReadyReview(pr: pr, summary: "", comments: comments, runs: record.runs)
+            guard let pending = pr.pendingReview, pending.claudeComments > 0 else { return nil }
+            return ReadyReview(pr: pr, comments: pending.comments, draftId: pending.id)
         }
     }
 }

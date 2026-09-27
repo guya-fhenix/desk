@@ -135,8 +135,8 @@ private struct NudgeRow: View {
                             .buttonStyle(.borderedProminent)
                             .disabled(!model.canReview(pr))
                     }
-                    if let record = model.state.review(for: pr), record.draft != nil {
-                        Button("Open draft") { model.openDraft(record) }
+                    if pr.pendingReview != nil {
+                        Button("Open draft") { model.openDraft(pr) }
                     }
                 default:
                     ClaudeSessionButton(pr: pr, model: model)

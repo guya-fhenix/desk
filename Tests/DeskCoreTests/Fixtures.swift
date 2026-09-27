@@ -28,18 +28,13 @@ enum Fixtures {
         RepoRef(name: name, root: "/r/\(name)", remote: remote)
     }
 
-    static func record(
-        pr: PullRequest, head: String? = nil, error: String? = nil, lastRun: Date = t0, runs: Int = 1,
-        phase: ReviewPhase = .posted, draft: String? = "draft1", postedAt: Date? = nil, cost: Double = 0
-    ) -> ReviewRecord {
-        var record = ReviewRecord(pr: pr, worktreePath: "/r/.reviews/\(pr.repoName)/pr-\(pr.number)", repoRoot: "/r/\(pr.repoName)", now: lastRun)
-        record.headSha = head ?? pr.headSha
-        record.error = error
-        record.runs = runs
-        record.phase = error == nil ? phase : .failed
-        record.draft = draft.map { ReviewDraft(id: $0, commitId: head ?? pr.headSha, postedAt: postedAt ?? lastRun) }
-        record.costUSD = cost
-        return record
+    /// Your pending review, with `claude` of its comments carrying the app's marker.
+    static func pending(comments: Int = 3, claude: Int = 3, commit: String = "") -> PendingReview {
+        PendingReview(id: "draft1", commitId: commit, comments: comments, claudeComments: claude)
+    }
+
+    static func review(_ state: String = "COMMENTED", at: Date, by author: String = "me") -> Review {
+        Review(state: state, submittedAt: at, author: author)
     }
 
     static func comment(

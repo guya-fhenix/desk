@@ -11,7 +11,9 @@ import Testing
           "repository":{"nameWithOwner":"FhenixProtocol/cofhe"},"reviewDecision":"REVIEW_REQUIRED","mergeStateStatus":"BLOCKED",
           "commits":{"nodes":[{"commit":{"oid":"abc","statusCheckRollup":{"state":"SUCCESS","contexts":{"totalCount":9}}}}]},
           "reviews":{"nodes":[{"state":"COMMENTED","submittedAt":"2026-08-27T11:12:25Z","author":{"login":"claude"}},
-            {"id":"PRR_1","state":"PENDING","submittedAt":null,"author":{"login":"me"},"comments":{"totalCount":4}}]},
+            {"state":"PENDING","submittedAt":null,"author":{"login":"me"}}]},
+          "pending":{"nodes":[{"id":"PRR_1","commit":{"oid":"abc"},"comments":{"totalCount":4,
+            "nodes":[{"body":"**Nit**\\n\\nx\\n\\n<!-- fhenix-desk -->"},{"body":"mine"},{"body":"**Major**\\n\\ny <!-- fhenix-desk -->"},{"body":"also mine"}]}}]},
           "reviewRequests":{"nodes":[{"requestedReviewer":{"__typename":"Team","name":"Protocol Team"}}]},
           "timelineItems":{"nodes":[{"createdAt":"2026-08-27T11:12:22Z","requestedReviewer":{"__typename":"Team","name":"Protocol Team"}},{}]},
           "reviewThreads":{"nodes":[{"isResolved":false},{"isResolved":true},{"isResolved":false}]}}]}}}
@@ -27,9 +29,10 @@ import Testing
         #expect(pr.reviewRequestEvents[0].isTeam)
         #expect(pr.humanReviews(botLogins: ["claude"]).isEmpty)
         #expect(pr.unresolvedThreads == 2)
-        // Your own draft review: not a submitted review, but the handle the draft status is read by.
+        // Your own draft review: not a submitted review, but where the review's state is read from —
+        // including which of its comments are Claude's, by the marker.
         #expect(pr.reviews.count == 1)
-        #expect(pr.pendingReview == PendingReview(id: "PRR_1", comments: 4))
+        #expect(pr.pendingReview == PendingReview(id: "PRR_1", commitId: "abc", comments: 4, claudeComments: 2))
     }
 
     @Test func missingReviewThreadsMeanNoneUnresolved() throws {

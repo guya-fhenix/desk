@@ -1,23 +1,19 @@
 import Foundation
 
 public enum ReviewPlanner {
-    /// Reviews whose PR is no longer open. `closed` is every PR the snapshot knows; anything not open in
-    /// it has been merged or closed.
-    public static func cleanups(records: [String: ReviewRecord], closed: [PullRequest]) -> [ReviewRecord] {
-        let gone = Set(closed.filter { $0.state != .open }.map(\.url))
-        return records.values.filter { gone.contains($0.prUrl) }.sorted { $0.prUrl < $1.prUrl }
-    }
-
-    /// Reviews whose PR appears in none of the snapshot's searches. A PR nobody asked you to review and
-    /// you never submitted on leaves every one of them the moment it merges, so absence is the only trace
-    /// it leaves behind — and absence is not evidence, which is why these get asked about one by one
-    /// rather than swept.
-    public static func unresolved(records: [String: ReviewRecord], seen: [PullRequest]) -> [ReviewRecord] {
-        let known = Set(seen.map(\.url))
-        return records.values.filter { !known.contains($0.prUrl) }.sorted { $0.prUrl < $1.prUrl }
-    }
-
+    /// Where a PR's review worktree lives. Fixed rather than recorded, so the path alone says which PR a
+    /// worktree belongs to.
     public static func worktreePath(reviewRoot: String, pr: PullRequest) -> String {
         "\(reviewRoot)/\(pr.repoName)/pr-\(pr.number)"
+    }
+
+    /// The PR a review worktree was made for: its repo's `owner/name`, lowercased, and its number. Nil for
+    /// anything not laid out by `worktreePath`.
+    public static func pullRequest(ofWorktree path: String, reviewRoot: String, repoSlug: String) -> (url: String, number: Int)? {
+        let root = reviewRoot.hasSuffix("/") ? reviewRoot : reviewRoot + "/"
+        guard path.hasPrefix(root) else { return nil }
+        let parts = path.dropFirst(root.count).split(separator: "/")
+        guard parts.count == 2, parts[1].hasPrefix("pr-"), let number = Int(parts[1].dropFirst(3)), !repoSlug.isEmpty else { return nil }
+        return ("https://github.com/\(repoSlug)/pull/\(number)", number)
     }
 }

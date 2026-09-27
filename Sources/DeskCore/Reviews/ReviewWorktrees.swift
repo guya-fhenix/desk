@@ -129,19 +129,6 @@ public actor ReviewWorktrees {
         return GitParsing.worktreeEntries(porcelain).contains { Self.canonical($0.path) == wanted }
     }
 
-    /// Removes clean review worktrees no record claims. Without this a ledger reset would strand them:
-    /// nothing would ever ask for their removal, and they would hold worktree registrations in real clones.
-    public func pruneOrphans(repoRoots: [String], reviewRoot: String, keeping paths: Set<String>) async {
-        for root in repoRoots {
-            guard let porcelain = try? await serialized(root, { try await self.git(["worktree", "list", "--porcelain"], cwd: root) }) else { continue }
-            // A main checkout never sits under the review root, so being under it is the whole test.
-            for entry in GitParsing.worktreeEntries(porcelain) where !entry.isBare {
-                guard ClaudePaths.path(entry.path, isUnder: [reviewRoot]), !paths.contains(entry.path) else { continue }
-                try? await remove(repoRoot: root, path: entry.path)
-            }
-        }
-    }
-
     /// The head may have moved between the GitHub search and the fetch; FETCH_HEAD is then the newer one.
     private nonisolated func checkout(_ sha: String, in path: String) async throws {
         do {

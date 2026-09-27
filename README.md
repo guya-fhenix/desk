@@ -20,8 +20,8 @@ The window opens on Today: every nudge (CI failed, changes requested, needs reba
 waiting, Claude reviewed, quiet PRs) and every ticket that has fallen behind its PRs, each with the button
 that deals with it. Pull Requests, Reviews and Tickets show a trailing inspector for the selected row.
 
-Claude reviews: the Reviews tab lists the PRs waiting on you and marks which are ready to run — never
-reviewed, re-requested since the last run, or a run that failed. Nothing starts on its own; you press
+Claude reviews: the Reviews tab lists the PRs waiting on you and marks which are ready to run — ones you
+have not reviewed, ones re-requested since your last review, and a run that failed. Nothing starts on its own; you press
 Review on the ones you want. Each press checks the PR head out into a detached worktree under
 `~/Repos/.reviews/<repo>/pr-<n>` and runs `claude -p` there once, with read-only tools and no session to
 attach to. Every other clone under the repo roots is fetched first and offered at its remote default
@@ -32,18 +32,24 @@ When the run finishes, its comments go into your **pending review** on the PR �
 which notifies nobody. Each comment starts with its severity (`**Blocker**`, `**Nit**`, …); one whose line
 has left the diff, in a file the PR changes, becomes a comment on that file naming the line. Then you
 finish the review on GitHub, in the PR's Files tab: edit or delete comments, write the body, pick the
-verdict, submit. The row says where the draft stands — `draft · 7`, submitted, or discarded — and Open on
-GitHub goes straight there. Claude itself cannot reach GitHub; the app never submits, approves or
+verdict, submit. The row says where your review stands — `draft · 7`, or the verdict you sent — and Open
+on GitHub goes straight there. Claude itself cannot reach GitHub; the app never submits, approves or
 requests changes.
+
+None of that is stored. The app keeps no review records: every poll reads your pending review and your
+submitted reviews off the PR, and each comment it posts ends with an invisible `<!-- fhenix-desk -->`
+marker, which is how a draft's comments are told apart as Claude's or yours. A run in progress, or one
+that failed, lives in memory until the app quits. Review worktrees sit at a fixed path, so the path
+alone says which PR one belongs to.
 
 GitHub allows one pending review per person per PR, so a draft you already started by hand is added to,
 never replaced. Review again adds only comments on lines the draft does not already cover. New commits
 start nothing: GitHub marks the draft's comments on changed lines outdated by itself. Drafts and bot PRs
-stay out of the queue altogether, and the app forgets a review and removes its worktree once the PR is
-merged — the draft, if you left one, stays on GitHub.
+stay out of the queue altogether, and the app removes a review worktree once its PR is merged or closed —
+the draft, if you left one, stays on GitHub.
 
-Runs are capped at two at once so a review cannot starve the git and GitHub polls, each run has its own
-dollar cap, and the tab shows what reviews have cost in the last 24 hours.
+Runs are capped at two at once so a review cannot starve the git and GitHub polls, and each run has its
+own dollar cap, which `claude` enforces.
 
 ## Ticket sync
 

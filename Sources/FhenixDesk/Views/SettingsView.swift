@@ -179,10 +179,6 @@ struct SettingsView: View {
                 Stepper("At most \(draft.reviewConcurrency) reviews at once", value: $draft.reviewConcurrency, in: 1...4)
                 Stepper("Give up on a review after \(draft.reviewTimeoutMinutes) min", value: $draft.reviewTimeoutMinutes, in: 5...90, step: 5)
                 Stepper("Spend at most \(Format.usd(draft.reviewBudgetUSD)) per run", value: $draft.reviewBudgetUSD, in: 1...100, step: 1)
-                if model.reviewSpendToday > 0 {
-                    Text("Reviews have cost \(Format.usd(model.reviewSpendToday)) in the last 24 hours.")
-                        .scaled(.caption).foregroundStyle(.secondary)
-                }
             }
             Section {
                 TextField("Review worktrees root", text: $draft.reviewRoot)

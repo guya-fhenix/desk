@@ -62,10 +62,12 @@ import Testing
         #expect(placed.unplaced == 1)
     }
 
-    /// The severity leads, since on GitHub there is nothing else to triage by.
-    @Test func theBodyStartsWithItsSeverity() {
-        #expect(DraftThreads.body(Fixtures.comment(severity: .blocker, body: "Off by one."), onLine: true) == "**Blocker**\n\nOff by one.")
-        #expect(DraftThreads.body(Fixtures.comment(body: "x", unverified: true), onLine: true) == "**Major** · line not verified\n\nx")
-        #expect(DraftThreads.body(Fixtures.comment(line: 7, side: .left, body: "x"), onLine: false) == "**Major** · old line 7\n\nx")
+    /// The severity leads, since on GitHub there is nothing else to triage by, and the marker closes it,
+    /// which is how the comment is read back as Claude's.
+    @Test func theBodyStartsWithItsSeverityAndEndsWithTheMarker() {
+        let marker = "\n\n<!-- fhenix-desk -->"
+        #expect(DraftThreads.body(Fixtures.comment(severity: .blocker, body: "Off by one."), onLine: true) == "**Blocker**\n\nOff by one." + marker)
+        #expect(DraftThreads.body(Fixtures.comment(body: "x", unverified: true), onLine: true) == "**Major** · line not verified\n\nx" + marker)
+        #expect(DraftThreads.body(Fixtures.comment(line: 7, side: .left, body: "x"), onLine: false) == "**Major** · old line 7\n\nx" + marker)
     }
 }

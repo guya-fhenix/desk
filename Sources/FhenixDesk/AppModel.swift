@@ -31,8 +31,6 @@ final class AppModel {
     /// Why the session button last failed, per PR url or ticket key. It is the button's own tooltip: a press that
     /// does nothing is the one thing this must not be.
     var sessionErrors: [String: String] = [:]
-    /// What reviews have cost in the last 24 hours. Shown because every run is now a deliberate spend.
-    var reviewSpendToday: Double = 0
 
     /// Browser-style zoom for the Desk window, remembered across launches. Not in `DeskConfig`: it is a
     /// comfort setting for this screen, not something the doctor or a provider should ever read.
@@ -105,7 +103,9 @@ final class AppModel {
             case .github:
                 let snapshot = try await service.refreshGitHub()
                 state.github = snapshot
-                await service.cleanupClosedReviews(github: snapshot)
+                await service.cleanupClosedReviews(
+                    github: snapshot, reviewWorktrees: state.reviewWorktrees, repos: state.gitScan?.repos ?? []
+                )
             case .git:
                 let scan = await service.refreshGit()
                 state.gitScan = scan
@@ -133,8 +133,7 @@ final class AppModel {
     }
 
     private func mergeReviews() async {
-        state.reviews = await service.reviews()
-        reviewSpendToday = await service.reviewSpendToday()
+        state.reviewRuns = await service.reviewRuns()
     }
 
     private var allSourcesReported: Bool {
@@ -214,7 +213,7 @@ final class AppModel {
     /// running on it, and a free slot.
     func canReview(_ pr: PullRequest) -> Bool {
         guard state.localRepo(for: pr) != nil, !busyReviews.contains(pr.url) else { return false }
-        guard state.review(for: pr)?.phase.isBusy != true else { return false }
+        guard state.reviewRun(for: pr)?.phase.isBusy != true else { return false }
         return canStartReview
     }
 
@@ -226,18 +225,20 @@ final class AppModel {
             await service.review(pr: pr, gitScan: gitScan)
             await mergeReviews()
             state.recompute()
-            // The draft is on GitHub now; until the snapshot has it, the row would read it as discarded.
+            // The draft is on GitHub now, and the row reads it from there.
             await refresh(.github)
         }
     }
 
     /// The PR's Files tab, where a pending review's comments are read, edited and submitted.
-    func openDraft(_ record: ReviewRecord) { open(record.filesURL) }
+    func openDraft(_ pr: PullRequest) { open("\(pr.url)/files") }
 
-    func removeReview(_ record: ReviewRecord) {
+    /// Deletes the PR's review worktree when it is clean. The review on GitHub stays.
+    func removeReviewWorktree(_ pr: PullRequest) {
+        guard let gitScan = state.gitScan else { return }
         Task {
             do {
-                try await service.removeReview(record)
+                try await service.removeReviewWorktree(for: pr, gitScan: gitScan)
             } catch {
                 state.reviewError = "\(error)"
             }

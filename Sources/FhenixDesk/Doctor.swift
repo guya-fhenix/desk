@@ -52,14 +52,15 @@ enum Doctor {
         }
 
         section("Reviews")
-        state.reviews = await service.reviews()
-        print("\(state.reviews.count) reviews  root: \(config.expandedReviewRoot)  claude: \(config.resolvedClaudePath ?? "not found")")
-        for record in state.reviews.values.sorted(by: { $0.lastRunAt > $1.lastRunAt }) {
-            let status = state.reviewStatus(for: record, pr: state.pullRequest(for: record))
+        // Read off GitHub: the queue PRs you have a draft on, or have reviewed.
+        let reviewed = state.reviewQueue(.all).filter { state.reviewStatus(for: $0).draft != nil }
+        print("\(reviewed.count) reviewed or drafted  root: \(config.expandedReviewRoot)  claude: \(config.resolvedClaudePath ?? "not found")")
+        for pr in reviewed {
+            let status = state.reviewStatus(for: pr)
             let flags = [
                 status.headMoved ? "new commits" : nil, status.reRequested ? "re-requested" : nil,
             ].compactMap { $0 }.joined(separator: " ")
-            print("  \(pad(record.label, 22)) \(pad(status.phase.label, 10)) \(pad(draftText(record, status.draft), 20)) runs:\(record.runs) \(pad(Format.usd(status.costUSD), 8)) \(pad(flags, 26)) \(record.worktreePath)")
+            print("  \(pad("\(pr.repoName)#\(pr.number)", 22)) \(pad(draftText(status.draft), 28)) \(flags)")
         }
 
         section("Background sessions")
@@ -102,7 +103,7 @@ enum Doctor {
         for nudge in state.nudges { print("  [\(nudge.severity)] \(nudge.title) — \(nudge.detail)") }
     }
 
-    /// Starts or continues the Claude review of one PR and prints the resulting record.
+    /// Runs the Claude review of one PR into your draft review on it, and prints what the run did.
     static func review(url: String) async {
         let support = AppSupport()
         let config = DeskService.loadConfig(support: support)
@@ -117,28 +118,22 @@ enum Doctor {
             }
             print("reviewing \(pr.repoName)#\(pr.number) \(pr.title) @ \(pr.headSha.prefix(12)) into \(pr.baseRef)")
             print("this runs claude -p and waits; it can take several minutes")
-            await service.review(pr: pr, gitScan: state.gitScan!)
-            state.reviews = await service.reviews()
-            guard let record = state.reviews[url] else {
-                print("no record written")
-                return
-            }
-            print("phase: \(record.phase.label)  runs: \(record.runs)  cost: \(Format.usd(record.costUSD))")
-            print("worktree: \(record.worktreePath) @ \(record.headSha.prefix(12))")
-            if let error = record.error { print("error: \(error)") }
-            print("added \(record.lastPosted) comments to your draft review, skipped \(record.lastSkipped)")
-            if record.draft != nil { print("read and submit it at \(record.filesURL)") }
+            let run = await service.review(pr: pr, gitScan: state.gitScan!)
+            print("phase: \(run.phase.label)")
+            print("worktree: \(ReviewPlanner.worktreePath(reviewRoot: config.expandedReviewRoot, pr: pr))")
+            if let error = run.error { print("error: \(error)") }
+            print("added \(run.posted) comments to your draft review, skipped \(run.skipped)")
+            if run.posted > 0 { print("read and submit it at \(pr.url)/files") }
         } catch {
             print("error: \(error)")
         }
     }
 
-    private static func draftText(_ record: ReviewRecord, _ status: DraftStatus?) -> String {
+    private static func draftText(_ status: DraftStatus?) -> String {
         switch status {
-        case .pending(let comments): return "draft: \(comments) comments"
+        case .pending(let comments, let claude): return "draft: \(comments) comments (\(claude) Claude)"
         case .submitted(let state): return "submitted: \(state.lowercased())"
-        case .discarded: return "draft discarded"
-        case nil: return record.draft == nil ? "no draft" : "draft (not in poll)"
+        case nil: return "not reviewed"
         }
     }
 

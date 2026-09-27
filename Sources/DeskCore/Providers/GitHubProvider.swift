@@ -215,7 +215,10 @@ public enum GitHubQueries {
       reviewDecision
       mergeStateStatus
       commits(last: 1) { nodes { commit { oid statusCheckRollup { state contexts(first: 0) { totalCount } } } } }
-      reviews(first: 100) { nodes { id state submittedAt author { login } comments { totalCount } } }
+      reviews(first: 100) { nodes { state submittedAt author { login } } }
+      pending: reviews(states: PENDING, first: 1) {
+        nodes { id commit { oid } comments(first: 100) { totalCount nodes { body } } }
+      }
       reviewRequests(first: 20) { nodes { requestedReviewer { __typename ... on User { login } ... on Team { name } } } }
       timelineItems(itemTypes: [REVIEW_REQUESTED_EVENT], first: 50) {
         nodes { ... on ReviewRequestedEvent { createdAt requestedReviewer { __typename ... on User { login } ... on Team { name } } } }
@@ -291,8 +294,11 @@ public enum GitHubDecoding {
                 return ReviewRequestEvent(createdAt: createdAt, reviewer: reviewer.displayName, isTeam: reviewer.typename == "Team")
             },
             unresolvedThreads: node.reviewThreads?.nodes.filter { !$0.isResolved }.count ?? 0,
-            pendingReview: node.reviews.nodes.first { $0.state == "PENDING" }.flatMap { review in
-                review.id.map { PendingReview(id: $0, comments: review.comments?.totalCount ?? 0) }
+            pendingReview: node.pending?.nodes.first.map { review in
+                PendingReview(
+                    id: review.id, commitId: review.commit?.oid ?? "", comments: review.comments.totalCount,
+                    claudeComments: review.comments.nodes.count { $0.body.contains(DraftThreads.marker) }
+                )
             }
         )
     }
@@ -352,6 +358,8 @@ public enum GitHubDecoding {
         var mergeStateStatus: String?
         var commits: Commits
         var reviews: Reviews
+        /// Your own pending review, the only one GitHub shows. Optional so a query without it still decodes.
+        var pending: PendingReviews?
         var reviewRequests: ReviewRequests
         var timelineItems: Timeline
         var reviewThreads: ReviewThreads?
@@ -373,12 +381,22 @@ public enum GitHubDecoding {
     private struct Count: Decodable { var totalCount: Int }
     private struct Reviews: Decodable { var nodes: [ReviewNode] }
     private struct ReviewNode: Decodable {
-        var id: String?
         var state: String
         var submittedAt: Date?
         var author: Login?
-        var comments: Count?
     }
+    private struct PendingReviews: Decodable { var nodes: [PendingNode] }
+    private struct PendingNode: Decodable {
+        var id: String
+        var commit: CommitRef?
+        var comments: PendingComments
+    }
+    private struct CommitRef: Decodable { var oid: String }
+    private struct PendingComments: Decodable {
+        var totalCount: Int
+        var nodes: [Body]
+    }
+    private struct Body: Decodable { var body: String }
     private struct ReviewRequests: Decodable { var nodes: [ReviewRequestNode] }
     private struct ReviewRequestNode: Decodable { var requestedReviewer: Reviewer? }
     private struct Reviewer: Decodable {

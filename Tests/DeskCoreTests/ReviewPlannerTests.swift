@@ -2,40 +2,22 @@ import DeskCore
 import Foundation
 import Testing
 
+/// A review worktree's path is the only record of which PR it belongs to.
 @Suite struct ReviewPlannerTests {
-    let pr = Fixtures.pr(number: 5, head: "feat/x")
-
-    @Test func cleansUpOnlyMergedOrClosedPullRequests() {
-        let merged = Fixtures.pr(number: 1, head: "a", merged: Fixtures.t0)
-        var closed = Fixtures.pr(number: 2, head: "b")
-        closed.state = .closed
-        let open = Fixtures.pr(number: 3, head: "c")
-        let unknown = Fixtures.pr(number: 4, head: "d")
-        let records = Dictionary(uniqueKeysWithValues: [merged, closed, open, unknown].map { ($0.url, Fixtures.record(pr: $0)) })
-        let cleanups = ReviewPlanner.cleanups(records: records, closed: [merged, closed, open])
-        #expect(cleanups.map(\.number) == [1, 2])
-        #expect(ReviewPlanner.cleanups(records: records, closed: []).isEmpty)
+    @Test func theWorktreePathNamesThePullRequest() {
+        let pr = Fixtures.pr(number: 45, repo: "FhenixProtocol/gitops", head: "a")
+        let path = ReviewPlanner.worktreePath(reviewRoot: "/r/.reviews", pr: pr)
+        #expect(path == "/r/.reviews/gitops/pr-45")
+        let found = ReviewPlanner.pullRequest(ofWorktree: path, reviewRoot: "/r/.reviews", repoSlug: "fhenixprotocol/gitops")
+        #expect(found?.url == "https://github.com/fhenixprotocol/gitops/pull/45")
+        #expect(found?.number == 45)
     }
 
-    /// The one a search can never show: reviewed here, never submitted, then merged. `cleanups` cannot
-    /// see it go, so it has to be asked about by name instead.
-    @Test func listsRecordsNoSearchMentions() {
-        let open = Fixtures.pr(number: 3, head: "c")
-        let vanished = Fixtures.pr(number: 4, head: "d")
-        let records = Dictionary(uniqueKeysWithValues: [open, vanished].map { ($0.url, Fixtures.record(pr: $0)) })
-        #expect(ReviewPlanner.unresolved(records: records, seen: [open]).map(\.number) == [4])
-        #expect(ReviewPlanner.unresolved(records: records, seen: [open, vanished]).isEmpty)
-    }
-
-    /// An empty snapshot is a failed poll, not a mass closure — every record comes back unresolved so each
-    /// is asked about, and none is swept.
-    @Test func anEmptySnapshotResolvesNothingByItself() {
-        let records = Dictionary(uniqueKeysWithValues: [pr].map { ($0.url, Fixtures.record(pr: $0)) })
-        #expect(ReviewPlanner.unresolved(records: records, seen: []).map(\.number) == [5])
-        #expect(ReviewPlanner.cleanups(records: records, closed: []).isEmpty)
-    }
-
-    @Test func worktreePathNestsRepoAndNumberUnderTheRoot() {
-        #expect(ReviewPlanner.worktreePath(reviewRoot: "/r/.reviews", pr: pr) == "/r/.reviews/cofhe/pr-5")
+    @Test func anythingElseUnderTheRootIsNotAReview() {
+        for path in ["/r/.reviews/gitops", "/r/.reviews/gitops/pr-x", "/r/.reviews/gitops/pr-45/sub", "/r/gitops/pr-45", "/r/.reviewsX/gitops/pr-4"] {
+            #expect(ReviewPlanner.pullRequest(ofWorktree: path, reviewRoot: "/r/.reviews", repoSlug: "o/gitops") == nil)
+        }
+        // Without the repo's slug there is no PR to name.
+        #expect(ReviewPlanner.pullRequest(ofWorktree: "/r/.reviews/gitops/pr-45", reviewRoot: "/r/.reviews", repoSlug: "") == nil)
     }
 }

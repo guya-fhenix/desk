@@ -190,15 +190,15 @@ struct AddDeleteCounts: View {
     }
 }
 
-/// Where a review stands, as chips: the run, then the draft it fed on GitHub, and what changed since.
+/// Where a review stands, as chips: this session's run while it is going, then what GitHub says — your
+/// draft, or the review you sent — and what changed since.
 struct ReviewStatusChip: View {
-    var record: ReviewRecord
     var status: ReviewStatus
 
     var body: some View {
         HStack(spacing: 4) {
-            switch status.phase {
-            case .queued, .preparing:
+            switch status.run?.phase {
+            case .preparing:
                 ProgressView().controlSize(.mini)
                 Text("starting").scaled(.caption2).foregroundStyle(.secondary)
             case .running:
@@ -208,51 +208,44 @@ struct ReviewStatusChip: View {
                 ProgressView().controlSize(.mini)
                 Text("posting draft").scaled(.caption2).foregroundStyle(.secondary)
             case .failed:
-                Chip(text: "failed", color: .red).help(record.error ?? "")
-            case .posted:
-                draft
+                Chip(text: "failed", color: .red).help(status.run?.error ?? "")
+            case .posted, nil:
+                github
             }
-            if status.headMoved, status.draft.map(Self.isPending) ?? false {
+            if status.headMoved {
                 Chip(text: "new commits", color: .orange)
-                    .help("The head moved since the draft was posted; GitHub marks the comments on changed lines outdated")
+                    .help("The head moved since your draft's comments were written; GitHub marks the ones on changed lines outdated")
             }
             if status.reRequested {
-                Chip(text: "re-requested", color: .orange).help("Your review was requested again")
+                Chip(text: "re-requested", color: .orange).help("Your review was requested again after you last submitted one")
             }
         }
     }
 
-    @ViewBuilder private var draft: some View {
+    @ViewBuilder private var github: some View {
         switch status.draft {
-        case .pending(let comments):
+        case .pending(let comments, let claude):
             Chip(text: "draft · \(comments)", color: .blue)
-                .help("Your pending review on GitHub has \(comments) \(comments == 1 ? "comment" : "comments")\(skippedNote). Only you can see it.")
+                .help("Your pending review on GitHub: \(comments) \(comments == 1 ? "comment" : "comments"), \(claude) of them Claude's. Only you can see it.")
         case .submitted(let state):
-            Chip(text: Self.submittedTitle(state), color: .green).help("You submitted the draft on GitHub")
-        case .discarded:
-            Chip(text: "draft discarded", color: .secondary).help("No pending review of yours on GitHub, and nothing submitted since")
+            Chip(text: Self.submittedTitle(state), color: .green).help("Your latest review on GitHub")
         case nil:
-            if record.draft == nil {
-                Chip(text: "no comments", color: .green).help("Claude found nothing to comment on\(skippedNote)")
-            } else {
-                Chip(text: "draft posted", color: .blue).help("The PR is not in the last poll, so its draft cannot be read")
+            if status.run?.phase == .posted {
+                Chip(text: "no comments", color: .green).help(noCommentsHelp)
             }
         }
     }
 
-    private var skippedNote: String {
-        record.lastSkipped == 0 ? "" : "; \(record.lastSkipped) more could not be placed on this PR's lines"
-    }
-
-    private static func isPending(_ status: DraftStatus) -> Bool {
-        if case .pending = status { return true }
-        return false
+    private var noCommentsHelp: String {
+        let skipped = status.run?.skipped ?? 0
+        return skipped == 0 ? "Claude found nothing to comment on" : "Nothing posted; \(skipped) could not be placed on this PR's lines"
     }
 
     private static func submittedTitle(_ state: String) -> String {
         switch state {
         case "APPROVED": return "approved"
         case "CHANGES_REQUESTED": return "changes requested"
+        case "DISMISSED": return "dismissed"
         default: return "commented"
         }
     }

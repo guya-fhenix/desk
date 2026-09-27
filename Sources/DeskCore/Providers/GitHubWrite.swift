@@ -42,14 +42,14 @@ public struct PostedDraft: Sendable, Hashable {
 public enum GitHubWriteError: Error, CustomStringConvertible, Sendable {
     /// GitHub refused the mutation; the message is its own.
     case refused(String)
-    /// The draft exists but not every comment made it in. The id is kept so the draft is still followed.
-    case partial(draftId: String, added: Int, underlying: String)
+    /// The draft exists but not every comment made it in. A re-run adds only what it lacks.
+    case partial(added: Int, underlying: String)
     case unreadable(String)
 
     public var description: String {
         switch self {
         case .refused(let message): return "GitHub refused the draft: \(message)"
-        case .partial(_, let added, let underlying):
+        case .partial(let added, let underlying):
             return "the draft on GitHub has only \(added) of the comments: \(underlying)"
         case .unreadable(let text): return "unreadable answer from GitHub: \(text.prefix(200))"
         }
@@ -86,7 +86,7 @@ extension GitHubProvider {
                 try await addThread(to: draftId, thread)
                 added += 1
             } catch {
-                throw GitHubWriteError.partial(draftId: draftId, added: added, underlying: "\(error)")
+                throw GitHubWriteError.partial(added: added, underlying: "\(error)")
             }
         }
         return PostedDraft(id: draftId, added: added, skipped: skipped)
