@@ -17,14 +17,10 @@ final class AppModel {
     var repositories: [GitHubRepo] = []
     var loadingRepositories = false
     var repositoriesError: String?
-    /// The PR whose review workspace fills the Reviews tab; nil shows the queue. It lives here rather than
-    /// in the tab's own state so it survives a tab switch, so a nudge can open one, and so cleanup can drop
-    /// the user out of a workspace whose record has just been removed.
-    var openReviewURL: String?
     /// Set to ask the window to switch tabs; `DeskWindow` clears it. The menu bar and the nudges use it
     /// to land on the screen they mean.
     var pendingTab: DeskWindow.Tab?
-    /// PR urls with a review starting or submitting from this side, for spinners and disabled buttons.
+    /// PR urls with a review running from this side, for spinners and disabled buttons.
     var busyReviews: Set<String> = []
     /// Ticket keys with a transition in flight, for the button that must not fire twice.
     var movingTickets: Set<String> = []
@@ -37,9 +33,6 @@ final class AppModel {
     var sessionErrors: [String: String] = [:]
     /// What reviews have cost in the last 24 hours. Shown because every run is now a deliberate spend.
     var reviewSpendToday: Double = 0
-    /// Records with a write in flight. A refresh must not overwrite these with the copy it read before
-    /// the write landed — that is what makes an approved comment flip back to pending for one poll.
-    private var pendingReviewWrites: Set<String> = []
 
     /// Browser-style zoom for the Desk window, remembered across launches. Not in `DeskConfig`: it is a
     /// comfort setting for this screen, not something the doctor or a provider should ever read.
@@ -137,19 +130,11 @@ final class AppModel {
         state.recompute()
         notifier.deliver(state.nudges, post: config.notificationsEnabled && allSourcesReported)
         onUrgentCountChange?(urgentCount)
-        if source == .github { refreshReviewAnchors() }
     }
 
-    /// A record with a write in flight keeps the local copy: the snapshot just read from the actor was
-    /// taken before that write landed, and assigning it wholesale would revert the user's click.
     private func mergeReviews() async {
-        var fresh = await service.reviews()
-        for url in pendingReviewWrites {
-            if let local = state.reviews[url] { fresh[url] = local }
-        }
-        state.reviews = fresh
+        state.reviews = await service.reviews()
         reviewSpendToday = await service.reviewSpendToday()
-        if let url = openReviewURL, state.reviews[url] == nil { openReviewURL = nil }
     }
 
     private var allSourcesReported: Bool {
@@ -212,20 +197,7 @@ final class AppModel {
 
     // MARK: Claude reviews
 
-    /// Re-points the comments of any PR whose head moved. The only review work that happens on its own:
-    /// it spends no tokens, and it is what keeps "outdated" honest between runs. Running a review is
-    /// always a deliberate press.
-    private func refreshReviewAnchors() {
-        Task {
-            let stale = await service.reviewsWithStaleAnchors(queue: state.reviewRequests, login: state.login)
-            guard !stale.isEmpty else { return }
-            for pr in stale { await service.refreshReviewAnchors(pr: pr) }
-            await mergeReviews()
-            state.recompute()
-        }
-    }
-
-    /// Reviews one PR. Always from a press: the Review button, or Review again inside the workspace.
+    /// Reviews one PR and posts what it found as your draft review on it. Always from a press.
     func review(_ pr: PullRequest) {
         guard let gitScan = state.gitScan else {
             state.reviewError = "Repos are still being scanned; try again in a moment."
@@ -254,95 +226,13 @@ final class AppModel {
             await service.review(pr: pr, gitScan: gitScan)
             await mergeReviews()
             state.recompute()
+            // The draft is on GitHub now; until the snapshot has it, the row would read it as discarded.
+            await refresh(.github)
         }
     }
 
-    func openWorkspace(_ prUrl: String) { openReviewURL = prUrl }
-
-    /// Opens a review in the Desk window, from the menu bar or a notification.
-    func openInWindow(_ prUrl: String) {
-        openReviewURL = prUrl
-        pendingTab = .reviews
-    }
-
-    func closeWorkspace() { openReviewURL = nil }
-
-    /// The parsed diff for a review, loaded on demand: it is megabytes and would be copied on every poll
-    /// if it lived in `state`.
-    func diff(for record: ReviewRecord) async throws -> PullRequestDiff {
-        try await service.reviewDiff(record)
-    }
-
-    // MARK: The user's decisions
-    //
-    // Each one writes locally first so the UI never lags a click, then takes the actor's record as
-    // authoritative. Field-granular on purpose: a whole-record write would race a run rewriting the same
-    // record's comments.
-
-    func setComment(_ id: UUID, in prUrl: String, state newState: CommentState) {
-        apply(prUrl) { $0.update(id) { $0.state = newState } } remote: {
-            await self.service.setReviewCommentState(prUrl: prUrl, commentId: id, state: newState)
-        }
-    }
-
-    func editComment(_ id: UUID, in prUrl: String, body: String, approve: Bool) {
-        apply(prUrl) { record in
-            record.update(id) { comment in
-                let trimmed = body.trimmingCharacters(in: .whitespacesAndNewlines)
-                comment.editedBody = trimmed.isEmpty || trimmed == comment.body ? nil : trimmed
-                if approve { comment.state = .approved }
-            }
-        } remote: {
-            let updated = await self.service.setReviewCommentBody(prUrl: prUrl, commentId: id, body: body)
-            guard approve else { return updated }
-            return await self.service.setReviewCommentState(prUrl: prUrl, commentId: id, state: .approved)
-        }
-    }
-
-    func setVerdict(_ verdict: ReviewVerdict, in prUrl: String) {
-        apply(prUrl) { $0.chosenVerdict = verdict } remote: {
-            await self.service.setReviewVerdict(prUrl: prUrl, verdict: verdict)
-        }
-    }
-
-    func setSummary(_ summary: String, in prUrl: String) {
-        apply(prUrl) { $0.summary = summary } remote: {
-            await self.service.setReviewSummary(prUrl: prUrl, summary: summary)
-        }
-    }
-
-    private func apply(
-        _ prUrl: String, _ local: (inout ReviewRecord) -> Void, remote: @escaping () async -> ReviewRecord?
-    ) {
-        guard var record = state.reviews[prUrl] else { return }
-        local(&record)
-        state.reviews[prUrl] = record
-        pendingReviewWrites.insert(prUrl)
-        Task {
-            defer { pendingReviewWrites.remove(prUrl) }
-            if let updated = await remote() { state.reviews[prUrl] = updated }
-            state.recompute()
-        }
-    }
-
-    /// Posts the review. The only call in the app that writes to GitHub.
-    func submitReview(_ prUrl: String) {
-        guard !busyReviews.contains(prUrl) else { return }
-        busyReviews.insert(prUrl)
-        Task {
-            defer { busyReviews.remove(prUrl) }
-            do {
-                state.reviews[prUrl] = try await service.submitReview(prUrl: prUrl)
-                state.errors[.github] = nil
-                // The PR's review decision has changed, so the snapshot is stale.
-                await refresh(.github)
-            } catch {
-                state.errors[.github] = "\(error)"
-                await mergeReviews()
-            }
-            state.recompute()
-        }
-    }
+    /// The PR's Files tab, where a pending review's comments are read, edited and submitted.
+    func openDraft(_ record: ReviewRecord) { open(record.filesURL) }
 
     func removeReview(_ record: ReviewRecord) {
         Task {
@@ -351,7 +241,6 @@ final class AppModel {
             } catch {
                 state.reviewError = "\(error)"
             }
-            if openReviewURL == record.prUrl { openReviewURL = nil }
             await mergeReviews()
             state.recompute()
             Task { await refresh(.git) }

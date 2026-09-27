@@ -135,14 +135,17 @@ public actor GitHubProvider {
     /// GitHub answers with a 5xx now and then; `gh` prints it as "HTTP 502" and exits 1. A retry after a
     /// short pause almost always succeeds, and it keeps one bad response from marking the source red
     /// for a whole poll interval.
-    private func graphQL(query: String, variables: [String: any Sendable]) async throws -> Data {
+    ///
+    /// `retrying: false` is for writes, which must run exactly once: a 502 returned after the mutation
+    /// landed would otherwise post it twice.
+    func graphQL(query: String, variables: [String: any Sendable], retrying: Bool = true) async throws -> Data {
         let body = try JSONSerialization.data(withJSONObject: ["query": query, "variables": variables])
         var attempt = 0
         while true {
             let result = try await Shell.run(ghPath, ["api", "graphql", "--input", "-"], stdin: body)
             if result.stdout.first == UInt8(ascii: "{") { return result.stdout }
             attempt += 1
-            guard attempt < Self.attempts, GitHubError.isTransient(stderr: result.stderr) else {
+            guard retrying, attempt < Self.attempts, GitHubError.isTransient(stderr: result.stderr) else {
                 throw ShellError.failed(command: "gh api graphql", status: result.status, stderr: result.stderr)
             }
             try await Task.sleep(for: .seconds(Double(attempt) * 2))
@@ -212,7 +215,7 @@ public enum GitHubQueries {
       reviewDecision
       mergeStateStatus
       commits(last: 1) { nodes { commit { oid statusCheckRollup { state contexts(first: 0) { totalCount } } } } }
-      reviews(first: 100) { nodes { state submittedAt author { login } } }
+      reviews(first: 100) { nodes { id state submittedAt author { login } comments { totalCount } } }
       reviewRequests(first: 20) { nodes { requestedReviewer { __typename ... on User { login } ... on Team { name } } } }
       timelineItems(itemTypes: [REVIEW_REQUESTED_EVENT], first: 50) {
         nodes { ... on ReviewRequestedEvent { createdAt requestedReviewer { __typename ... on User { login } ... on Team { name } } } }
@@ -287,7 +290,10 @@ public enum GitHubDecoding {
                 guard let createdAt = event.createdAt, let reviewer = event.requestedReviewer else { return nil }
                 return ReviewRequestEvent(createdAt: createdAt, reviewer: reviewer.displayName, isTeam: reviewer.typename == "Team")
             },
-            unresolvedThreads: node.reviewThreads?.nodes.filter { !$0.isResolved }.count ?? 0
+            unresolvedThreads: node.reviewThreads?.nodes.filter { !$0.isResolved }.count ?? 0,
+            pendingReview: node.reviews.nodes.first { $0.state == "PENDING" }.flatMap { review in
+                review.id.map { PendingReview(id: $0, comments: review.comments?.totalCount ?? 0) }
+            }
         )
     }
 
@@ -367,9 +373,11 @@ public enum GitHubDecoding {
     private struct Count: Decodable { var totalCount: Int }
     private struct Reviews: Decodable { var nodes: [ReviewNode] }
     private struct ReviewNode: Decodable {
+        var id: String?
         var state: String
         var submittedAt: Date?
         var author: Login?
+        var comments: Count?
     }
     private struct ReviewRequests: Decodable { var nodes: [ReviewRequestNode] }
     private struct ReviewRequestNode: Decodable { var requestedReviewer: Reviewer? }

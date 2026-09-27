@@ -24,7 +24,7 @@ import Testing
 
     @Test func aReviewedPullRequestIsNotWaitingOnAnything() {
         let pr = Fixtures.pr(number: 1, head: "a", author: "alice")
-        let records = [pr.url: Fixtures.record(pr: pr, comments: [Fixtures.comment()])]
+        let records = [pr.url: Fixtures.record(pr: pr)]
         #expect(ReviewReadiness.needs(input(queue: [pr], records: records, now: Fixtures.hours(5))).isEmpty)
     }
 
@@ -61,56 +61,30 @@ import Testing
         #expect(ReviewReadiness.needs(input(queue: [pr], records: records, now: Fixtures.t0)) == [pr.url: .failed])
     }
 
-    @Test func aRunThatReturnedProseInsteadOfAReviewIsReadyToRunAgain() {
-        // How a refusal, a spend limit and a crash all look: prose the parser could not use, no comments.
-        // Left as-is the row would read "reviewed" when nothing was reviewed.
-        let pr = Fixtures.pr(number: 1, head: "a", author: "alice")
-        var record = Fixtures.record(pr: pr, lastRun: Fixtures.t0)
-        record.rawOutput = "You've hit your individual spend limit"
-        #expect(ReviewReadiness.needs(input(queue: [pr], records: [pr.url: record], now: Fixtures.hours(5))) == [pr.url: .failed])
-
-        // Prose plus findings is a review that merely failed to format itself, and is worth reading.
-        record.comments = [Fixtures.comment()]
-        #expect(ReviewReadiness.needs(input(queue: [pr], records: [pr.url: record], now: Fixtures.hours(5))).isEmpty)
-
-        // And a clean PR with genuinely nothing to say is finished, not failed.
-        var clean = Fixtures.record(pr: pr, lastRun: Fixtures.t0)
-        clean.summary = "Nothing to flag."
-        #expect(ReviewReadiness.needs(input(queue: [pr], records: [pr.url: clean], now: Fixtures.hours(5))).isEmpty)
-    }
-
-    @Test func aRunningReviewIsNeitherReadyNorReanchored() {
+    @Test func aRunningReviewIsNotReady() {
         let pr = Fixtures.pr(number: 1, head: "a", author: "alice")
         let records = [pr.url: Fixtures.record(pr: pr, head: "older", phase: .running)]
-        let state = input(queue: [pr], records: records, now: Fixtures.hours(5))
-        #expect(ReviewReadiness.needs(state).isEmpty)
-        #expect(ReviewReadiness.staleAnchors(state).isEmpty)
+        #expect(ReviewReadiness.needs(input(queue: [pr], records: records, now: Fixtures.hours(5))).isEmpty)
     }
 
-    @Test func aSubmittedReviewIsDoneUntilTheAuthorAsksAgain() {
+    /// A request you answered on GitHub — by submitting the draft after it — is not asking again.
+    @Test func aRequestAnsweredOnGitHubIsNotARerequest() {
         var pr = Fixtures.pr(number: 1, head: "a", author: "alice")
-        var record = Fixtures.record(pr: pr, lastRun: Fixtures.t0, phase: .submitted)
-        record.history = [SubmittedRound(at: Fixtures.hours(1), event: .requestChanges, url: "u", inlineCount: 2, foldedCount: 0)]
+        let records = [pr.url: Fixtures.record(pr: pr, lastRun: Fixtures.t0)]
+        pr.reviews = [Review(state: "CHANGES_REQUESTED", submittedAt: Fixtures.hours(1), author: "me")]
 
-        // A request from before the review was sent is the one it answered.
         pr.reviewRequestEvents = [Fixtures.event(at: Fixtures.hours(0.5))]
-        #expect(ReviewReadiness.needs(input(queue: [pr], records: [pr.url: record], now: Fixtures.hours(3))).isEmpty)
+        #expect(ReviewReadiness.needs(input(queue: [pr], records: records, now: Fixtures.hours(3))).isEmpty)
 
         pr.reviewRequestEvents = [Fixtures.event(at: Fixtures.hours(2))]
-        #expect(ReviewReadiness.needs(input(queue: [pr], records: [pr.url: record], now: Fixtures.hours(3))) == [pr.url: .reRequested])
+        #expect(ReviewReadiness.needs(input(queue: [pr], records: records, now: Fixtures.hours(3))) == [pr.url: .reRequested])
     }
 
-    @Test func newCommitsReanchorAndAreNeverReadyToRun() {
-        // The whole reason these are two functions: one spends tokens, the other does not.
+    @Test func newCommitsAloneNeverAskForARun() {
+        // GitHub marks the draft's comments on changed lines outdated by itself; a run costs money.
         let pr = Fixtures.pr(number: 1, head: "a", author: "alice")
         let records = [pr.url: Fixtures.record(pr: pr, head: "older", lastRun: Fixtures.t0)]
-        let state = input(queue: [pr], records: records, now: Fixtures.hours(5))
-        #expect(ReviewReadiness.needs(state).isEmpty)
-        #expect(ReviewReadiness.staleAnchors(state).map(\.number) == [1])
-
-        // Nothing to re-anchor once the record is at the same head.
-        let current = input(queue: [pr], records: [pr.url: Fixtures.record(pr: pr)], now: Fixtures.hours(5))
-        #expect(ReviewReadiness.staleAnchors(current).isEmpty)
+        #expect(ReviewReadiness.needs(input(queue: [pr], records: records, now: Fixtures.hours(5))).isEmpty)
     }
 
     @Test func everyQueuedPullRequestIsJudgedOnItsOwn() {

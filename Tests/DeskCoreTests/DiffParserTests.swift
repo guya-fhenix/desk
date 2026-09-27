@@ -218,9 +218,4 @@ import Testing
         #expect(diff.snap(path: "src/gauge.rs", near: 41, side: .right, matching: "not in the file") == nil)
     }
 
-    @Test func contextComesFromTheSameSide() {
-        let context = diff.context(path: "src/gauge.rs", line: 41, side: .right, count: 2)
-        #expect(context.before == ["    fn poll(&self) {"])
-        #expect(context.after == ["        loop {", "        report(n);"])
-    }
 }

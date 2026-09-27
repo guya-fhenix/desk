@@ -35,7 +35,7 @@ public actor DeskService {
         self.support = support
         let providers = Self.makeProviders(config)
         (github, jira) = providers
-        // One diff cache, shared: the runner fetches diffs and the workspace reads them back.
+        // One diff cache, shared by the runner and its housekeeping.
         let diffs = ReviewDiffs(ghPath: config.resolvedGhPath, support: support)
         self.diffs = diffs
         reviews = ReviewRunner(config: config, support: support, github: providers.0, worktrees: worktrees, diffs: diffs)
@@ -197,49 +197,16 @@ public actor DeskService {
 
     public func reviews() async -> [String: ReviewRecord] { await reviews.records }
 
-    /// PRs whose comments need re-pointing at a head that moved. The only review work the app does
-    /// without being asked, because it spends no tokens.
-    public func reviewsWithStaleAnchors(queue: [PullRequest], login: String) async -> [PullRequest] {
-        await reviews.staleAnchors(queue: queue, login: login)
-    }
-
     /// How many reviews are running, for the button that must not start a fifth.
     public func runningReviews() async -> Int { await reviews.running }
 
     /// What reviews have cost in the last 24 hours, across every PR.
     public func reviewSpendToday() async -> Double { await reviews.spentToday() }
 
+    /// Runs one review and posts what it found into your pending review on the PR. The app's only write
+    /// to GitHub, and never more than a draft: submitting it is yours to do there.
     public func review(pr: PullRequest, gitScan: GitScan) async {
         await reviews.review(pr, repos: gitScan.repos)
-    }
-
-    public func refreshReviewAnchors(pr: PullRequest) async {
-        await reviews.refreshAnchors(pr)
-    }
-
-    public func reviewDiff(_ record: ReviewRecord) async throws -> PullRequestDiff {
-        try await diffs.diff(repo: record.repo, number: record.number, headSha: record.headSha)
-    }
-
-    public func setReviewCommentState(prUrl: String, commentId: UUID, state: CommentState) async -> ReviewRecord? {
-        await reviews.setCommentState(prUrl: prUrl, commentId: commentId, state: state)
-    }
-
-    public func setReviewCommentBody(prUrl: String, commentId: UUID, body: String) async -> ReviewRecord? {
-        await reviews.setCommentBody(prUrl: prUrl, commentId: commentId, body: body)
-    }
-
-    public func setReviewVerdict(prUrl: String, verdict: ReviewVerdict) async -> ReviewRecord? {
-        await reviews.setVerdict(prUrl: prUrl, verdict: verdict)
-    }
-
-    public func setReviewSummary(prUrl: String, summary: String) async -> ReviewRecord? {
-        await reviews.setSummary(prUrl: prUrl, summary: summary)
-    }
-
-    /// The only call in the app that writes to GitHub.
-    public func submitReview(prUrl: String) async throws -> ReviewRecord {
-        try await reviews.submit(prUrl: prUrl)
     }
 
     public func removeReview(_ record: ReviewRecord) async throws { try await reviews.remove(record) }

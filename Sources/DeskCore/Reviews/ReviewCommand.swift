@@ -85,21 +85,17 @@ public enum ReviewCommand {
         ]
         if let others = otherRepositories(otherRepos) { paragraphs.append(others) }
         paragraphs.append(contract(pr))
-        paragraphs.append("Post nothing to GitHub and edit nothing: I read your JSON, decide what to keep, and submit the review myself.")
+        paragraphs.append("Post nothing to GitHub and edit nothing: I put your comments into a draft review on the PR, and I decide there what to keep and what verdict to send.")
         return paragraphs.joined(separator: "\n\n")
     }
 
-    /// The shape the whole screen is built on. `lineText` is the important one: models miscount `@@`
-    /// offsets, so the quoted line is what the app corrects the number against, and it doubles as the
-    /// anchor that tells a later push whether the comment still applies.
+    /// The shape the draft is built from. `lineText` is the important one: models miscount `@@` offsets,
+    /// so the quoted line is what the app corrects the number against before GitHub sees it.
     private static func contract(_ pr: PullRequest) -> String {
         """
         Answer with one JSON object and nothing else. No prose before or after it, no code fence.
 
         {
-          "verdict": "APPROVE" | "REQUEST_CHANGES" | "COMMENT",
-          "summary": "Two sentences at most, 45 words at most, plain text: what the PR does, then the one \
-        thing that matters most. Not a recap of the diff. No headings, no bullet list, no preamble.",
           "comments": [
             {
               "path": "src/gauge.rs",
@@ -122,13 +118,10 @@ public enum ReviewCommand {
         `@@ -old,n +new,m @@` header of the hunk the line sits in.
         - `lineText` is that line copied verbatim, without its leading `+`, `-` or space. It is how I check \
         your line number, so copy it exactly, spaces included.
-        - Comment only on lines inside a hunk of that diff. A point about code the PR did not touch belongs \
-        in `summary`.
+        - Comment only on lines inside a hunk of that diff. Leave out points about code the PR did not touch.
         - One comment per line: if two things are wrong on one line, say both in one body.
-        - Verdict: APPROVE when nothing left would block the merge. Comments do not stop an approval — a \
-        PR with only `minor`, `nit` or `question` findings is an approval with comments, which is the normal \
-        outcome for good work. REQUEST_CHANGES only when a `blocker` or `major` comment has to be fixed \
-        before merging. COMMENT when what you have is mostly questions you need answered before you can judge.
+        - `severity`: `blocker` or `major` only for what has to be fixed before merging; that is what I judge \
+        the verdict by. No findings is a fine answer for good work: `{"comments": []}`.
         """
     }
 

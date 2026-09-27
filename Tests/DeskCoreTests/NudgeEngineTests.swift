@@ -40,9 +40,10 @@ import Testing
         input.readyReviews = [ReadyReview(pr: pr, summary: "Looks fine.", comments: 3, runs: 1)]
         let nudges = NudgeEngine.nudges(input).filter { $0.kind == .reviewReady }
         #expect(nudges.count == 1)
-        #expect(nudges[0].url == pr.url)
+        // Straight at the draft: pending comments show in the Files tab.
+        #expect(nudges[0].url == "\(pr.url)/files")
         #expect(nudges[0].title == "Claude reviewed cofhe#12")
-        #expect(nudges[0].detail == "3 comments to look over")
+        #expect(nudges[0].detail == "3 comments waiting in your draft review")
 
         // Nothing to look over: the summary carries the nudge instead.
         input.readyReviews = [ReadyReview(pr: pr, summary: "Looks fine.", comments: 0, runs: 2)]

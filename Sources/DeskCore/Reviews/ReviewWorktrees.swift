@@ -129,44 +129,6 @@ public actor ReviewWorktrees {
         return GitParsing.worktreeEntries(porcelain).contains { Self.canonical($0.path) == wanted }
     }
 
-    /// Files at a commit, read straight from the object database so the checkout can sit at another sha
-    /// and a review can be running in it. A path the commit does not have is simply absent, which is how
-    /// a comment on a deleted file ends up outdated. The timeout is short on purpose: a wedged fetch on
-    /// this repo should cost one poll's re-anchoring, not the refresh loop.
-    public func blobs(sha: String, paths: [String], repoRoot: String) async -> [String: [String]] {
-        guard !sha.isEmpty, !paths.isEmpty else { return [:] }
-        return await (try? serialized(repoRoot) {
-            var contents: [String: [String]] = [:]
-            for path in paths {
-                // Not `git(…)`: that trims, and trimming a file whose first line is blank or indented
-                // shifts every line number after it — which is the one thing anchoring cannot survive.
-                guard let text = try? await Shell.output(
-                    self.gitPath, ["show", "\(sha):\(path)"], cwd: repoRoot, timeout: 30
-                ) else { continue }
-                var lines = text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
-                // `git show` ends with a newline, which splits into a trailing empty line the file has not got.
-                if lines.last == "" { lines.removeLast() }
-                contents[path] = lines
-            }
-            return contents
-        }) ?? [:]
-    }
-
-    /// Where the PR branched from its base, which is what a LEFT-side line number counts against.
-    public func mergeBase(baseRef: String, sha: String, repoRoot: String) async -> String? {
-        try? await serialized(repoRoot) {
-            try? await self.git(["merge-base", "origin/\(baseRef)", sha], cwd: repoRoot, timeout: 30)
-        }
-    }
-
-    /// Fetches one ref on its own, for a re-anchor that has no review run behind it.
-    @discardableResult
-    public func fetch(ref: String, repoRoot: String) async -> Bool {
-        ((try? await serialized(repoRoot) {
-            try? await self.git(["fetch", "--no-tags", "origin", ref], cwd: repoRoot, timeout: 120)
-        }) ?? nil) != nil
-    }
-
     /// Removes clean review worktrees no record claims. Without this a ledger reset would strand them:
     /// nothing would ever ask for their removal, and they would hold worktree registrations in real clones.
     public func pruneOrphans(repoRoots: [String], reviewRoot: String, keeping paths: Set<String>) async {

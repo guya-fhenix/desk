@@ -170,15 +170,4 @@ public struct PullRequestDiff: Sendable, Hashable {
         // Ties go to the line the model named, then to the earlier line so the result never wobbles.
         return candidates.min { abs($0 - line) == abs($1 - line) ? $0 < $1 : abs($0 - line) < abs($1 - line) }
     }
-
-    /// Up to `count` lines either side of a line, for the anchor's context. Taken from the diff because
-    /// it is already in memory: re-anchoring later compares against the file on disk.
-    public func context(path: String, line: Int, side: DiffSide, count: Int = 3) -> (before: [String], after: [String]) {
-        guard let file = file(path) else { return ([], []) }
-        let lines = file.lines(on: side)
-        guard let index = lines.firstIndex(where: { $0.number(on: side) == line }) else { return ([], []) }
-        let before = lines[max(0, index - count)..<index].map(\.text)
-        let after = lines[(index + 1)..<min(lines.count, index + 1 + count)].map(\.text)
-        return (Array(before), Array(after))
-    }
 }

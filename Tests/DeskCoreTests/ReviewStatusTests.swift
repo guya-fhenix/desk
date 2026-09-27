@@ -7,7 +7,7 @@ import Testing
 
     @Test func phaseComesStraightFromTheRecord() {
         // There is no session file to read it back out of, so the record is the only authority.
-        for phase in [ReviewPhase.queued, .preparing, .running, .ready, .submitting, .submitted] {
+        for phase in [ReviewPhase.queued, .preparing, .running, .posting, .posted] {
             let record = Fixtures.record(pr: pr, phase: phase)
             #expect(ReviewStatus.derive(record: record, pr: pr, login: "me").phase == phase)
         }
@@ -18,10 +18,10 @@ import Testing
         #expect(ReviewPhase.queued.isBusy)
         #expect(ReviewPhase.preparing.isBusy)
         #expect(ReviewPhase.running.isBusy)
-        #expect(ReviewPhase.submitting.isBusy)
-        #expect(!ReviewPhase.ready.isBusy)
+        // Posting too: a second run then would race the first for the same draft.
+        #expect(ReviewPhase.posting.isBusy)
+        #expect(!ReviewPhase.posted.isBusy)
         #expect(!ReviewPhase.failed.isBusy)
-        #expect(!ReviewPhase.submitted.isBusy)
     }
 
     @Test func headMovedComparesTheRecordedSha() {
@@ -48,41 +48,29 @@ import Testing
         #expect(!status([Fixtures.event(reviewer: "me", at: Fixtures.hours(1), team: true)]).reRequested)
     }
 
-    @Test func countsSplitCommentsByStateAndSeverity() {
-        let record = Fixtures.record(pr: pr, comments: [
-            Fixtures.comment(line: 1, severity: .blocker, state: .approved),
-            Fixtures.comment(line: 2, severity: .major, state: .pending, outdated: true),
-            Fixtures.comment(line: 3, severity: .nit, state: .rejected),
-            // A rejected blocker is not blocking anything: it is not going anywhere.
-            Fixtures.comment(line: 4, severity: .blocker, state: .rejected),
-        ])
-        let counts = ReviewStatus.derive(record: record, pr: pr, login: "me").counts
-        #expect(counts.approved == 1)
-        #expect(counts.pending == 1)
-        #expect(counts.rejected == 2)
-        #expect(counts.outdated == 1)
-        #expect(counts.blocking == 2)
-        #expect(counts.total == 4)
+    /// Where the draft stands is GitHub's to say: pending while your pending review is the one the run
+    /// wrote, sent once you submitted a review after it, thrown away when neither is true.
+    @Test func draftStatusIsReadOffThePullRequest() {
+        let record = Fixtures.record(pr: pr, draft: "draft1", postedAt: Fixtures.t0)
+        func status(pending: PendingReview? = nil, reviews: [Review] = []) -> DraftStatus? {
+            var pr = pr
+            pr.pendingReview = pending
+            pr.reviews = reviews
+            return ReviewStatus.derive(record: record, pr: pr, login: "me").draft
+        }
+        #expect(status(pending: PendingReview(id: "draft1", comments: 5)) == .pending(comments: 5))
+        #expect(status(reviews: [Review(state: "APPROVED", submittedAt: Fixtures.hours(1), author: "me")]) == .submitted(state: "APPROVED"))
+        // Somebody else's review, or one of yours from before the draft, is not the draft sent.
+        #expect(status(reviews: [Review(state: "APPROVED", submittedAt: Fixtures.hours(1), author: "alice")]) == .discarded)
+        #expect(status(reviews: [Review(state: "COMMENTED", submittedAt: Fixtures.hours(-1), author: "me")]) == .discarded)
+        // A pending review that is not the draft's is a new one of yours; the run's draft is gone.
+        #expect(status(pending: PendingReview(id: "other", comments: 1)) == .discarded)
+        #expect(status() == .discarded)
     }
 
-    @Test func verdictPrefersTheUsersChoice() {
-        var record = Fixtures.record(pr: pr)
-        #expect(record.effectiveVerdict == .comment)
-        record.verdict = .approve
-        #expect(record.effectiveVerdict == .approve)
-        record.chosenVerdict = .requestChanges
-        #expect(record.effectiveVerdict == .requestChanges)
-    }
-
-    @Test func editedCommentPostsTheUsersWords() {
-        var comment = Fixtures.comment(body: "Claude wrote this")
-        #expect(comment.text == "Claude wrote this")
-        #expect(!comment.isUserEdited)
-        comment.editedBody = "I wrote this"
-        #expect(comment.text == "I wrote this")
-        #expect(comment.isUserEdited)
-        // Claude's original survives, so "edited" stays visible.
-        #expect(comment.body == "Claude wrote this")
+    @Test func noDraftOrNoPullRequestHasNoDraftStatus() {
+        #expect(ReviewStatus.derive(record: Fixtures.record(pr: pr, draft: nil), pr: pr, login: "me").draft == nil)
+        #expect(ReviewStatus.derive(record: Fixtures.record(pr: pr), pr: nil, login: "me").draft == nil)
     }
 
     @Test func ledgerKeepsAWeekOfSpend() {

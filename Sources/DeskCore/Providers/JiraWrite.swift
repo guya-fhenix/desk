@@ -6,7 +6,7 @@ extension JiraProvider {
     /// Moves a work item to a status by name. acli works out which transition that is, and refuses when
     /// the workflow has no way there from where the ticket stands.
     ///
-    /// Deliberately no retry, for the same reason `submitReview` has none: a failure reported after the
+    /// Deliberately no retry, for the same reason `postDraft` has none: a failure reported after the
     /// transition landed would fire the workflow's side effects twice.
     public func transition(key: String, to status: String) async throws {
         let text: String

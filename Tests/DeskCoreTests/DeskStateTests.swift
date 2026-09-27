@@ -22,16 +22,29 @@ import Testing
 
     @Test func reviewStatusComesFromTheRecordAndThePullRequest() {
         var state = state
-        let pr = Fixtures.pr(number: 9, head: "y")
+        var pr = Fixtures.pr(number: 9, head: "y")
+        pr.pendingReview = PendingReview(id: "draft1", comments: 4)
         state.github?.reviewRequests = [pr]
-        state.reviews[pr.url] = Fixtures.record(
-            pr: pr, head: "older", runs: 2, comments: [Fixtures.comment(state: .approved)], cost: 2
-        )
+        state.reviews[pr.url] = Fixtures.record(pr: pr, head: "older", runs: 2, cost: 2)
         let status = try! #require(state.reviewStatus(for: pr))
-        #expect(status.phase == .ready)
+        #expect(status.phase == .posted)
         #expect(status.costUSD == 2)
         #expect(status.headMoved)
-        #expect(status.counts.approved == 1)
+        #expect(status.draft == .pending(comments: 4))
+    }
+
+    /// The "Claude reviewed" nudge is for a draft that is still waiting, with something in it.
+    @Test func aPendingDraftIsWhatNudges() {
+        var state = state
+        var waiting = Fixtures.pr(number: 1, head: "a", author: "alice")
+        waiting.pendingReview = PendingReview(id: "draft1", comments: 3)
+        let sent = Fixtures.pr(number: 2, head: "b", author: "alice")
+        state.github?.reviewRequests = [waiting, sent]
+        state.reviews = [waiting.url: Fixtures.record(pr: waiting), sent.url: Fixtures.record(pr: sent)]
+        state.recompute(now: Fixtures.t0)
+        let ready = state.nudges.filter { $0.kind == .reviewReady }
+        #expect(ready.map(\.url) == ["\(waiting.url)/files"])
+        #expect(ready.first?.detail == "3 comments waiting in your draft review")
     }
 
     @Test func draftsAndBotPullRequestsStayOutOfTheReviewQueue() {
@@ -41,20 +54,15 @@ import Testing
         let bot = Fixtures.pr(number: 3, head: "c", author: "github-actions[bot]")
         let workflow = Fixtures.pr(number: 4, title: "Update Submodule from cofhe-contracts", head: "d", author: "liorbond")
         state.github?.reviewRequests = [ready, draft, bot, workflow]
-        state.reviews[draft.url] = Fixtures.record(pr: draft)
         state.recompute(now: Fixtures.t0)
         #expect(state.reviewRequests.map(\.number) == [1])
-        #expect(state.pastReviews.map(\.number) == [2])
         #expect(state.nudges.filter { $0.kind == .reviewRequested }.map(\.url) == [ready.url])
     }
 
-    @Test func pastReviewsAreTheOnesOutsideTheQueue() {
+    @Test func aReviewWhosePullRequestLeftEverySearchHasNoPullRequest() {
         var state = state
-        let queued = Fixtures.pr(number: 1, head: "a", author: "alice")
         let reviewed = Fixtures.pr(number: 2, head: "b", author: "alice")
-        state.github?.reviewRequests = [queued]
-        state.reviews = [queued.url: Fixtures.record(pr: queued), reviewed.url: Fixtures.record(pr: reviewed)]
-        #expect(state.pastReviews.map(\.number) == [2])
+        state.reviews = [reviewed.url: Fixtures.record(pr: reviewed)]
         #expect(state.pullRequest(for: state.reviews[reviewed.url]!) == nil)
     }
 
@@ -78,26 +86,12 @@ import Testing
         #expect(state.reviewsToRun.map(\.number) == [1, 2])
     }
 
-    @Test func finishedReviewRaisesTheReadyNudge() {
-        var state = state
-        let pr = Fixtures.pr(number: 9, head: "y", author: "alice")
-        state.github?.reviewRequests = [pr]
-        state.reviews[pr.url] = Fixtures.record(
-            pr: pr, runs: 2, comments: [Fixtures.comment(), Fixtures.comment(line: 50)]
-        )
-        state.recompute(now: Fixtures.t0)
-        let ready = state.nudges.filter { $0.kind == .reviewReady }
-        #expect(ready.count == 1)
-        #expect(ready.first?.id == "prereview:\(pr.url):2")
-        #expect(ready.first?.detail == "2 comments to look over")
-        #expect(ready.first?.url == pr.url)
-    }
-
     @Test func aRunningReviewRaisesNoNudgeYet() {
         var state = state
-        let pr = Fixtures.pr(number: 9, head: "y", author: "alice")
+        var pr = Fixtures.pr(number: 9, head: "y", author: "alice")
+        pr.pendingReview = PendingReview(id: "draft1", comments: 2)
         state.github?.reviewRequests = [pr]
-        state.reviews[pr.url] = Fixtures.record(pr: pr, phase: .running, comments: [Fixtures.comment()])
+        state.reviews[pr.url] = Fixtures.record(pr: pr, phase: .running)
         state.recompute(now: Fixtures.t0)
         #expect(!state.nudges.contains { $0.kind == .reviewReady })
     }
@@ -129,14 +123,6 @@ import Testing
         #expect(state.openForReview.map(\.number) == [2])
         #expect(state.reviewQueue(.onMe).map(\.number) == [1])
         #expect(state.reviewQueue(.all).map(\.number) == [1, 2])
-    }
-
-    @Test func aReviewOfAnOpenPullRequestIsNotAPastReview() {
-        var state = state
-        let other = Fixtures.pr(number: 7, head: "g", author: "alice")
-        state.github?.openForReview = [other]
-        state.reviews[other.url] = Fixtures.record(pr: other)
-        #expect(state.pastReviews.isEmpty)
     }
 
     @Test func reviewIsOfferedOnPullRequestsNobodyAssignedYou() {

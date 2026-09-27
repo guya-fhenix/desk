@@ -193,9 +193,9 @@ struct SettingsView: View {
                 Text("""
                 Reviews never start on their own. The Reviews tab marks which PRs are ready to run and you \
                 press Review on the ones you want. Each run is one `claude -p` in a detached worktree of \
-                the PR, with read-only tools, and cannot reach GitHub. New commits re-point the existing \
-                comments instead of re-running. Nothing is posted until you press Submit in the review, \
-                and only the comments you approved go with it.
+                the PR, with read-only tools, and cannot reach GitHub. When it finishes, the app puts its \
+                comments into your pending review on the PR — visible only to you — and you finish it on \
+                GitHub: edit or drop comments, pick the verdict, submit.
                 """)
                 .scaled(.caption).foregroundStyle(.secondary)
             }

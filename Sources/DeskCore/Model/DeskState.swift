@@ -228,19 +228,14 @@ public struct DeskState: Sendable {
         return (github.allOpen + github.reviewedByMe + github.mergedRecent).first { $0.url == record.prUrl }
     }
 
-    /// Reviews whose PR is no longer in the queue: reviewed and waiting for the author, or gone.
-    public var pastReviews: [ReviewRecord] {
-        let queued = Set(reviewQueue(.all).map(\.url))
-        return reviews.values.filter { !queued.contains($0.prUrl) }.sorted { $0.lastRunAt > $1.lastRunAt }
-    }
-
-    /// Reviews finished and waiting on the user, for the nudge that says so.
+    /// Drafts Claude filled that still wait on GitHub, for the nudge that says so.
     private var readyReviews: [ReadyReview] {
         reviewRequests.compactMap { pr in
-            guard let record = reviews[pr.url], record.phase == .ready else { return nil }
-            let counts = record.counts
-            guard counts.pending > 0 || counts.approved > 0 else { return nil }
-            return ReadyReview(pr: pr, summary: record.summary, comments: counts.pending, runs: record.runs)
+            guard let record = reviews[pr.url], record.phase == .posted,
+                  case .pending(let comments)? = ReviewStatus.draftStatus(record.draft, pr: pr, login: login),
+                  comments > 0
+            else { return nil }
+            return ReadyReview(pr: pr, summary: "", comments: comments, runs: record.runs)
         }
     }
 }

@@ -30,29 +30,23 @@ enum Fixtures {
 
     static func record(
         pr: PullRequest, head: String? = nil, error: String? = nil, lastRun: Date = t0, runs: Int = 1,
-        phase: ReviewPhase = .ready, comments: [DraftComment] = [], cost: Double = 0
+        phase: ReviewPhase = .posted, draft: String? = "draft1", postedAt: Date? = nil, cost: Double = 0
     ) -> ReviewRecord {
         var record = ReviewRecord(pr: pr, worktreePath: "/r/.reviews/\(pr.repoName)/pr-\(pr.number)", repoRoot: "/r/\(pr.repoName)", now: lastRun)
         record.headSha = head ?? pr.headSha
-        record.baseSha = "base\(pr.number)"
         record.error = error
         record.runs = runs
         record.phase = error == nil ? phase : .failed
-        record.comments = comments
+        record.draft = draft.map { ReviewDraft(id: $0, commitId: head ?? pr.headSha, postedAt: postedAt ?? lastRun) }
         record.costUSD = cost
         return record
     }
 
     static func comment(
         path: String = "src/gauge.rs", line: Int = 41, side: DiffSide = .right, severity: CommentSeverity = .major,
-        body: String = "Off by one.", state: CommentState = .pending, anchorText: String = "        let mut n = 0;",
-        before: [String] = [], after: [String] = [], sha: String = "sha9", outdated: Bool = false, run: Int = 1
+        body: String = "Off by one.", unverified: Bool = false
     ) -> DraftComment {
-        DraftComment(
-            path: path, line: line, side: side, severity: severity, body: body, state: state,
-            anchor: CommentAnchor(text: anchorText, before: before, after: after, sha: sha),
-            isOutdated: outdated, run: run, now: t0
-        )
+        DraftComment(path: path, line: line, side: side, severity: severity, body: body, isUnverified: unverified)
     }
 
     static func event(reviewer: String = "me", at: Date, team: Bool = false) -> ReviewRequestEvent {

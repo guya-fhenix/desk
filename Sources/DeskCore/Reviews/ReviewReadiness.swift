@@ -45,9 +45,6 @@ public struct ReviewReadinessInput: Sendable {
 
 /// What the review queue is waiting for. Nothing here starts a review: running one costs money and is
 /// always a deliberate press. The app's whole job is to make it obvious which PRs are worth pressing.
-///
-/// The one thing that still happens on its own is `staleAnchors`, because re-pointing existing comments
-/// at a head that moved spends no tokens and is what keeps "outdated" honest.
 public enum ReviewReadiness {
     /// GitHub's event clock and ours are different clocks. Without this, a request that lands a second
     /// before we write `lastRunAt` reads as newer than the run, and the row claims a re-request that
@@ -65,37 +62,19 @@ public enum ReviewReadiness {
                 continue
             }
             guard !record.phase.isBusy else { continue }
-
-            if record.phase == .submitted {
-                // A submitted review is finished until the author genuinely asks again.
-                if let last = record.submission?.at, requested(pr, by: input.login, after: last) {
-                    needs[pr.url] = .reRequested
-                }
-                continue
-            }
-            if input.now.timeIntervalSince(record.lastRunAt) > minReRunInterval,
-               requested(pr, by: input.login, after: record.lastRunAt) {
-                needs[pr.url] = .reRequested
-                continue
-            }
-            // A run that came back as prose the parser could not use is not a review: a refusal, a spend
-            // limit and a crash all read exactly like this. Offer it again rather than letting the row
-            // sit there looking reviewed.
-            if record.phase == .failed || (record.rawOutput != nil && record.comments.isEmpty) {
+            if record.phase == .failed {
                 needs[pr.url] = .failed
+                continue
+            }
+            // A request answers to the latest of the run and your own last review: one you have already
+            // answered on GitHub, after the run, is not asking again.
+            let answered = pr.reviews.filter { $0.author == input.login }.map(\.submittedAt).max() ?? .distantPast
+            if input.now.timeIntervalSince(record.lastRunAt) > minReRunInterval,
+               requested(pr, by: input.login, after: max(record.lastRunAt, answered)) {
+                needs[pr.url] = .reRequested
             }
         }
         return needs
-    }
-
-    /// PRs whose head moved since their review. Their diff is refetched and their comments re-anchored;
-    /// Claude is never run, however far the head moved.
-    public static func staleAnchors(_ input: ReviewReadinessInput) -> [PullRequest] {
-        input.queue.filter { pr in
-            guard let record = input.records[pr.url], !record.phase.isBusy else { return false }
-            guard !record.headSha.isEmpty, !pr.headSha.isEmpty else { return false }
-            return pr.headSha != record.headSha
-        }
     }
 
     private static func requested(_ pr: PullRequest, by login: String, after date: Date) -> Bool {

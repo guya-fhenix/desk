@@ -24,14 +24,16 @@ import Testing
     @Test func promptDemandsTheJSONContractAndTheQuotedLine() {
         let prompt = ReviewCommand.prompt(pr, otherRepos: [])
         #expect(prompt.contains("Answer with one JSON object and nothing else"))
-        #expect(prompt.contains("\"verdict\""))
+        #expect(prompt.contains("\"comments\""))
         #expect(prompt.contains("\"lineText\""))
         // The quoted line is what the app corrects a wrong line number against, so it must be verbatim.
         #expect(prompt.contains("copied verbatim"))
         #expect(prompt.contains("is \"RIGHT\" for a line the PR adds"))
         #expect(prompt.contains("blocker"))
-        // The summary is what gets posted as the review body, so brevity is part of the contract.
-        #expect(prompt.contains("45 words at most"))
+        // Only comments are posted, into a draft; the verdict and body are the user's to write on GitHub.
+        #expect(!prompt.contains("\"summary\""))
+        #expect(!prompt.contains("\"verdict\""))
+        #expect(prompt.contains("draft review"))
     }
 
     @Test func promptListsOtherRepositoriesAtTheirFetchedDefaultBranch() {

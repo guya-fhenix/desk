@@ -50,6 +50,19 @@ public struct Review: Codable, Sendable, Hashable {
     public var isApproval: Bool { state == "APPROVED" }
 }
 
+/// Your own unsubmitted review on a PR. GitHub shows a pending review to its author only, so any pending
+/// review the snapshot sees is yours — and there is at most one per PR.
+public struct PendingReview: Codable, Sendable, Hashable {
+    /// GraphQL node id, the handle every review mutation takes.
+    public var id: String
+    public var comments: Int
+
+    public init(id: String, comments: Int) {
+        self.id = id
+        self.comments = comments
+    }
+}
+
 public struct ReviewRequestEvent: Codable, Sendable, Hashable {
     public var createdAt: Date
     public var reviewer: String
@@ -100,6 +113,8 @@ public struct PullRequest: Codable, Sendable, Hashable, Identifiable {
     public var reviewRequestEvents: [ReviewRequestEvent]
     /// Review conversations nobody has resolved yet, outdated ones included: GitHub counts them the same way.
     public var unresolvedThreads: Int
+    /// Your draft review on this PR, if you have one.
+    public var pendingReview: PendingReview?
 
     public init(
         number: Int, title: String, body: String = "", url: String, repo: String, isDraft: Bool = false,
@@ -107,7 +122,8 @@ public struct PullRequest: Codable, Sendable, Hashable, Identifiable {
         baseRef: String, headRef: String, headSha: String = "", additions: Int = 0, deletions: Int = 0,
         author: String, reviewDecision: ReviewDecision = .none, mergeState: MergeState = .unknown,
         checks: CheckState = .none, checkCount: Int = 0, reviews: [Review] = [],
-        requestedReviewers: [String] = [], reviewRequestEvents: [ReviewRequestEvent] = [], unresolvedThreads: Int = 0
+        requestedReviewers: [String] = [], reviewRequestEvents: [ReviewRequestEvent] = [], unresolvedThreads: Int = 0,
+        pendingReview: PendingReview? = nil
     ) {
         self.number = number
         self.title = title
@@ -133,6 +149,7 @@ public struct PullRequest: Codable, Sendable, Hashable, Identifiable {
         self.requestedReviewers = requestedReviewers
         self.reviewRequestEvents = reviewRequestEvents
         self.unresolvedThreads = unresolvedThreads
+        self.pendingReview = pendingReview
     }
 
     public var repoName: String { repo.split(separator: "/").last.map(String.init) ?? repo }

@@ -190,10 +190,10 @@ struct AddDeleteCounts: View {
     }
 }
 
-/// Where a review stands, as chips: the phase, what it found, and what changed under it since.
+/// Where a review stands, as chips: the run, then the draft it fed on GitHub, and what changed since.
 struct ReviewStatusChip: View {
+    var record: ReviewRecord
     var status: ReviewStatus
-    var showCounts = true
 
     var body: some View {
         HStack(spacing: 4) {
@@ -204,23 +204,17 @@ struct ReviewStatusChip: View {
             case .running:
                 ProgressView().controlSize(.mini)
                 Text("reviewing").scaled(.caption2).foregroundStyle(.secondary)
-            case .submitting:
+            case .posting:
                 ProgressView().controlSize(.mini)
-                Text("sending").scaled(.caption2).foregroundStyle(.secondary)
+                Text("posting draft").scaled(.caption2).foregroundStyle(.secondary)
             case .failed:
-                Chip(text: "failed", color: .red)
-            case .submitted:
-                Chip(text: "submitted", color: .green)
-            case .ready:
-                if showCounts { counts }
+                Chip(text: "failed", color: .red).help(record.error ?? "")
+            case .posted:
+                draft
             }
-            if status.phase != .submitted, showCounts, status.counts.outdated > 0 {
-                Chip(text: "\(status.counts.outdated) outdated", color: .secondary)
-                    .help("The lines these point at changed in a later push")
-            }
-            if status.headMoved {
+            if status.headMoved, status.draft.map(Self.isPending) ?? false {
                 Chip(text: "new commits", color: .orange)
-                    .help("The head moved since the review; comments have been re-anchored")
+                    .help("The head moved since the draft was posted; GitHub marks the comments on changed lines outdated")
             }
             if status.reRequested {
                 Chip(text: "re-requested", color: .orange).help("Your review was requested again")
@@ -228,14 +222,38 @@ struct ReviewStatusChip: View {
         }
     }
 
-    @ViewBuilder private var counts: some View {
-        let counts = status.counts
-        if counts.total == 0 {
-            Chip(text: "no comments", color: .green).help("Claude found nothing to say")
-        } else if counts.pending > 0 {
-            Chip(text: "\(counts.pending) to review", color: counts.blocking > 0 ? .red : .orange)
-        } else {
-            Chip(text: "\(counts.approved) approved", color: .blue).help("Ready to send")
+    @ViewBuilder private var draft: some View {
+        switch status.draft {
+        case .pending(let comments):
+            Chip(text: "draft · \(comments)", color: .blue)
+                .help("Your pending review on GitHub has \(comments) \(comments == 1 ? "comment" : "comments")\(skippedNote). Only you can see it.")
+        case .submitted(let state):
+            Chip(text: Self.submittedTitle(state), color: .green).help("You submitted the draft on GitHub")
+        case .discarded:
+            Chip(text: "draft discarded", color: .secondary).help("No pending review of yours on GitHub, and nothing submitted since")
+        case nil:
+            if record.draft == nil {
+                Chip(text: "no comments", color: .green).help("Claude found nothing to comment on\(skippedNote)")
+            } else {
+                Chip(text: "draft posted", color: .blue).help("The PR is not in the last poll, so its draft cannot be read")
+            }
+        }
+    }
+
+    private var skippedNote: String {
+        record.lastSkipped == 0 ? "" : "; \(record.lastSkipped) more could not be placed on this PR's lines"
+    }
+
+    private static func isPending(_ status: DraftStatus) -> Bool {
+        if case .pending = status { return true }
+        return false
+    }
+
+    private static func submittedTitle(_ state: String) -> String {
+        switch state {
+        case "APPROVED": return "approved"
+        case "CHANGES_REQUESTED": return "changes requested"
+        default: return "commented"
         }
     }
 }

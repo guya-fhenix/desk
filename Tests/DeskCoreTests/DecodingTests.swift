@@ -10,7 +10,8 @@ import Testing
           "baseRefName":"feat/base","headRefName":"feat/head","additions":208,"deletions":16,"author":{"login":"me"},
           "repository":{"nameWithOwner":"FhenixProtocol/cofhe"},"reviewDecision":"REVIEW_REQUIRED","mergeStateStatus":"BLOCKED",
           "commits":{"nodes":[{"commit":{"oid":"abc","statusCheckRollup":{"state":"SUCCESS","contexts":{"totalCount":9}}}}]},
-          "reviews":{"nodes":[{"state":"COMMENTED","submittedAt":"2026-08-27T11:12:25Z","author":{"login":"claude"}}]},
+          "reviews":{"nodes":[{"state":"COMMENTED","submittedAt":"2026-08-27T11:12:25Z","author":{"login":"claude"}},
+            {"id":"PRR_1","state":"PENDING","submittedAt":null,"author":{"login":"me"},"comments":{"totalCount":4}}]},
           "reviewRequests":{"nodes":[{"requestedReviewer":{"__typename":"Team","name":"Protocol Team"}}]},
           "timelineItems":{"nodes":[{"createdAt":"2026-08-27T11:12:22Z","requestedReviewer":{"__typename":"Team","name":"Protocol Team"}},{}]},
           "reviewThreads":{"nodes":[{"isResolved":false},{"isResolved":true},{"isResolved":false}]}}]}}}
@@ -26,6 +27,9 @@ import Testing
         #expect(pr.reviewRequestEvents[0].isTeam)
         #expect(pr.humanReviews(botLogins: ["claude"]).isEmpty)
         #expect(pr.unresolvedThreads == 2)
+        // Your own draft review: not a submitted review, but the handle the draft status is read by.
+        #expect(pr.reviews.count == 1)
+        #expect(pr.pendingReview == PendingReview(id: "PRR_1", comments: 4))
     }
 
     @Test func missingReviewThreadsMeanNoneUnresolved() throws {

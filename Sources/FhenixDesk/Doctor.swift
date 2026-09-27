@@ -56,13 +56,10 @@ enum Doctor {
         print("\(state.reviews.count) reviews  root: \(config.expandedReviewRoot)  claude: \(config.resolvedClaudePath ?? "not found")")
         for record in state.reviews.values.sorted(by: { $0.lastRunAt > $1.lastRunAt }) {
             let status = state.reviewStatus(for: record, pr: state.pullRequest(for: record))
-            let counts = status.counts
             let flags = [
                 status.headMoved ? "new commits" : nil, status.reRequested ? "re-requested" : nil,
-                counts.outdated > 0 ? "\(counts.outdated) outdated" : nil,
             ].compactMap { $0 }.joined(separator: " ")
-            let comments = "\(counts.approved)/\(counts.total) approved"
-            print("  \(pad(record.label, 22)) \(pad(status.phase.label, 10)) \(pad(comments, 16)) runs:\(record.runs) \(pad(Format.usd(status.costUSD), 8)) \(pad(flags, 26)) \(record.worktreePath)")
+            print("  \(pad(record.label, 22)) \(pad(status.phase.label, 10)) \(pad(draftText(record, status.draft), 20)) runs:\(record.runs) \(pad(Format.usd(status.costUSD), 8)) \(pad(flags, 26)) \(record.worktreePath)")
         }
 
         section("Background sessions")
@@ -126,24 +123,22 @@ enum Doctor {
                 print("no record written")
                 return
             }
-            let counts = record.counts
             print("phase: \(record.phase.label)  runs: \(record.runs)  cost: \(Format.usd(record.costUSD))")
             print("worktree: \(record.worktreePath) @ \(record.headSha.prefix(12))")
             if let error = record.error { print("error: \(error)") }
-            print("\nverdict: \(record.verdict?.title ?? "none")")
-            print("summary: \(record.summary.isEmpty ? "(none)" : record.summary)")
-            if let raw = record.rawOutput { print("\n[unparsed answer]\n\(raw)") }
-            print("\n\(counts.total) comments (\(counts.blocking) blocking, \(counts.outdated) outdated)")
-            for comment in record.comments {
-                let flags = [
-                    comment.isOutdated ? "outdated" : nil, comment.isUnverified ? "unverified line" : nil,
-                ].compactMap { $0 }
-                let suffix = flags.isEmpty ? "" : "  [\(flags.joined(separator: ", "))]"
-                print("  \(pad(comment.severity.rawValue, 9)) \(comment.path):\(comment.line) \(comment.side.rawValue)\(suffix)")
-                for line in comment.text.split(separator: "\n") { print("      \(line)") }
-            }
+            print("added \(record.lastPosted) comments to your draft review, skipped \(record.lastSkipped)")
+            if record.draft != nil { print("read and submit it at \(record.filesURL)") }
         } catch {
             print("error: \(error)")
+        }
+    }
+
+    private static func draftText(_ record: ReviewRecord, _ status: DraftStatus?) -> String {
+        switch status {
+        case .pending(let comments): return "draft: \(comments) comments"
+        case .submitted(let state): return "submitted: \(state.lowercased())"
+        case .discarded: return "draft discarded"
+        case nil: return record.draft == nil ? "no draft" : "draft (not in poll)"
         }
     }
 

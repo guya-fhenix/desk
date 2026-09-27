@@ -76,11 +76,12 @@ public enum NudgeEngine {
         for review in input.readyReviews {
             let pr = review.pr
             let detail = review.comments > 0
-                ? "\(review.comments) comments to look over"
+                ? "\(review.comments) comments waiting in your draft review"
                 : (review.summary.isEmpty ? pr.title : review.summary)
+            // The Files tab, which is where a pending review's comments are read and finished.
             nudges.append(Nudge(
                 id: "prereview:\(pr.url):\(review.runs)", kind: .reviewReady, severity: .info,
-                title: "Claude reviewed \(pr.repoName)#\(pr.number)", detail: detail, url: pr.url
+                title: "Claude reviewed \(pr.repoName)#\(pr.number)", detail: detail, url: "\(pr.url)/files"
             ))
         }
 

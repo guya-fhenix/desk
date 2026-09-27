@@ -46,13 +46,13 @@ struct MenuPanelView: View {
         .frame(maxWidth: .infinity)
     }
 
-    /// The head of Today, already sorted most urgent first. A PR opens on GitHub, as its notification does;
-    /// a finished review opens in the Desk, where it can be acted on.
+    /// The head of Today, already sorted most urgent first. Each opens on GitHub, as its notification does —
+    /// a finished review straight at its draft.
     private var topNudges: some View {
         let nudges = model.state.nudges
         return VStack(alignment: .leading, spacing: 2) {
             ForEach(nudges.prefix(4)) { nudge in
-                Button { open(nudge) } label: {
+                Button { model.open(nudge.url) } label: {
                     HStack(spacing: 8) {
                         if nudge.kind == .readyToMerge { StatusDot(color: .green) } else { SeverityDot(severity: nudge.severity) }
                         VStack(alignment: .leading, spacing: 0) {
@@ -74,15 +74,6 @@ struct MenuPanelView: View {
                 .buttonStyle(.link)
                 .scaled(.caption)
             }
-        }
-    }
-
-    private func open(_ nudge: Nudge) {
-        if nudge.kind == .reviewReady, let url = nudge.url, model.state.reviews[url] != nil {
-            model.openInWindow(url)
-            AppDelegate.openDesk?()
-        } else {
-            model.open(nudge.url)
         }
     }
 
