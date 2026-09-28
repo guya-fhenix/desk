@@ -214,6 +214,7 @@ public enum GitHubQueries {
       repository { nameWithOwner }
       reviewDecision
       mergeStateStatus
+      baseRef { rules(first: 20) { nodes { type parameters { ... on PullRequestParameters { requiredApprovingReviewCount requireCodeOwnerReview } } } } }
       commits(last: 1) { nodes { commit { oid statusCheckRollup { state contexts(first: 0) { totalCount } } } } }
       reviews(first: 100) { nodes { state submittedAt author { login } } }
       pending: reviews(states: PENDING, first: 1) {
@@ -263,6 +264,10 @@ public enum GitHubDecoding {
 
     private static func pullRequest(_ node: PRNode) -> PullRequest {
         let commit = node.commits.nodes.first?.commit
+        let reviews = node.reviews.nodes.compactMap { review -> Review? in
+            guard let submittedAt = review.submittedAt else { return nil }
+            return Review(state: review.state, submittedAt: submittedAt, author: review.author?.login ?? "ghost")
+        }
         return PullRequest(
             number: node.number,
             title: node.title,
@@ -280,14 +285,11 @@ public enum GitHubDecoding {
             additions: node.additions,
             deletions: node.deletions,
             author: node.author?.login ?? "ghost",
-            reviewDecision: node.reviewDecision.flatMap(ReviewDecision.init) ?? .none,
+            reviewDecision: node.reviewDecision.flatMap(ReviewDecision.init) ?? decision(from: reviews, required: node.baseRef?.requiredApprovals ?? 0),
             mergeState: node.mergeStateStatus.flatMap(MergeState.init) ?? .unknown,
             checks: commit?.statusCheckRollup.flatMap { CheckState(rawValue: $0.state) } ?? .none,
             checkCount: commit?.statusCheckRollup?.contexts.totalCount ?? 0,
-            reviews: node.reviews.nodes.compactMap { review in
-                guard let submittedAt = review.submittedAt else { return nil }
-                return Review(state: review.state, submittedAt: submittedAt, author: review.author?.login ?? "ghost")
-            },
+            reviews: reviews,
             requestedReviewers: node.reviewRequests.nodes.compactMap { $0.requestedReviewer?.displayName },
             reviewRequestEvents: node.timelineItems.nodes.compactMap { event in
                 guard let createdAt = event.createdAt, let reviewer = event.requestedReviewer else { return nil }
@@ -301,6 +303,21 @@ public enum GitHubDecoding {
                 )
             }
         )
+    }
+
+    /// GitHub can leave `reviewDecision` null under a ruleset: cofhe's master asks for a code owner's review and
+    /// still gets null, approved or not. Read it off the reviews then, as GitHub's own badge does: each reviewer's
+    /// latest approval or change request stands, and a later plain comment doesn't undo it.
+    private static func decision(from reviews: [Review], required: Int) -> ReviewDecision {
+        var latest: [String: String] = [:]
+        for review in reviews.sorted(by: { $0.submittedAt < $1.submittedAt })
+        where ["APPROVED", "CHANGES_REQUESTED", "DISMISSED"].contains(review.state) {
+            latest[review.author] = review.state
+        }
+        if latest.values.contains("CHANGES_REQUESTED") { return .changesRequested }
+        let approvals = latest.values.count { $0 == "APPROVED" }
+        if approvals > 0 && approvals >= required { return .approved }
+        return required > 0 ? .reviewRequired : .none
     }
 
     private struct Response<T: Decodable>: Decodable {
@@ -356,6 +373,7 @@ public enum GitHubDecoding {
         var repository: Repository
         var reviewDecision: String?
         var mergeStateStatus: String?
+        var baseRef: BaseRef?
         var commits: Commits
         var reviews: Reviews
         /// Your own pending review, the only one GitHub shows. Optional so a query without it still decodes.
@@ -363,6 +381,28 @@ public enum GitHubDecoding {
         var reviewRequests: ReviewRequests
         var timelineItems: Timeline
         var reviewThreads: ReviewThreads?
+    }
+
+    private struct BaseRef: Decodable {
+        var rules: Rules?
+
+        /// The approvals the branch's rulesets ask for; a code owner's review counts as one.
+        /// ponytail: a code-owner rule counts even where CODEOWNERS doesn't cover the changed files, and any approver
+        /// meets it; read CODEOWNERS and team membership if a repo ever owns only part of its tree.
+        var requiredApprovals: Int {
+            (rules?.nodes ?? []).filter { $0.type == "PULL_REQUEST" }.map { rule in
+                max(rule.parameters?.requiredApprovingReviewCount ?? 0, rule.parameters?.requireCodeOwnerReview == true ? 1 : 0)
+            }.max() ?? 0
+        }
+    }
+    private struct Rules: Decodable { var nodes: [Rule] }
+    private struct Rule: Decodable {
+        var type: String
+        var parameters: RuleParameters?
+    }
+    private struct RuleParameters: Decodable {
+        var requiredApprovingReviewCount: Int?
+        var requireCodeOwnerReview: Bool?
     }
 
     private struct ReviewThreads: Decodable { var nodes: [ReviewThreadNode] }

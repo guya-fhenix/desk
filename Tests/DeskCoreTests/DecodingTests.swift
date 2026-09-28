@@ -46,6 +46,37 @@ import Testing
         #expect(pr.unresolvedThreads == 0)
     }
 
+    @Test func reviewDecisionFallsBackToReviewsAndRulesets() throws {
+        func decision(_ reviews: String, rules: String = "") throws -> ReviewDecision {
+            let json = """
+            {"data":{"search":{"nodes":[{"number":1,"title":"t","url":"u","isDraft":false,"createdAt":"2026-08-27T11:12:21Z","updatedAt":"2026-08-27T12:26:33Z",
+              "mergedAt":null,"state":"OPEN","baseRefName":"main","headRefName":"h","additions":0,"deletions":0,"author":{"login":"me"},
+              "repository":{"nameWithOwner":"o/r"},"reviewDecision":null,"mergeStateStatus":null,"baseRef":{"rules":{"nodes":[\(rules)]}},"commits":{"nodes":[]},"reviews":{"nodes":[\(reviews)]},
+              "reviewRequests":{"nodes":[]},"timelineItems":{"nodes":[]}}]}}}
+            """
+            return try #require(GitHubDecoding.pullRequests(from: Data(json.utf8)).first).reviewDecision
+        }
+        func review(_ state: String, _ at: String, _ by: String) -> String {
+            #"{"state":"\#(state)","submittedAt":"2026-08-27T\#(at):00:00Z","author":{"login":"\#(by)"}}"#
+        }
+        #expect(try decision("") == .none)
+        #expect(try decision(review("COMMENTED", "10", "a")) == .none)
+        // An approval stands through a later comment from the same reviewer.
+        #expect(try decision([review("APPROVED", "10", "a"), review("COMMENTED", "11", "a")].joined(separator: ",")) == .approved)
+        #expect(try decision([review("APPROVED", "10", "a"), review("CHANGES_REQUESTED", "11", "b")].joined(separator: ",")) == .changesRequested)
+        #expect(try decision([review("CHANGES_REQUESTED", "10", "a"), review("APPROVED", "11", "a")].joined(separator: ",")) == .approved)
+        #expect(try decision([review("APPROVED", "10", "a"), review("DISMISSED", "11", "a")].joined(separator: ",")) == .none)
+        // A ruleset asking for a code owner's review, as cofhe's master does, with no approving count.
+        let codeOwners = #"{"type":"PULL_REQUEST","parameters":{"requiredApprovingReviewCount":0,"requireCodeOwnerReview":true}},{"type":"DELETION","parameters":null}"#
+        #expect(try decision("", rules: codeOwners) == .reviewRequired)
+        #expect(try decision(review("APPROVED", "10", "a"), rules: codeOwners) == .approved)
+        #expect(try decision("", rules: #"{"type":"PULL_REQUEST","parameters":{"requiredApprovingReviewCount":0,"requireCodeOwnerReview":false}}"#) == .none)
+        // Two approvals asked for: one isn't enough.
+        let two = #"{"type":"PULL_REQUEST","parameters":{"requiredApprovingReviewCount":2,"requireCodeOwnerReview":false}}"#
+        #expect(try decision(review("APPROVED", "10", "a"), rules: two) == .reviewRequired)
+        #expect(try decision([review("APPROVED", "10", "a"), review("APPROVED", "11", "b")].joined(separator: ","), rules: two) == .approved)
+    }
+
     @Test func graphQLErrorsThrow() {
         let json = #"{"data":null,"errors":[{"message":"rate limited"}]}"#
         #expect(throws: GitHubError.self) { try GitHubDecoding.pullRequests(from: Data(json.utf8)) }
