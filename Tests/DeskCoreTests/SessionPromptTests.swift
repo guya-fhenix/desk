@@ -14,6 +14,16 @@ import Testing
         #expect(!prompt.contains("conflicts with"))
     }
 
+    /// The session starts in the repository's checkout, so a branch checked out elsewhere is named, and
+    /// the session is sent into it instead of making a worktree of its own.
+    @Test func aBranchInAWorktreeSendsTheSessionThere() {
+        let pr = Fixtures.pr(number: 7, head: "feat/x", merge: .clean)
+        let prompt = DeskService.sessionPrompt(for: pr, worktree: "/r/cofhe/.claude/worktrees/feat-x")
+        #expect(prompt.contains("Its branch feat/x is checked out in the worktree at /r/cofhe/.claude/worktrees/feat-x"))
+        #expect(prompt.contains("EnterWorktree"))
+        #expect(!prompt.contains("checked out here"))
+    }
+
     @Test func unresolvedThreadsAskForAProposedFix() {
         var pr = Fixtures.pr(number: 2, head: "feat/x", merge: .clean)
         pr.unresolvedThreads = 3

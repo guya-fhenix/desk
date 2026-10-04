@@ -85,8 +85,11 @@ public actor DeskService {
     public func claudeJobs() -> [ClaudeJob] { ClaudeJobs.scan() }
 
     /// Starts a background Claude session on the PR's branch and returns it. `worktree` is a checkout the
-    /// user already has on that branch; without one the branch gets a worktree of its own. The prompt
-    /// carries the PR url, which is what ties the session to this PR until it has touched it itself.
+    /// user already has on that branch; without one the branch gets a worktree of its own. The session
+    /// starts in the repository's own checkout whatever the branch's checkout is: that is the directory
+    /// Claude Code reads the project's settings, plugins and memory from, and a worktree is a different
+    /// directory to it. The prompt sends it on to the branch, and carries the PR url, which is what ties
+    /// the session to this PR until it has touched it itself.
     public func startClaudeSession(pr: PullRequest, repoRoot: String, worktree: String?) async throws -> ClaudeJob {
         guard let claude = config.resolvedClaudePath else { throw DeskError.claudeNotFound }
         let path: String
@@ -95,10 +98,11 @@ public actor DeskService {
         } else {
             path = try await worktrees.prepareBranch(pr: pr, repoRoot: repoRoot)
         }
-        let output = try await Shell.output(claude, ["--bg", Self.sessionPrompt(for: pr)], cwd: path, timeout: 120)
+        let prompt = Self.sessionPrompt(for: pr, worktree: path == repoRoot ? nil : path)
+        let output = try await Shell.output(claude, ["--bg", prompt], cwd: repoRoot, timeout: 120)
         guard let id = ClaudeJobs.startedID(in: output) else { throw DeskError.sessionNotStarted(output) }
         return ClaudeJob(
-            id: id, name: "\(pr.repoName)#\(pr.number)", state: "working", cwd: path,
+            id: id, name: "\(pr.repoName)#\(pr.number)", state: "working", cwd: repoRoot,
             prKeys: Set([ClaudeJobs.prKey(pr.url)].compactMap { $0 }), updatedAt: Date()
         )
     }
@@ -141,15 +145,20 @@ public actor DeskService {
     /// What a background session is started with. The two extra paragraphs are there only when the PR
     /// actually has that problem: Desk knows whether it does, so the session is told rather than asked to
     /// go looking. Both ask for a proposal and neither for a change — the session stops and waits, the way
-    /// everything else here waits for a press.
-    public static func sessionPrompt(for pr: PullRequest) -> String {
+    /// everything else here waits for a press. `worktree` is where the branch is checked out when that is
+    /// not the directory the session starts in. The session is sent there before anything else, or it
+    /// reads the repository's checkout — or makes a worktree of its own off the default branch.
+    public static func sessionPrompt(for pr: PullRequest, worktree: String? = nil) -> String {
+        let checkout = worktree.map {
+            "is checked out in the worktree at \($0). Enter that worktree (EnterWorktree with that path) before anything else, and work only there"
+        } ?? "is checked out here"
         var paragraphs = [
             """
             Working on \(pr.repo)#\(pr.number) — \(pr.title)
             \(pr.url)
             """,
             """
-            Its branch \(pr.headRef) is checked out here. Read the pull request and the review threads on \
+            Its branch \(pr.headRef) \(checkout). Read the pull request and the review threads on \
             it, say what is left to do, then wait for instructions.
             """,
         ]

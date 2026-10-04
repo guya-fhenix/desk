@@ -76,5 +76,6 @@ them.
 
 A hollow terminal means no session mentions the PR, and pressing it starts one with its branch checked
 out — in the worktree you already have on that branch, or in a new one under the repo's
-`.claude/worktrees`, where `claude -w` puts its own. The session is seeded with the PR's url, which is
-what ties it to the PR until it has read the PR itself.
+`.claude/worktrees`, where `claude -w` puts its own. The session itself starts in the repo's folder, so it
+gets that repo's plugins, settings and memory, and its prompt sends it into the branch's worktree. The
+session is seeded with the PR's url, which is what ties it to the PR until it has read the PR itself.
