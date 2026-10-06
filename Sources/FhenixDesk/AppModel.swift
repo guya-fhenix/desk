@@ -31,6 +31,9 @@ final class AppModel {
     /// Why the session button last failed, per PR url or ticket key. It is the button's own tooltip: a press that
     /// does nothing is the one thing this must not be.
     var sessionErrors: [String: String] = [:]
+    /// PR urls you ticked on the Pull Requests screen. Your own marks, unrelated to draft or review state: kept in
+    /// memory only, and dropped once the PR leaves your open list.
+    var checkedPullRequests: Set<String> = []
 
     /// Browser-style zoom for the Desk window, remembered across launches. Not in `DeskConfig`: it is a
     /// comfort setting for this screen, not something the doctor or a provider should ever read.
@@ -103,6 +106,7 @@ final class AppModel {
             case .github:
                 let snapshot = try await service.refreshGitHub()
                 state.github = snapshot
+                checkedPullRequests.formIntersection(snapshot.mine.map(\.url))
                 await service.cleanupClosedReviews(
                     github: snapshot, reviewWorktrees: state.reviewWorktrees, repos: state.gitScan?.repos ?? []
                 )

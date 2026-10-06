@@ -25,6 +25,7 @@ struct PullRequestsTab: View {
 
     var body: some View {
         Table(rows, selection: $selection, sortOrder: $sortOrder) {
+            TableColumn("") { row in CheckMark(url: row.pullRequest.url, model: model) }.width(20)
             TableColumn("Repo", value: \.pullRequest.repoName) { row in Text(row.pullRequest.repoName) }.width(min: 90, ideal: 120)
             TableColumn("Pull request", value: \.pullRequest.number) { row in StackedTitle(row: row, model: model) }.width(min: 200, ideal: 340)
             TableColumn("Ticket") { row in TicketMark(pr: row.pullRequest, model: model) }.width(min: 70, ideal: 90)
@@ -99,6 +100,24 @@ private struct StackedTitle: View {
                 }
             }
         }
+    }
+}
+
+/// Your own tick on a row. GitHub never sees it, and it does not survive the app quitting.
+private struct CheckMark: View {
+    var url: String
+    var model: AppModel
+
+    var body: some View {
+        Toggle("Checked", isOn: Binding(
+            get: { model.checkedPullRequests.contains(url) },
+            set: { checked in
+                if checked { model.checkedPullRequests.insert(url) } else { model.checkedPullRequests.remove(url) }
+            }
+        ))
+        .toggleStyle(.checkbox)
+        .labelsHidden()
+        .help("Your own mark; cleared when the PR leaves this list")
     }
 }
 
