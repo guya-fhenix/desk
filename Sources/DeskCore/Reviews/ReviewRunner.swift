@@ -129,7 +129,7 @@ public actor ReviewRunner {
         if let output = try? ReviewOutputParser.parse(text) { return output }
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               let result = try? await Shell.run(
-                  claudePath, ReviewCommand.reformatArguments(), stdin: Data(text.utf8),
+                  claudePath, ReviewCommand.reformatArguments(config: config), stdin: Data(text.utf8),
                   environment: ["CLAUDECODE": nil, "CLAUDE_CODE_ENTRYPOINT": nil], timeout: 180
               ),
               let envelope = try? ClaudePrint.result(result.text, stderr: result.stderr),

@@ -10,6 +10,7 @@ struct SettingsView: View {
     @State private var botLoginsText = ""
     @State private var projectKeysText = ""
     @State private var repoFilter = ""
+    @State private var selectedPrompt: PromptID = .ticketPlan
     @State private var loaded = false
 
     var body: some View {
@@ -19,6 +20,7 @@ struct SettingsView: View {
             pane(reposPane).tabItem { Label("Repos", systemImage: "folder") }
             pane(jiraPane).tabItem { Label("Jira", systemImage: "checklist") }
             pane(reviewsPane).tabItem { Label("Reviews", systemImage: "eye") }
+            pane(promptsPane).tabItem { Label("Prompts", systemImage: "text.bubble") }
         }
         .frame(width: 580, height: 520)
         .onAppear { if !loaded { load() } }
@@ -199,6 +201,56 @@ struct SettingsView: View {
         .formStyle(.grouped)
     }
 
+    /// A screen of its own, like Repos: a prompt runs to dozens of lines, more than a form row holds.
+    private var promptsPane: some View {
+        let id = selectedPrompt
+        let edits = pending.prompts
+        return VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 10) {
+                Picker("Prompt", selection: $selectedPrompt) {
+                    ForEach(PromptID.allCases) { prompt in
+                        Text(edits[prompt.rawValue] == nil ? prompt.title : "\(prompt.title) (edited)").tag(prompt)
+                    }
+                }
+                .labelsHidden()
+                .frame(maxWidth: 320)
+                if edits[id.rawValue] != nil { Chip(text: "edited", color: .orange) }
+                Spacer()
+                Button("Reset to default") { draft.prompts[id.rawValue] = nil }
+                    .controlSize(.small)
+                    // The draft, not `pending`: a box cleared to nothing is not an edit, but Reset still refills it.
+                    .disabled(draft.prompts[id.rawValue] == nil)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            Divider()
+            TextEditor(text: promptBinding(id))
+                .scaled(.code)
+                .autocorrectionDisabled()
+                .padding(8)
+            Divider()
+            VStack(alignment: .leading, spacing: 4) {
+                Text(LocalizedStringKey(id.usage))
+                if !id.placeholders.isEmpty {
+                    Text(id.placeholders.map { "{\($0.name)} \($0.meaning)" }.joined(separator: " · "))
+                }
+                Text("Empty uses the default. To drop a block, remove its placeholder from the prompt it fills.")
+            }
+            .scaled(.caption)
+            .foregroundStyle(.secondary)
+            .textSelection(.enabled)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+        }
+    }
+
+    /// The default until you type. What you type is kept as typed — even empty, so clearing the box to
+    /// start over does not snap the default back in — and `pending` decides at Save what is an edit.
+    private func promptBinding(_ id: PromptID) -> Binding<String> {
+        Binding(get: { draft.prompts[id.rawValue] ?? id.defaultText }, set: { draft.prompts[id.rawValue] = $0 })
+    }
+
     private var generalPane: some View {
         Form {
             Section("Polling (seconds)") {
@@ -230,6 +282,10 @@ struct SettingsView: View {
         config.repoRoots = split(repoRootsText)
         config.botLogins = split(botLoginsText)
         config.jiraProjectKeys = split(projectKeysText).map { $0.uppercased() }
+        // Only real edits are kept: a prompt typed back to its default, or cleared, is the default again.
+        config.prompts = draft.prompts.filter { key, text in
+            !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && text != PromptID(rawValue: key)?.defaultText
+        }
         return config
     }
 

@@ -8,6 +8,10 @@ struct FhenixDeskApp: App {
 
     init() {
         NSApplication.shared.setActivationPolicy(.accessory)
+        // Text typed here goes to Claude, and macOS would turn a typed `--repo` into `—repo` and JSON's
+        // quotes into curly ones. A value in the app's own domain outranks the system-wide setting.
+        UserDefaults.standard.set(false, forKey: "NSAutomaticQuoteSubstitutionEnabled")
+        UserDefaults.standard.set(false, forKey: "NSAutomaticDashSubstitutionEnabled")
     }
 
     var body: some Scene {

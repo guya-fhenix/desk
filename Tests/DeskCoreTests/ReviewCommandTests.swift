@@ -57,7 +57,7 @@ import Testing
         #expect(value(after: "--output-format", in: arguments) == "json")
         #expect(value(after: "--permission-mode", in: arguments) == "dontAsk")
         #expect(value(after: "--tools", in: arguments) == "Read,Grep,Glob,Bash")
-        #expect(value(after: "--append-system-prompt", in: arguments) == ReviewCommand.systemPrompt)
+        #expect(value(after: "--append-system-prompt", in: arguments) == PromptID.reviewSystem.defaultText)
         #expect(arguments.contains("--strict-mcp-config"))
         // The cost cap Claude enforces itself, which still returns the work already done.
         #expect(value(after: "--max-budget-usd", in: arguments) == "10.00")
@@ -119,14 +119,14 @@ import Testing
     }
 
     @Test func systemPromptForbidsPostingAndDemandsJSON() {
-        #expect(ReviewCommand.systemPrompt.contains("Never post"))
-        #expect(ReviewCommand.systemPrompt.contains("single JSON object"))
-        #expect(ReviewCommand.systemPrompt.contains("no code fence"))
+        #expect(PromptID.reviewSystem.defaultText.contains("Never post"))
+        #expect(PromptID.reviewSystem.defaultText.contains("single JSON object"))
+        #expect(PromptID.reviewSystem.defaultText.contains("no code fence"))
     }
 
     @Test func reformatPassReadsNothingAndRunsNothing() {
-        let arguments = ReviewCommand.reformatArguments()
-        #expect(arguments[0] == ReviewCommand.reformatPrompt)
+        let arguments = ReviewCommand.reformatArguments(config: DeskConfig())
+        #expect(arguments[0] == PromptID.reviewReformat.defaultText)
         #expect(arguments.contains("-p"))
         // "" is claude's own way of disabling every built-in tool.
         #expect(value(after: "--tools", in: arguments) == "")

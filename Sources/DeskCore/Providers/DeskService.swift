@@ -98,7 +98,7 @@ public actor DeskService {
         } else {
             path = try await worktrees.prepareBranch(pr: pr, repoRoot: repoRoot)
         }
-        let prompt = Self.sessionPrompt(for: pr, worktree: path == repoRoot ? nil : path)
+        let prompt = Self.sessionPrompt(for: pr, worktree: path == repoRoot ? nil : path, config: config)
         let output = try await Shell.output(claude, ["--bg", prompt], cwd: repoRoot, timeout: 120)
         guard let id = ClaudeJobs.startedID(in: output) else { throw DeskError.sessionNotStarted(output) }
         return ClaudeJob(
@@ -112,7 +112,7 @@ public actor DeskService {
     /// follows — so pressing again is another session, deliberately.
     public func startTicketSession(ticket: Ticket, repoRoot: String, note: String = "") async throws -> String {
         guard let claude = config.resolvedClaudePath else { throw DeskError.claudeNotFound }
-        let prompt = Self.ticketPrompt(for: ticket, note: note)
+        let prompt = Self.ticketPrompt(for: ticket, note: note, config: config)
         let output = try await Shell.output(claude, ["--bg", prompt], cwd: repoRoot, timeout: 120)
         guard let id = ClaudeJobs.startedID(in: output) else { throw DeskError.sessionNotStarted(output) }
         return id
@@ -120,64 +120,29 @@ public actor DeskService {
 
     /// What a planning session is told. The description rides along so the session need not reach Jira —
     /// it has no credentials of its own, and this app already has the text. `note` is whatever you typed
-    /// on the way in, and it sits closest to the instruction because it is the part the ticket does not say.
-    public static func ticketPrompt(for ticket: Ticket, note: String = "") -> String {
-        var paragraphs = [
-            """
-            Plan \(ticket.key) — \(ticket.summary)
-            \(ticket.url)
-            """
-        ]
-        if !ticket.description.isEmpty {
-            paragraphs.append("The ticket says:\n\n\(ticket.description)")
-        }
+    /// on the way in; the default text puts it closest to the instruction because it is the part the
+    /// ticket does not say.
+    public static func ticketPrompt(for ticket: Ticket, note: String = "", config: DeskConfig = DeskConfig()) -> String {
         let note = note.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !note.isEmpty {
-            paragraphs.append("What I want from the plan:\n\n\(note)")
-        }
-        paragraphs.append("""
-            Work out how to do this in this repository: what it touches, in what order, and what is \
-            unclear enough to ask about first. Write the plan and wait — do not change anything yet.
-            """)
-        return paragraphs.joined(separator: "\n\n")
+        var values = ["key": ticket.key, "summary": ticket.summary, "url": ticket.url, "description": ticket.description, "note": note]
+        values["descriptionBlock"] = ticket.description.isEmpty ? "" : config.prompt(.ticketDescription, values)
+        values["noteBlock"] = note.isEmpty ? "" : config.prompt(.ticketNote, values)
+        return config.prompt(.ticketPlan, values)
     }
 
-    /// What a background session is started with. The two extra paragraphs are there only when the PR
-    /// actually has that problem: Desk knows whether it does, so the session is told rather than asked to
-    /// go looking. Both ask for a proposal and neither for a change — the session stops and waits, the way
-    /// everything else here waits for a press. `worktree` is where the branch is checked out when that is
-    /// not the directory the session starts in. The session is sent there before anything else, or it
-    /// reads the repository's checkout — or makes a worktree of its own off the default branch.
-    public static func sessionPrompt(for pr: PullRequest, worktree: String? = nil) -> String {
-        let checkout = worktree.map {
-            "is checked out in the worktree at \($0). Enter that worktree (EnterWorktree with that path) before anything else, and work only there"
-        } ?? "is checked out here"
-        var paragraphs = [
-            """
-            Working on \(pr.repo)#\(pr.number) — \(pr.title)
-            \(pr.url)
-            """,
-            """
-            Its branch \(pr.headRef) \(checkout). Read the pull request and the review threads on \
-            it, say what is left to do, then wait for instructions.
-            """,
+    /// What a background session is started with. The two blocks are there only when the PR actually has
+    /// that problem: Desk knows whether it does, so the session is told rather than asked to go looking.
+    /// `worktree` is where the branch is checked out when that is not the directory the session starts in.
+    public static func sessionPrompt(for pr: PullRequest, worktree: String? = nil, config: DeskConfig = DeskConfig()) -> String {
+        var values = [
+            "repo": pr.repo, "number": String(pr.number), "title": pr.title, "url": pr.url,
+            "headRef": pr.headRef, "baseRef": pr.baseRef, "worktree": worktree ?? "",
+            "threads": pr.unresolvedThreads == 1 ? "1 review thread is" : "\(pr.unresolvedThreads) review threads are",
         ]
-        if pr.unresolvedThreads > 0 {
-            let threads = pr.unresolvedThreads == 1 ? "1 review thread is" : "\(pr.unresolvedThreads) review threads are"
-            // "Unresolved" is what GitHub reports; which of them went unanswered is something only the
-            // threads themselves say, so that part is the session's to work out.
-            paragraphs.append("""
-                \(threads) still unresolved. Work out which of them nobody has replied to, and for each one \
-                propose the fix it is asking for — show the change rather than making it.
-                """)
-        }
-        if pr.mergeState == .dirty {
-            paragraphs.append("""
-                It conflicts with \(pr.baseRef). Work out which files conflict and propose how to resolve \
-                each one, but leave the branch as it is until I say so.
-                """)
-        }
-        return paragraphs.joined(separator: "\n\n")
+        values["checkout"] = config.prompt(worktree == nil ? .sessionHere : .sessionInWorktree, values)
+        values["unresolvedBlock"] = pr.unresolvedThreads > 0 ? config.prompt(.sessionUnresolved, values) : ""
+        values["conflictBlock"] = pr.mergeState == .dirty ? config.prompt(.sessionConflict, values) : ""
+        return config.prompt(.session, values)
     }
 
     public func refreshJira(referencedKeys: [String]) async throws -> [Ticket] {

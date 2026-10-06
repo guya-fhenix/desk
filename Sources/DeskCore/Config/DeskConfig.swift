@@ -42,6 +42,9 @@ public struct DeskConfig: Codable, Sendable, Equatable {
     public var reviewConcurrency: Int = 2
     /// A headless run is one long process. `Shell`'s 90 s default would kill every review.
     public var reviewTimeoutMinutes: Int = 20
+    /// Prompt texts edited in Settings, by `PromptID`. Only edits are kept: a prompt you never touched
+    /// follows the app's own text when that changes.
+    public var prompts: [String: String] = [:]
 
     public init() {}
 
@@ -51,7 +54,7 @@ public struct DeskConfig: Codable, Sendable, Equatable {
         case githubPollSeconds, gitPollSeconds, jiraPollSeconds
         case stalePullRequestDays, metricsWeeks, notificationsEnabled
         case claudePath, acliPath, reviewRoot, reviewModel, reviewEffort, reviewBudgetUSD, cleanupReviewsOnMerge
-        case reviewConcurrency, reviewTimeoutMinutes
+        case reviewConcurrency, reviewTimeoutMinutes, prompts
     }
 
     /// Every key is optional so a config.json written before a field existed still loads. Synthesized
@@ -84,6 +87,7 @@ public struct DeskConfig: Codable, Sendable, Equatable {
         cleanupReviewsOnMerge = try c.decodeIfPresent(Bool.self, forKey: .cleanupReviewsOnMerge) ?? d.cleanupReviewsOnMerge
         reviewConcurrency = try c.decodeIfPresent(Int.self, forKey: .reviewConcurrency) ?? d.reviewConcurrency
         reviewTimeoutMinutes = try c.decodeIfPresent(Int.self, forKey: .reviewTimeoutMinutes) ?? d.reviewTimeoutMinutes
+        prompts = try c.decodeIfPresent([String: String].self, forKey: .prompts) ?? d.prompts
     }
 
     /// Lowercased `owner/name`, which is how remotes and search qualifiers are compared.

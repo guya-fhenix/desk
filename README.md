@@ -79,3 +79,12 @@ out — in the worktree you already have on that branch, or in a new one under t
 `.claude/worktrees`, where `claude -w` puts its own. The session itself starts in the repo's folder, so it
 gets that repo's plugins, settings and memory, and its prompt sends it into the branch's worktree. The
 session is seeded with the PR's url, which is what ties it to the PR until it has read the PR itself.
+
+## Prompts
+
+Every text the app sends Claude is editable in Settings → Prompts: the ticket plan, the PR session, and
+the review with its system prompt, output format and reformat pass. `{name}` placeholders are filled when
+the prompt is sent. A paragraph that only applies sometimes — a ticket description, unresolved threads, a
+conflict, other repos — is a block of its own, filled into its parent's `{…Block}` when it applies. Only
+edits are stored, in `config.json`, so an untouched prompt follows the app's own text; Reset to default
+removes an edit.
