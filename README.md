@@ -82,9 +82,8 @@ session is seeded with the PR's url, which is what ties it to the PR until it ha
 
 ## Prompts
 
-Every text the app sends Claude is editable in Settings → Prompts: the ticket plan, the PR session, and
-the review with its system prompt, output format and reformat pass. `{name}` placeholders are filled when
-the prompt is sent. A paragraph that only applies sometimes — a ticket description, unresolved threads, a
-conflict, other repos — is a block of its own, filled into its parent's `{…Block}` when it applies. Only
-edits are stored, in `config.json`, so an untouched prompt follows the app's own text; Reset to default
-removes an edit.
+Every text the app sends Claude is editable in Settings → Prompts, one text each: the ticket plan, the PR
+session, the review, the review's system prompt and its reformat pass. `{name}` placeholders are filled
+when the prompt is sent, and `{#name}…{/name}` wraps what only applies sometimes — a ticket description,
+unresolved threads, a conflict, other repos — with `{else}` for the other case. Only edits are stored, in
+`config.json`, so an untouched prompt follows the app's own text; Reset to default removes an edit.

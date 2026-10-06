@@ -57,13 +57,11 @@ public enum ReviewCommand {
 
     public static func prompt(_ pr: PullRequest, otherRepos: [OtherRepo], config: DeskConfig = DeskConfig()) -> String {
         let repos = otherRepos.map { "- \($0.name): \($0.root) at \($0.ref)" + ($0.fetched ? "" : " (fetch failed, so possibly behind the remote)") }
-        var values = [
+        let values = [
             "repo": pr.repo, "number": String(pr.number), "title": pr.title, "author": pr.author, "url": pr.url,
             "headSha": pr.headSha, "baseRef": pr.baseRef, "repos": repos.joined(separator: "\n"),
-            "outputFormat": config.prompt(.reviewOutputFormat),
         ]
-        values["otherReposBlock"] = otherRepos.isEmpty ? "" : config.prompt(.reviewOtherRepos, values)
-        return config.prompt(.review, values)
+        return config.prompt(.review, values, when: ["otherRepos": !otherRepos.isEmpty])
     }
 
     /// A second pass that reshapes an answer the parser could not read. Not a second review: under `-p`

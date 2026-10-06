@@ -124,25 +124,26 @@ public actor DeskService {
     /// ticket does not say.
     public static func ticketPrompt(for ticket: Ticket, note: String = "", config: DeskConfig = DeskConfig()) -> String {
         let note = note.trimmingCharacters(in: .whitespacesAndNewlines)
-        var values = ["key": ticket.key, "summary": ticket.summary, "url": ticket.url, "description": ticket.description, "note": note]
-        values["descriptionBlock"] = ticket.description.isEmpty ? "" : config.prompt(.ticketDescription, values)
-        values["noteBlock"] = note.isEmpty ? "" : config.prompt(.ticketNote, values)
-        return config.prompt(.ticketPlan, values)
+        return config.prompt(
+            .ticketPlan,
+            ["key": ticket.key, "summary": ticket.summary, "url": ticket.url, "description": ticket.description, "note": note],
+            when: ["description": !ticket.description.isEmpty, "note": !note.isEmpty]
+        )
     }
 
-    /// What a background session is started with. The two blocks are there only when the PR actually has
-    /// that problem: Desk knows whether it does, so the session is told rather than asked to go looking.
+    /// What a background session is started with. The problem sections are there only when the PR actually
+    /// has that problem: Desk knows whether it does, so the session is told rather than asked to go looking.
     /// `worktree` is where the branch is checked out when that is not the directory the session starts in.
     public static func sessionPrompt(for pr: PullRequest, worktree: String? = nil, config: DeskConfig = DeskConfig()) -> String {
-        var values = [
+        let values = [
             "repo": pr.repo, "number": String(pr.number), "title": pr.title, "url": pr.url,
             "headRef": pr.headRef, "baseRef": pr.baseRef, "worktree": worktree ?? "",
             "threads": pr.unresolvedThreads == 1 ? "1 review thread is" : "\(pr.unresolvedThreads) review threads are",
         ]
-        values["checkout"] = config.prompt(worktree == nil ? .sessionHere : .sessionInWorktree, values)
-        values["unresolvedBlock"] = pr.unresolvedThreads > 0 ? config.prompt(.sessionUnresolved, values) : ""
-        values["conflictBlock"] = pr.mergeState == .dirty ? config.prompt(.sessionConflict, values) : ""
-        return config.prompt(.session, values)
+        return config.prompt(
+            .session, values,
+            when: ["worktree": worktree != nil, "unresolved": pr.unresolvedThreads > 0, "conflict": pr.mergeState == .dirty]
+        )
     }
 
     public func refreshJira(referencedKeys: [String]) async throws -> [Ticket] {

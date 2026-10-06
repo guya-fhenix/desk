@@ -234,7 +234,11 @@ struct SettingsView: View {
                 if !id.placeholders.isEmpty {
                     Text(id.placeholders.map { "{\($0.name)} \($0.meaning)" }.joined(separator: " · "))
                 }
-                Text("Empty uses the default. To drop a block, remove its placeholder from the prompt it fills.")
+                if !id.conditions.isEmpty {
+                    Text(id.conditions.map { "{#\($0.name)}…{/\($0.name)} when \($0.meaning)" }.joined(separator: " · "))
+                    Text("{else} inside a section gives the text for when it does not hold. A broken or unknown marker is sent as typed.")
+                }
+                Text("Empty uses the default.")
             }
             .scaled(.caption)
             .foregroundStyle(.secondary)
@@ -282,9 +286,11 @@ struct SettingsView: View {
         config.repoRoots = split(repoRootsText)
         config.botLogins = split(botLoginsText)
         config.jiraProjectKeys = split(projectKeysText).map { $0.uppercased() }
-        // Only real edits are kept: a prompt typed back to its default, or cleared, is the default again.
+        // Only real edits are kept: a prompt typed back to its default, or cleared, is the default again, and
+        // a key the app no longer has a prompt for is dropped.
         config.prompts = draft.prompts.filter { key, text in
-            !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && text != PromptID(rawValue: key)?.defaultText
+            guard let id = PromptID(rawValue: key) else { return false }
+            return !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && text != id.defaultText
         }
         return config
     }

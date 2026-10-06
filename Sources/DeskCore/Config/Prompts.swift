@@ -1,30 +1,19 @@
 import Foundation
 
 /// Every text the app sends Claude, each one editable in Settings → Prompts. A prompt names the values it
-/// takes as `{name}`. A block — a paragraph that only belongs on some tickets or PRs — is a prompt of its
-/// own, filled into its parent's `{…Block}` when its condition holds and left out otherwise; removing the
-/// placeholder from the parent drops the block for good.
+/// takes as `{name}`, and wraps what only belongs on some tickets or PRs in `{#name}…{/name}`, with an
+/// optional `{else}` for the text that goes in when the condition does not hold.
 public enum PromptID: String, CaseIterable, Sendable, Identifiable {
-    case ticketPlan, ticketDescription, ticketNote
-    case session, sessionInWorktree, sessionHere, sessionUnresolved, sessionConflict
-    case review, reviewSystem, reviewOtherRepos, reviewOutputFormat, reviewReformat
+    case ticketPlan, session, review, reviewSystem, reviewReformat
 
     public var id: String { rawValue }
 
     public var title: String {
         switch self {
         case .ticketPlan: "Plan a ticket"
-        case .ticketDescription: "Plan a ticket › Description block"
-        case .ticketNote: "Plan a ticket › Note block"
         case .session: "PR session"
-        case .sessionInWorktree: "PR session › Checkout in a worktree"
-        case .sessionHere: "PR session › Checkout here"
-        case .sessionUnresolved: "PR session › Unresolved threads block"
-        case .sessionConflict: "PR session › Conflict block"
         case .review: "Review"
         case .reviewSystem: "Review › System prompt"
-        case .reviewOtherRepos: "Review › Other repos block"
-        case .reviewOutputFormat: "Review › Output format (JSON)"
         case .reviewReformat: "Review › Reformat pass"
         }
     }
@@ -33,47 +22,45 @@ public enum PromptID: String, CaseIterable, Sendable, Identifiable {
     public var usage: String {
         switch self {
         case .ticketPlan: "Sent with `claude --bg` when you press Plan on a ticket."
-        case .ticketDescription: "Fills {descriptionBlock} when the ticket has a description."
-        case .ticketNote: "Fills {noteBlock} when you typed a note before pressing Plan."
         case .session: "Sent with `claude --bg` when you start a background session on a PR."
-        case .sessionInWorktree: "Fills {checkout} when the branch is checked out in a worktree."
-        case .sessionHere: "Fills {checkout} when the branch is checked out in the repo's own folder."
-        case .sessionUnresolved: "Fills {unresolvedBlock} when the PR has unresolved review threads."
-        case .sessionConflict: "Fills {conflictBlock} when the PR conflicts with its base branch."
-        case .review: "Sent with `claude -p` when you press Review."
+        case .review: "Sent with `claude -p` when you press Review. The app reads the answer as the JSON described here, so keep its field names."
         case .reviewSystem: "Sent as `--append-system-prompt` on every review run."
-        case .reviewOtherRepos: "Fills {otherReposBlock} when there are other clones under the repo roots."
-        case .reviewOutputFormat: "Fills {outputFormat}. The app reads the answer as this JSON, so keep its field names."
         case .reviewReformat: "Sent with `claude -p` only when a review answer does not parse; that answer follows on stdin. Keep the JSON shape."
         }
     }
 
     /// The placeholders this text is filled with, and what each one becomes.
     public var placeholders: [(name: String, meaning: String)] {
-        let pr: [(name: String, meaning: String)] = [("repo", "owner/name"), ("number", "the PR number"), ("title", "the PR title"), ("url", "the PR link")]
+        let pr: [(name: String, meaning: String)] = [
+            ("repo", "owner/name"), ("number", "the PR number"), ("title", "the PR title"), ("url", "the PR link"),
+            ("baseRef", "the base branch"),
+        ]
         switch self {
         case .ticketPlan:
             return [
                 ("key", "the ticket key"), ("summary", "the ticket title"), ("url", "the Jira link"),
-                ("descriptionBlock", "the description block, or nothing"), ("noteBlock", "the note block, or nothing"),
+                ("description", "the ticket description"), ("note", "what you typed"),
             ]
-        case .ticketDescription: return [("description", "the ticket description")]
-        case .ticketNote: return [("note", "what you typed")]
         case .session:
-            return pr + [
-                ("headRef", "the PR branch"), ("baseRef", "the base branch"), ("checkout", "one of the two checkout texts"),
-                ("unresolvedBlock", "the unresolved threads block, or nothing"), ("conflictBlock", "the conflict block, or nothing"),
-            ]
-        case .sessionInWorktree: return [("worktree", "the worktree path")]
-        case .sessionUnresolved: return [("threads", "\"3 review threads are\"")]
-        case .sessionConflict: return [("baseRef", "the base branch")]
+            return pr + [("headRef", "the PR branch"), ("worktree", "the worktree path"), ("threads", "\"3 review threads are\"")]
         case .review:
-            return pr + [
-                ("author", "the PR author"), ("headSha", "the PR head commit"), ("baseRef", "the base branch"),
-                ("otherReposBlock", "the other repos block, or nothing"), ("outputFormat", "the output format"),
+            return pr + [("author", "the PR author"), ("headSha", "the PR head commit"), ("repos", "one line per other clone")]
+        case .reviewSystem, .reviewReformat:
+            return []
+        }
+    }
+
+    /// The `{#name}` sections this text can use, and when each one holds.
+    public var conditions: [(name: String, meaning: String)] {
+        switch self {
+        case .ticketPlan: [("description", "the ticket has a description"), ("note", "you typed a note")]
+        case .session:
+            [
+                ("worktree", "the branch is checked out in a worktree"), ("unresolved", "the PR has unresolved threads"),
+                ("conflict", "the PR conflicts with its base branch"),
             ]
-        case .reviewOtherRepos: return [("repos", "one line per clone: name, path, ref")]
-        case .sessionHere, .reviewSystem, .reviewOutputFormat, .reviewReformat: return []
+        case .review: [("otherRepos", "there are other clones under the repo roots")]
+        case .reviewSystem, .reviewReformat: []
         }
     }
 
@@ -84,57 +71,42 @@ public enum PromptID: String, CaseIterable, Sendable, Identifiable {
             Plan {key} — {summary}
             {url}
 
-            {descriptionBlock}
+            {#description}The ticket says:
 
-            {noteBlock}
+            {description}{/description}
+
+            {#note}What I want from the plan:
+
+            {note}{/note}
 
             Work out how to do this in this repository: what it touches, in what order, and what is \
             unclear enough to ask about first. Write the plan and wait — do not change anything yet.
             """
-        case .ticketDescription:
-            """
-            The ticket says:
-
-            {description}
-            """
-        case .ticketNote:
-            """
-            What I want from the plan:
-
-            {note}
-            """
-        // Both blocks ask for a proposal and neither for a change — the session stops and waits, the way
-        // everything else here waits for a press.
+        // The session starts in the repository's checkout, so it is sent into the branch's worktree before
+        // anything else, or it reads the wrong checkout — or makes a worktree of its own off the default
+        // branch. Both problem sections ask for a proposal and neither for a change: the session stops and
+        // waits, the way everything else here waits for a press. "Unresolved" is what GitHub reports; which
+        // threads went unanswered only the threads themselves say, so that part is the session's to work out.
         case .session:
             """
             Working on {repo}#{number} — {title}
             {url}
 
-            Its branch {headRef} {checkout}. Read the pull request and the review threads on it, say what \
-            is left to do, then wait for instructions.
+            Its branch {headRef} {#worktree}is checked out in the worktree at {worktree}. Enter that worktree \
+            (EnterWorktree with that path) before anything else, and work only there{else}is checked out \
+            here{/worktree}. Read the pull request and the review threads on it, say what is left to do, then \
+            wait for instructions.
 
-            {unresolvedBlock}
+            {#unresolved}{threads} still unresolved. Work out which of them nobody has replied to, and for each \
+            one propose the fix it is asking for — show the change rather than making it.{/unresolved}
 
-            {conflictBlock}
+            {#conflict}It conflicts with {baseRef}. Work out which files conflict and propose how to resolve each \
+            one, but leave the branch as it is until I say so.{/conflict}
             """
-        // The session starts in the repository's checkout, so it is sent into the branch's worktree before
-        // anything else, or it reads the wrong checkout — or makes a worktree of its own off the default branch.
-        case .sessionInWorktree:
-            "is checked out in the worktree at {worktree}. Enter that worktree (EnterWorktree with that path) before anything else, and work only there"
-        case .sessionHere:
-            "is checked out here"
-        // "Unresolved" is what GitHub reports; which of them went unanswered is something only the threads
-        // themselves say, so that part is the session's to work out.
-        case .sessionUnresolved:
-            """
-            {threads} still unresolved. Work out which of them nobody has replied to, and for each one \
-            propose the fix it is asking for — show the change rather than making it.
-            """
-        case .sessionConflict:
-            """
-            It conflicts with {baseRef}. Work out which files conflict and propose how to resolve each one, \
-            but leave the branch as it is until I say so.
-            """
+        // Other clones are read at the branch the app just fetched and never at their checkout, so the review
+        // sees current code and not someone's half-done branch; the list comes before the answer format, or it
+        // reads as part of it. `lineText` is the field that matters most: models miscount `@@` offsets, so the
+        // quoted line is what the app corrects the number against before GitHub sees it.
         case .review:
             """
             Review pull request #{number} in {repo}: "{title}" by {author} ({url}) for me, the requested \
@@ -152,35 +124,12 @@ public enum PromptID: String, CaseIterable, Sendable, Identifiable {
             behaviour, and anything that contradicts the conventions in the surrounding code. Prefer few strong \
             findings to many weak ones: at most 15 comments, and no comment that only restates what the code does.
 
-            {otherReposBlock}
-
-            {outputFormat}
-
-            Post nothing to GitHub and edit nothing: I put your comments into a draft review on the PR, and I \
-            decide there what to keep and what verdict to send.
-            """
-        case .reviewSystem:
-            """
-            You are a code reviewer run by Fhenix Desk with read-only tools, once, non-interactively. Never post \
-            comments, reviews or approvals to GitHub, and never modify files or git state. If a tool call is \
-            denied, continue without it. Your entire final message must be the single JSON object the prompt \
-            describes: no preamble, no closing remarks, no code fence.
-            """
-        // Every other clone, read at the branch the app just fetched and never at its checkout, so the review
-        // sees current code and not someone's half-done branch. The list must come before the output format,
-        // or it reads as part of it.
-        case .reviewOtherRepos:
-            """
-            Other repositories under my repo roots, each fetched just now. Read them directly from the remote \
-            default branch named below and never from their working trees, which may be on any branch with \
-            local edits: `git -C <root> show <ref>:<file>`, `git -C <root> ls-tree -r --name-only <ref>`, \
+            {#otherRepos}Other repositories under my repo roots, each fetched just now. Read them directly from \
+            the remote default branch named below and never from their working trees, which may be on any branch \
+            with local edits: `git -C <root> show <ref>:<file>`, `git -C <root> ls-tree -r --name-only <ref>`, \
             `git -C <root> grep <pattern> <ref>`, `git -C <root> log <ref> -- <file>`.
-            {repos}
-            """
-        // `lineText` is the important one: models miscount `@@` offsets, so the quoted line is what the app
-        // corrects the number against before GitHub sees it.
-        case .reviewOutputFormat:
-            """
+            {repos}{/otherRepos}
+
             Answer with one JSON object and nothing else. No prose before or after it, no code fence.
 
             {
@@ -210,6 +159,16 @@ public enum PromptID: String, CaseIterable, Sendable, Identifiable {
             - One comment per line: if two things are wrong on one line, say both in one body.
             - `severity`: `blocker` or `major` only for what has to be fixed before merging; that is what I judge \
             the verdict by. No findings is a fine answer for good work: `{"comments": []}`.
+
+            Post nothing to GitHub and edit nothing: I put your comments into a draft review on the PR, and I \
+            decide there what to keep and what verdict to send.
+            """
+        case .reviewSystem:
+            """
+            You are a code reviewer run by Fhenix Desk with read-only tools, once, non-interactively. Never post \
+            comments, reviews or approvals to GitHub, and never modify files or git state. If a tool call is \
+            denied, continue without it. Your entire final message must be the single JSON object the prompt \
+            describes: no preamble, no closing remarks, no code fence.
             """
         case .reviewReformat:
             """
@@ -223,16 +182,42 @@ public enum PromptID: String, CaseIterable, Sendable, Identifiable {
 }
 
 public enum PromptTemplate {
-    /// Fills each `{name}` from `values` and drops the paragraphs that come out empty — the ones that held
-    /// only a block whose condition did not hold. Paragraphs are split on the template before filling, so
-    /// blank lines inside a value survive. One pass: a value is never searched for placeholders itself, so a
-    /// ticket description that says `{note}` is sent as written. An unknown `{…}` also stays as written,
-    /// which is what keeps the JSON in the output format intact.
-    public static func fill(_ template: String, _ values: [String: String]) -> String {
-        template.components(separatedBy: "\n\n")
+    /// Resolves the sections, fills each `{name}` from `values`, and drops the paragraphs that come out
+    /// empty — the ones that held only a section whose condition did not hold. Sections are resolved and
+    /// paragraphs split on the template alone, before any value goes in, so a ticket description that says
+    /// `{note}` or `{/note}` is sent as written and its blank lines survive. Anything that is not a known
+    /// name — the JSON in the review's answer format, a typo — also stays as written.
+    public static func fill(_ template: String, _ values: [String: String], when conditions: [String: Bool] = [:]) -> String {
+        resolveSections(Substring(template), conditions)
+            .components(separatedBy: "\n\n")
             .map { substitute($0, values) }
             .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
             .joined(separator: "\n\n")
+    }
+
+    /// `{#name}…{/name}` keeps its text when `name` holds and drops it otherwise; an `{else}` inside splits
+    /// it into the two cases. A section with an unknown name or no closing marker stays as typed, so a
+    /// broken one is sent every time rather than never.
+    private static func resolveSections(_ text: Substring, _ conditions: [String: Bool]) -> String {
+        var out = ""
+        var rest = text
+        while let open = rest.range(of: "{#") {
+            let name = rest[open.upperBound...].prefix(while: isNameCharacter)
+            guard name.endIndex < rest.endIndex, rest[name.endIndex] == "}", let holds = conditions[String(name)],
+                  let close = rest[name.endIndex...].range(of: "{/\(name)}")
+            else {
+                out += rest[..<open.upperBound]
+                rest = rest[open.upperBound...]
+                continue
+            }
+            out += rest[..<open.lowerBound]
+            let body = rest[rest.index(after: name.endIndex)..<close.lowerBound]
+            let split = body.range(of: "{else}")
+            let kept = holds ? body[..<(split?.lowerBound ?? body.endIndex)] : split.map { body[$0.upperBound...] } ?? ""
+            out += resolveSections(kept, conditions)
+            rest = rest[close.upperBound...]
+        }
+        return out + rest
     }
 
     private static func substitute(_ text: String, _ values: [String: String]) -> String {
@@ -242,7 +227,7 @@ public enum PromptTemplate {
         while let open = rest.firstIndex(of: "{") {
             out += rest[..<open]
             let afterOpen = rest.index(after: open)
-            let name = rest[afterOpen...].prefix { $0.isLetter || $0.isNumber || $0 == "_" }
+            let name = rest[afterOpen...].prefix(while: isNameCharacter)
             if name.endIndex < rest.endIndex, rest[name.endIndex] == "}", let value = values[String(name)] {
                 out += value
                 rest = rest[rest.index(after: name.endIndex)...]
@@ -253,6 +238,8 @@ public enum PromptTemplate {
         }
         return out + rest
     }
+
+    private static func isNameCharacter(_ c: Character) -> Bool { c.isLetter || c.isNumber || c == "_" }
 }
 
 extension DeskConfig {
@@ -265,8 +252,8 @@ extension DeskConfig {
         return text
     }
 
-    /// The prompt with `values` filled in.
-    public func prompt(_ id: PromptID, _ values: [String: String]) -> String {
-        PromptTemplate.fill(prompt(id), values)
+    /// The prompt with its sections resolved and `values` filled in.
+    public func prompt(_ id: PromptID, _ values: [String: String], when conditions: [String: Bool] = [:]) -> String {
+        PromptTemplate.fill(prompt(id), values, when: conditions)
     }
 }
