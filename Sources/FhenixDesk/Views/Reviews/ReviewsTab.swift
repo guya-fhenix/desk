@@ -8,8 +8,10 @@ struct ReviewsTab: View {
     @State private var sortOrder: [KeyPathComparator<PullRequest>] = []
     @AppStorage("sort.reviewQueue") private var storedSort = ""
     @State private var scope: ReviewScope = .all
-    // Most of the queue is old and settled; the recent window is what you actually act on.
-    @State private var recentOnly = true
+    /// Off by default, so the whole queue shows; on, only the PRs opened in the last `days` days.
+    @State private var limited = false
+    /// Remembered, so turning the limit on brings back the number you last used.
+    @AppStorage("reviews.days") private var days = 14
     @State private var selection: String?
 
     private static let sort = TableSort<PullRequest>(
@@ -23,7 +25,9 @@ struct ReviewsTab: View {
         fallback: [KeyPathComparator(\PullRequest.createdAt)]
     )
 
-    private func queue(_ scope: ReviewScope) -> [PullRequest] { model.state.reviewQueue(scope, recentOnly: recentOnly) }
+    /// The day limit in force, or nil for all time. A typed 0 or less reads as one day.
+    private var window: Int? { limited ? max(days, 1) : nil }
+    private func queue(_ scope: ReviewScope) -> [PullRequest] { model.state.reviewQueue(scope, days: window) }
     private var rows: [PullRequest] { queue(scope).sorted(using: sortOrder) }
     /// The ones GitHub actually put on you, so a row in the mixed list says which it is.
     private var onMe: Set<String> { Set(model.state.reviewRequests.map(\.url)) }
@@ -60,10 +64,18 @@ struct ReviewsTab: View {
     }
 
     private var emptyText: String {
+        guard let window else {
+            switch scope {
+            case .onMe: return "Nothing waits on your review."
+            case .open: return "No open PRs left unreviewed in the tracked repos."
+            case .all: return "Nothing to review."
+            }
+        }
+        let span = window == 1 ? "the last day" : "the last \(window) days"
         switch scope {
-        case .onMe: return recentOnly ? "Nothing from the last two weeks waits on you." : "Nothing waits on your review."
-        case .open: return recentOnly ? "No unreviewed PRs opened in the last two weeks." : "No open PRs left unreviewed in the tracked repos."
-        case .all: return recentOnly ? "Nothing opened in the last two weeks." : "Nothing to review."
+        case .onMe: return "Nothing from \(span) waits on you."
+        case .open: return "No unreviewed PRs opened in \(span)."
+        case .all: return "Nothing opened in \(span)."
         }
     }
 
@@ -81,10 +93,21 @@ struct ReviewsTab: View {
             .pickerStyle(.segmented)
             .labelsHidden()
             .fixedSize()
-            Toggle(isOn: $recentOnly) { Text(recentOnly ? "Last 2 weeks" : "All time") }
+            Toggle(isOn: $limited) { Text(limited ? "Last" : "All time") }
                 .toggleStyle(.button)
                 .controlSize(.small)
-                .help("Show only pull requests opened in the last two weeks")
+                .help(limited ? "Show every pull request, however old" : "Show only pull requests opened in the last few days")
+            if limited {
+                TextField("Days", value: $days, format: .number)
+                    .textFieldStyle(.roundedBorder)
+                    .multilineTextAlignment(.trailing)
+                    .frame(width: 44)
+                    .controlSize(.small)
+                Stepper("Days", value: $days, in: 1...365)
+                    .labelsHidden()
+                    .controlSize(.small)
+                Text(days == 1 ? "day" : "days").scaled(.caption).foregroundStyle(.secondary)
+            }
             if ready > 0 {
                 Chip(text: "\(ready) ready to run", color: .orange)
                     .help("Of the rows shown. Press Review on one to run it; nothing runs on its own.")

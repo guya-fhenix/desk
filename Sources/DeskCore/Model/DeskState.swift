@@ -101,20 +101,17 @@ public struct DeskState: Sendable {
             .sorted { $0.createdAt < $1.createdAt }
     }
 
-    /// How far back the queue looks by default. Older PRs are still there, behind the toggle.
-    public static let recentWindow: TimeInterval = 14 * 86_400
-
-    /// Everything the Reviews queue can show, in the order the scopes are offered. `recentOnly` keeps
-    /// the last two weeks by creation date, which is what the Waiting column measures.
-    public func reviewQueue(_ scope: ReviewScope, recentOnly: Bool = false, now: Date = Date()) -> [PullRequest] {
+    /// Everything the Reviews queue can show, in the order the scopes are offered. `days` keeps the PRs
+    /// opened within that many days, which is what the Waiting column measures; nil keeps them all.
+    public func reviewQueue(_ scope: ReviewScope, days: Int? = nil, now: Date = Date()) -> [PullRequest] {
         let rows: [PullRequest]
         switch scope {
         case .onMe: rows = reviewRequests
         case .open: rows = openForReview
         case .all: rows = reviewRequests + openForReview
         }
-        guard recentOnly else { return rows }
-        let cutoff = now.addingTimeInterval(-Self.recentWindow)
+        guard let days else { return rows }
+        let cutoff = now.addingTimeInterval(-TimeInterval(days) * 86_400)
         return rows.filter { $0.createdAt > cutoff }
     }
 

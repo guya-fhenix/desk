@@ -119,15 +119,16 @@ import Testing
 }
 
 @Suite struct ReviewWindowTests {
-    @Test func theQueueDefaultsToTheLastTwoWeeks() {
+    @Test func aDayLimitKeepsOnlyRecentPullRequests() {
         var state = DeskState(config: DeskConfig())
         let fresh = Fixtures.pr(number: 1, head: "a", author: "alice", created: Fixtures.hours(-24))
         let old = Fixtures.pr(number: 2, head: "b", author: "alice", created: Fixtures.hours(-24 * 30))
         state.github = GitHubSnapshot(
             login: "me", mine: [], reviewRequests: [fresh, old], mergedRecent: [], fetchedAt: Fixtures.t0
         )
-        #expect(state.reviewQueue(.onMe, recentOnly: true, now: Fixtures.t0).map(\.number) == [1])
-        #expect(state.reviewQueue(.onMe, recentOnly: false, now: Fixtures.t0).map(\.number) == [1, 2])
+        #expect(state.reviewQueue(.onMe, days: 14, now: Fixtures.t0).map(\.number) == [1])
+        #expect(state.reviewQueue(.onMe, days: 31, now: Fixtures.t0).map(\.number) == [1, 2])
+        #expect(state.reviewQueue(.onMe, now: Fixtures.t0).map(\.number) == [1, 2])
     }
 }
 
