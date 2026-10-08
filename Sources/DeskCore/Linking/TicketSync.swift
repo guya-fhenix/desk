@@ -12,8 +12,8 @@ public struct TicketDrift: Sendable, Hashable, Identifiable {
     public var stage: TicketStage
     /// The Jira status name to move to, as configured.
     public var target: String
-    /// The pull requests that put it there, highest number first. The button shows these: a move nobody
-    /// can explain is one nobody should press.
+    /// The pull requests that put it there, highest number first. The badge names these: a move nobody
+    /// can explain is one nobody should make.
     public var pullRequests: [PullRequest]
 
     public init(ticket: Ticket, stage: TicketStage, target: String, pullRequests: [PullRequest]) {
@@ -52,7 +52,7 @@ public struct TicketSyncInput: Sendable {
 }
 
 /// Keeps Jira in step with GitHub: which tickets a pull request is about, and where their status has
-/// fallen behind. Pure — the transition itself is a press, and lives in `JiraWrite`.
+/// fallen behind. Pure — the transition itself lives in `JiraWrite`.
 public enum TicketSync {
     /// The texts a ticket key may be read out of. The branch and the title are things you chose for this
     /// pull request; the description is prose that mentions other tickets, so it is not read — a "see also

@@ -156,7 +156,7 @@ struct SettingsView: View {
             } header: {
                 Text("Tickets")
             } footer: {
-                Text("Status names exactly as Jira spells them, emoji and all; empty turns that half off. Desk only marks the tickets that have fallen behind — moving one is a press on the Tickets screen.")
+                Text("Status names exactly as Jira spells them, emoji and all; empty turns that half off. Desk moves a ticket of yours on its own once its pull requests say it has fallen behind, never backwards.")
                     .scaled(.caption).foregroundStyle(.secondary)
             }
             Section("Tool") {

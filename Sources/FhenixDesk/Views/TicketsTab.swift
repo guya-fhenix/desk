@@ -133,7 +133,7 @@ struct TicketsTab: View {
                 }
                 Spacer()
                 if let drift = model.state.drift(forKey: ticket.key) {
-                    DriftButton(drift: drift, model: model)
+                    DriftBadge(drift: drift, model: model)
                 }
                 PlanButton(ticket: ticket, model: model) { plan(ticket, $0) }
             }
@@ -162,7 +162,7 @@ enum TicketColor {
 }
 
 /// The selected ticket: where it stands, what it says, which pull requests name it, and the presses that
-/// act on it — the same two the card carries.
+/// act on it.
 private struct TicketInspector: View {
     var ticket: Ticket
     var model: AppModel
@@ -188,7 +188,10 @@ private struct TicketInspector: View {
             if let drift = model.state.drift(forKey: ticket.key) {
                 Section("Jira is behind") {
                     Text(reason(drift)).scaled(.caption)
-                    HStack { Spacer(); DriftButton(drift: drift, model: model) }
+                    if let error = model.ticketMoveErrors[ticket.key] {
+                        Text("The move failed: \(error)").scaled(.caption).foregroundStyle(.red).textSelection(.enabled)
+                    }
+                    HStack { Spacer(); DriftBadge(drift: drift, model: model) }
                 }
             }
             Section("Pull requests") {

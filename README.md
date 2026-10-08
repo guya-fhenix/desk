@@ -1,8 +1,9 @@
 # Fhenix Desk
 
 Menu bar app that tracks the Fhenix development cycle. It reads, you do not type — the exceptions are
-putting a Claude review into your draft review on a PR, starting a background session, and moving a Jira
-ticket, and all three only ever happen when you press the button.
+putting a Claude review into your draft review on a PR and starting a background session, which only
+ever happen when you press the button, and moving a Jira ticket that has fallen behind its PRs, which
+happens on its own.
 
 Sources: GitHub PRs (`gh`), local git worktrees, Claude Code sessions (`~/.claude`), Jira.
 
@@ -17,8 +18,8 @@ Jira goes through the Atlassian CLI: run `acli jira auth login --web` once, then
 Recheck. Desk stores no Jira token.
 
 The window opens on Today: every nudge (CI failed, changes requested, needs rebase, ready to merge, review
-waiting, Claude reviewed, quiet PRs) and every ticket that has fallen behind its PRs, each with the button
-that deals with it. Pull Requests, Reviews and Tickets show a trailing inspector for the selected row.
+waiting, Claude reviewed, quiet PRs) and every ticket the app could not move to where its PRs say, each
+with the button that deals with it. Pull Requests, Reviews and Tickets show a trailing inspector for the selected row.
 
 Claude reviews: the Reviews tab lists the PRs waiting on you and marks which are ready to run — ones you
 have not reviewed, ones re-requested since your last review, and a run that failed. Nothing starts on its own; you press
@@ -56,13 +57,14 @@ own dollar cap, which `claude` enforces.
 Desk reads the Jira key out of each PR's branch and title — never its description, which is prose about
 other tickets — and says where the ticket should be: `👀 Review Ready` while a PR of its is open and
 marked ready, `Done` once they have all merged and one of them landed on the repo's default branch. A
-ticket that has fallen behind gets a chip on the Tickets screen naming the status it should move to, and
-pressing that chip is the one thing here that writes to Jira (`acli jira workitem transition`). The Pull
-Requests table shows the same disagreement as an orange arrow beside the ticket key.
+ticket that has fallen behind is moved there on its own (`acli jira workitem transition`) once every
+source has answered, and the board shows a chip naming the status while the move is in flight. Each
+ticket and status is tried once per launch: a move Jira refuses turns the chip red with the reason and
+lists the ticket on Today, and a ticket you move back by hand stays where you put it. The Pull Requests
+table shows the same disagreement as an orange arrow beside the ticket key.
 
-It never moves a ticket backwards, never touches one assigned to somebody else, and never fires on a
-poll — so a wrong key match costs an ignored chip, not a wrong transition. A PR merged into the branch
-below it in a stack finishes nothing, and an open draft keeps the ticket out of both statuses. Set the two
+It never moves a ticket backwards and never touches one assigned to somebody else. A PR merged into the
+branch below it in a stack finishes nothing, and an open draft keeps the ticket out of both statuses. Set the two
 status names in Settings → Jira, exactly as Jira spells them; empty turns that half off.
 
 ## Background sessions

@@ -22,9 +22,11 @@ final class AppModel {
     var pendingTab: DeskWindow.Tab?
     /// PR urls with a review running from this side, for spinners and disabled buttons.
     var busyReviews: Set<String> = []
-    /// Ticket keys with a transition in flight, for the button that must not fire twice.
+    /// Ticket keys with a transition in flight, so a poll that lands mid-move does not start another.
     var movingTickets: Set<String> = []
-    /// Ticket keys with a planning session starting, for the same reason.
+    /// Why the automatic move of a ticket failed, by key. Nothing retries it, so this is what says so.
+    var ticketMoveErrors: [String: String] = [:]
+    /// Ticket keys with a planning session starting, for the button that must not fire twice.
     var planningTickets: Set<String> = []
     /// PR urls with a background session being started, for the same reason.
     var startingSessions: Set<String> = []
@@ -47,6 +49,8 @@ final class AppModel {
     private let service: DeskService
     private let notifier: Notifier
     private var loops: [Source: Task<Void, Never>] = [:]
+    /// "key→status" for every ticket move tried this launch.
+    private var attemptedMoves: Set<String> = []
     private nonisolated static let log = Logger(subsystem: "io.fhenix.desk", category: "refresh")
 
     init() {
@@ -132,6 +136,7 @@ final class AppModel {
         }
         await mergeReviews()
         state.recompute()
+        syncTickets()
         notifier.deliver(state.nudges, post: config.notificationsEnabled && allSourcesReported)
         onUrgentCountChange?(urgentCount)
     }
@@ -236,19 +241,31 @@ final class AppModel {
 
     // MARK: Jira
 
-    /// Moves a ticket to where its pull requests say it belongs. A press, never a poll — and the refresh
-    /// afterwards is what makes the row right: Jira decides what the status became, not this.
-    func moveTicket(_ drift: TicketDrift) {
+    /// Moves every ticket that has fallen behind its pull requests to where they say it belongs. Not before
+    /// every source has answered once: a half-loaded state is no basis for a write. The refresh after each
+    /// move is what makes the board right: Jira decides what the status became, not this.
+    /// ponytail: one try per ticket and target per launch, so a transition the workflow refuses is not
+    /// re-sent every poll and a ticket you move back by hand stays put; a timed retry would need a backoff
+    /// per ticket.
+    private func syncTickets() {
+        guard allSourcesReported else { return }
+        for drift in state.ticketDrifts
+        where !movingTickets.contains(drift.ticket.key) && attemptedMoves.insert("\(drift.ticket.key)→\(drift.target)").inserted {
+            moveTicket(drift)
+        }
+    }
+
+    private func moveTicket(_ drift: TicketDrift) {
         let key = drift.ticket.key
-        guard !movingTickets.contains(key) else { return }
         movingTickets.insert(key)
         Task {
             defer { movingTickets.remove(key) }
             do {
                 try await service.transitionTicket(key: key, to: drift.target)
-                state.errors[.jira] = nil
+                ticketMoveErrors[key] = nil
+                Self.log.info("jira \(key, privacy: .public) moved to \(drift.target, privacy: .public)")
             } catch {
-                state.errors[.jira] = "\(error)"
+                ticketMoveErrors[key] = "\(error)"
                 Self.log.error("jira \(key, privacy: .public): \(String(describing: error), privacy: .public)")
             }
             await refresh(.jira)

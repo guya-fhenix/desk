@@ -1,7 +1,8 @@
 import Foundation
 
 /// The app's only write to Jira. It lives in its own file so that fact stays auditable in one place —
-/// everything in `JiraProvider.swift` reads. It happens on a press, never on a poll.
+/// everything in `JiraProvider.swift` reads. It happens when you plan a ticket, and on its own when a
+/// ticket of yours has fallen behind its pull requests.
 extension JiraProvider {
     /// Moves a work item to a status by name. acli works out which transition that is, and refuses when
     /// the workflow has no way there from where the ticket stands.

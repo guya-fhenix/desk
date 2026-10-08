@@ -1,7 +1,7 @@
 import DeskCore
 import SwiftUI
 
-/// The landing screen: every nudge and every ticket that has fallen behind, grouped by what you do about
+/// The landing screen: every nudge and every ticket the app could not move, grouped by what you do about
 /// it, each with the press that deals with it. The other screens hold the detail; this one says what next.
 struct TodayTab: View {
     @Environment(AppModel.self) private var model
@@ -34,7 +34,8 @@ struct TodayTab: View {
 
     var body: some View {
         let byGroup = Dictionary(grouping: model.state.nudges) { Group.of($0.kind) }
-        let drifts = model.state.ticketDrifts
+        // Only the moves that failed: the rest the app makes on its own, and they need nothing from you.
+        let drifts = model.state.ticketDrifts.filter { model.ticketMoveErrors[$0.ticket.key] != nil }
         List {
             Section { tiles }
             ForEach(Group.allCases) { group in
@@ -144,7 +145,7 @@ private struct NudgeRow: View {
     }
 }
 
-/// A ticket whose Jira status has fallen behind its pull requests, and the press that moves it.
+/// A ticket whose Jira status has fallen behind its pull requests and that the app could not move, and why.
 private struct DriftRow: View {
     var drift: TicketDrift
     var model: AppModel
@@ -155,9 +156,10 @@ private struct DriftRow: View {
             VStack(alignment: .leading, spacing: 1) {
                 Text("\(drift.ticket.key) should be “\(drift.target)”").lineLimit(1)
                 Text("Jira says “\(drift.ticket.status)” · \(reason)").scaled(.caption).foregroundStyle(.secondary).lineLimit(1)
+                Text(model.ticketMoveErrors[drift.ticket.key] ?? "").scaled(.caption).foregroundStyle(.red).lineLimit(1)
+                    .help(model.ticketMoveErrors[drift.ticket.key] ?? "")
             }
             Spacer(minLength: 8)
-            DriftButton(drift: drift, model: model)
             Button("Open in Jira") { model.open(drift.ticket.url) }.controlSize(.small)
         }
         .padding(.vertical, 2)

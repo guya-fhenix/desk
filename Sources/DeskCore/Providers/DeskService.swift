@@ -156,7 +156,8 @@ public actor DeskService {
         return mine + others
     }
 
-    /// The only call in the app that writes to Jira. Always from a press.
+    /// The only call in the app that writes to Jira: planning a ticket, and moving one that has fallen
+    /// behind its pull requests.
     public func transitionTicket(key: String, to status: String) async throws {
         guard let jira else { throw DeskError.jiraNotConfigured }
         try await jira.transition(key: key, to: status)

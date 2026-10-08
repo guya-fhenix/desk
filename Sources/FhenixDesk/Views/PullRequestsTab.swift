@@ -157,7 +157,7 @@ private struct TicketMark: View {
                 .disabled(ticket == nil)
             if let drift {
                 Image(systemName: "arrow.right.circle.fill").scaled(.caption2).foregroundStyle(.orange)
-                    .help("Jira says “\(drift.ticket.status)”; this PR says “\(drift.target)” — move it on the Tickets screen")
+                    .help("Jira says “\(drift.ticket.status)”; this PR says “\(drift.target)”, so Desk moves it")
             }
         }
         .fixedSize()
@@ -248,7 +248,7 @@ private struct PullRequestInspector: View {
                 HStack {
                     Text("Jira says “\(drift.ticket.status)”; this PR says “\(drift.target)”.").scaled(.caption)
                     Spacer()
-                    DriftButton(drift: drift, model: model)
+                    DriftBadge(drift: drift, model: model)
                 }
             }
         }

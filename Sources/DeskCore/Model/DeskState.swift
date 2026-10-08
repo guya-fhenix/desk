@@ -56,8 +56,8 @@ public struct DeskState: Sendable {
     /// Ticket keys each of my pull requests names, by PR url. Precomputed because the tables read it per
     /// row and the matcher compiles a regex.
     public private(set) var ticketKeys: [String: [String]] = [:]
-    /// Tickets whose Jira status has fallen behind their pull requests. Nothing acts on this: the Tickets
-    /// screen shows it and the move happens on a press.
+    /// Tickets whose Jira status has fallen behind their pull requests. The app moves each one as it
+    /// appears; this is what it moves.
     public private(set) var ticketDrifts: [TicketDrift] = []
     public private(set) var defaultBranches: [String: String] = [:]
     /// Which queued PRs are waiting for you to run a review, and why. Nothing acts on this: it is what

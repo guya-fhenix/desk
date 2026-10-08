@@ -301,28 +301,29 @@ struct ClaudeSessionButton: View {
     }
 }
 
-/// Where a ticket's pull requests say it should be, and the press that moves it. The only thing in this
-/// app that writes to Jira — so it names the pull requests it is arguing from, and it is never automatic.
-struct DriftButton: View {
+/// Where a ticket's pull requests say it should be. The app moves it there on its own, so this only shows
+/// the move in flight, or in red why it did not happen — nothing tries again. It names the pull requests
+/// it is arguing from: a move nobody can explain is one nobody should make.
+struct DriftBadge: View {
     var drift: TicketDrift
     var model: AppModel
 
     var body: some View {
         if model.movingTickets.contains(drift.ticket.key) {
-            ProgressView().controlSize(.mini)
+            ProgressView().controlSize(.mini).help("Moving \(drift.ticket.key) to “\(drift.target)”")
         } else {
-            Button { model.moveTicket(drift) } label: {
-                Chip(text: "→ \(drift.target)", color: drift.stage == .done ? .green : .blue)
-            }
-            .buttonStyle(.plain)
-            .help(help)
+            Chip(text: "→ \(drift.target)", color: failure == nil ? (drift.stage == .done ? .green : .blue) : .red)
+                .help(help)
         }
     }
 
+    private var failure: String? { model.ticketMoveErrors[drift.ticket.key] }
+
     private var help: String {
+        if let failure { return "Could not move \(drift.ticket.key) to “\(drift.target)”: \(failure)" }
         let prs = drift.pullRequests.map { "\($0.repoName)#\($0.number)" }.joined(separator: ", ")
         let because = drift.stage == .done ? "\(prs) merged" : "\(prs) open for review"
-        return "\(because) — move \(drift.ticket.key) to “\(drift.target)”"
+        return "\(because) — moving \(drift.ticket.key) to “\(drift.target)”"
     }
 }
 
