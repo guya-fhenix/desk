@@ -1,12 +1,14 @@
 import DeskCore
 import SwiftUI
 
-/// Your Jira tickets by status, split by whether they are in the running sprint or waiting in the
-/// backlog. Done is left out: the screen is about what is still open. Selecting one opens it in the
-/// inspector, which is where its description is read.
+/// Your Jira tickets as a board: the running sprint or the backlog, one column per status. Done is left
+/// out: the board is about what is still open. Selecting a card opens it in the inspector, which is
+/// where its description is read.
 struct TicketsTab: View {
     @Environment(AppModel.self) private var model
     @Environment(\.textScale) private var scale: Double
+    /// Remembered, so a trip to another screen does not drop you back on the sprint.
+    @AppStorage("tickets.placement") private var placement: TicketPlacement = .sprint
     /// By key, so a poll that replaces every ticket keeps the selection.
     @State private var selection: String?
     @State private var search = ""
@@ -15,27 +17,20 @@ struct TicketsTab: View {
     @State private var planNote = ""
 
     var body: some View {
-        List(selection: $selection) {
-            ForEach([TicketPlacement.sprint, .backlog], id: \.self) { placement in
-                let groups = filtered(model.state.ticketGroups(placement))
-                Section {
-                    if groups.isEmpty {
-                        EmptyText(text: emptyText(placement))
+        let groups = filtered(model.state.ticketGroups(placement))
+        VStack(alignment: .leading, spacing: 0) {
+            header
+            Divider()
+            if groups.isEmpty {
+                EmptyText(text: emptyText).padding()
+                Spacer()
+            } else {
+                ScrollView(.horizontal) {
+                    HStack(alignment: .top, spacing: 12) {
+                        ForEach(groups) { column($0) }
                     }
-                    ForEach(groups) { group in
-                        statusRow(group)
-                        ForEach(group.tickets) { ticket in ticketRow(ticket).tag(ticket.key) }
-                    }
-                } header: {
-                    HStack {
-                        Text(placement == .sprint ? "Sprint" : "Backlog")
-                        Spacer()
-                        Text("\(groups.reduce(0) { $0 + $1.tickets.count })").monospacedDigit().foregroundStyle(.secondary)
-                    }
+                    .padding(12)
                 }
-            }
-            if let error = model.state.errors[.jira] {
-                Section("Jira") { Text(error).scaled(.caption).foregroundStyle(.red).textSelection(.enabled) }
             }
         }
         .searchable(text: $search, placement: .toolbar, prompt: "Key or summary")
@@ -69,49 +64,89 @@ struct TicketsTab: View {
         }
     }
 
-    private func emptyText(_ placement: TicketPlacement) -> String {
+    private var emptyText: String {
         if !search.isEmpty { return "No match." }
-        return placement == .sprint ? "Nothing of yours in the open sprint." : "Nothing of yours in the backlog."
+        return placement == .backlog ? "Nothing of yours in the backlog." : "Nothing of yours in the open sprint."
     }
 
-    private func statusRow(_ group: TicketGroup) -> some View {
+    /// The sprint/backlog switch, each side counted over what the search leaves, like the Reviews scopes.
+    private var header: some View {
         HStack(spacing: 8) {
-            StatusDot(color: TicketColor.of(group.category))
-            Text(group.status).scaled(.callout.weight(.semibold))
+            Picker("Placement", selection: $placement) {
+                ForEach([TicketPlacement.sprint, .backlog], id: \.self) { option in
+                    let count = filtered(model.state.ticketGroups(option)).reduce(0) { $0 + $1.tickets.count }
+                    Text("\(option == .sprint ? "Sprint" : "Backlog") \(count)").tag(option)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .fixedSize()
             Spacer()
-            Text("\(group.tickets.count)").scaled(.callout).monospacedDigit().foregroundStyle(.secondary)
+            if let error = model.state.errors[.jira] {
+                Text(error).scaled(.caption).foregroundStyle(.red).lineLimit(1).textSelection(.enabled).help(error)
+            }
         }
-        .padding(.top, 2)
-        .selectionDisabled()
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
     }
 
-    private func ticketRow(_ ticket: Ticket) -> some View {
-        HStack(spacing: 8) {
-            Text(ticket.key)
-                .scaled(.callout.monospaced())
-                .frame(width: 84 * scale, alignment: .leading)
-            Text(ticket.summary).lineLimit(1)
-            Spacer()
-            if let drift = model.state.drift(forKey: ticket.key) {
-                DriftButton(drift: drift, model: model)
+    /// One status: its header stays put while its cards scroll.
+    private func column(_ group: TicketGroup) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                StatusDot(color: TicketColor.of(group.category))
+                Text(group.status).scaled(.callout.weight(.semibold)).lineLimit(1)
+                Spacer()
+                Text("\(group.tickets.count)").scaled(.callout).monospacedDigit().foregroundStyle(.secondary)
             }
-            let linked = model.state.pullRequests(forTicket: ticket.key).count
-            if linked > 0 {
-                // Inline rather than a Label: the symbol then keeps the text's line height instead of
-                // stretching the row past its separator.
-                Text("\(Image(systemName: "arrow.triangle.pull")) \(linked)")
-                    .scaled(.caption).monospacedDigit().foregroundStyle(.secondary)
-                    .fixedSize()
-                    .help("\(linked) open \(linked == 1 ? "pull request names" : "pull requests name") this ticket")
-            }
-            PlanButton(ticket: ticket, model: model) { plan(ticket, $0) }
-            if let priority = ticket.priority {
-                Text(priority).scaled(.caption).foregroundStyle(.tertiary)
+            .padding(.horizontal, 4)
+            ScrollView {
+                LazyVStack(spacing: 8) {
+                    ForEach(group.tickets) { card($0) }
+                }
             }
         }
-        .padding(.leading, 18)
-        // Clear of the list's scroller, which floats over the trailing edge.
-        .padding(.trailing, 12)
+        .padding(8)
+        .frame(width: 270 * scale)
+        .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 10))
+    }
+
+    private func card(_ ticket: Ticket) -> some View {
+        let selected = selection == ticket.key
+        let linked = model.state.pullRequests(forTicket: ticket.key).count
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Text(ticket.key).scaled(.caption.monospaced()).foregroundStyle(.secondary)
+                Spacer()
+                if let priority = ticket.priority {
+                    Text(priority).scaled(.caption).foregroundStyle(.tertiary)
+                }
+            }
+            Text(ticket.summary).scaled(.callout).lineLimit(3)
+            HStack(spacing: 8) {
+                if linked > 0 {
+                    // Inline rather than a Label: the symbol then keeps the text's line height.
+                    Text("\(Image(systemName: "arrow.triangle.pull")) \(linked)")
+                        .scaled(.caption).monospacedDigit().foregroundStyle(.secondary)
+                        .fixedSize()
+                        .help("\(linked) open \(linked == 1 ? "pull request names" : "pull requests name") this ticket")
+                }
+                Spacer()
+                if let drift = model.state.drift(forKey: ticket.key) {
+                    DriftButton(drift: drift, model: model)
+                }
+                PlanButton(ticket: ticket, model: model) { plan(ticket, $0) }
+            }
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.background, in: RoundedRectangle(cornerRadius: 8))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .strokeBorder(selected ? Color.accentColor : Color.primary.opacity(0.1), lineWidth: selected ? 2 : 1)
+        )
+        .contentShape(RoundedRectangle(cornerRadius: 8))
+        .onTapGesture { selection = ticket.key }
     }
 }
 
@@ -127,7 +162,7 @@ enum TicketColor {
 }
 
 /// The selected ticket: where it stands, what it says, which pull requests name it, and the presses that
-/// act on it — the same two the row carries.
+/// act on it — the same two the card carries.
 private struct TicketInspector: View {
     var ticket: Ticket
     var model: AppModel
