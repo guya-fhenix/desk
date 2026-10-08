@@ -2,8 +2,6 @@ import DeskCore
 import Foundation
 
 enum Format {
-    static func duration(_ interval: TimeInterval?) -> String { TimeText.duration(interval) }
-
     static func age(_ date: Date?, now: Date = Date()) -> String { TimeText.age(date, now: now) }
 
     static func usd(_ value: Double?) -> String {
@@ -19,9 +17,5 @@ enum Format {
         case ..<800: return "L"
         default: return "XL"
         }
-    }
-
-    static func hours(_ interval: TimeInterval?) -> Double {
-        (interval ?? 0) / 3_600
     }
 }

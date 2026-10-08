@@ -64,16 +64,12 @@ struct TodayTab: View {
         .navigationSubtitle(Date.now.formatted(.dateTime.weekday(.wide).day().month(.wide)))
     }
 
-    /// The four numbers that say how full the other screens are; each one opens its screen.
+    /// The three numbers that say how full the other screens are; each one opens its screen.
     private var tiles: some View {
         HStack(spacing: 10) {
             tile("\(model.state.mine.count)", "My open PRs", .pullRequests)
             tile("\(model.state.reviewRequests.count)", "Reviews on you", .reviews)
             tile("\(model.state.openTickets.count)", "Open tickets", .tickets)
-            tile(
-                Format.duration(CycleTime.median(model.state.cycles.compactMap(\.total))),
-                "Median cycle, \(model.config.metricsWeeks) weeks", .metrics
-            )
         }
         .padding(.vertical, 4)
     }

@@ -52,9 +52,6 @@ public struct DeskState: Sendable {
     public var lastRefresh: [Source: Date] = [:]
 
     public private(set) var nudges: [Nudge] = []
-    public private(set) var cycles: [PullRequestCycle] = []
-    public private(set) var weekly: [WeeklyCycle] = []
-    public private(set) var reviewLatencies: [ReviewLatency] = []
     public private(set) var stackParents: [String: String] = [:]
     /// Ticket keys each of my pull requests names, by PR url. Precomputed because the tables read it per
     /// row and the matcher compiles a regex.
@@ -159,9 +156,6 @@ public struct DeskState: Sendable {
         stackParents = Linker.stackParents(openAll)
         let merged = github?.mergedRecent ?? []
         defaultBranches = Linker.defaultBranches(worktrees: worktrees, pullRequests: openAll + merged)
-        cycles = CycleTime.cycles(merged, botLogins: config.botLoginSet)
-        weekly = CycleTime.weekly(cycles, weeks: config.metricsWeeks, now: now)
-        reviewLatencies = CycleTime.reviewLatencies(github?.reviewedByMe ?? [], login: login)
         reviewNeeds = ReviewReadiness.needs(ReviewReadinessInput(
             login: login, queue: reviewRequests + openForReview, runs: reviewRuns, repos: gitScan?.repos ?? []
         ))

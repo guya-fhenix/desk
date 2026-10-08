@@ -67,7 +67,9 @@ public actor DeskService {
 
     public func refreshGitHub(now: Date = Date()) async throws -> GitHubSnapshot {
         guard let github else { throw DeskError.ghNotFound }
-        let since = now.addingTimeInterval(-TimeInterval(config.metricsWeeks) * 7 * 86_400)
+        // How far back the merged-PR search reaches: far enough that a ticket whose pull requests have all
+        // landed is still marked behind in Jira weeks later.
+        let since = now.addingTimeInterval(-8 * 7 * 86_400)
         return try await github.snapshot(repos: config.trackedRepoSlugs, since: since, now: now)
     }
 

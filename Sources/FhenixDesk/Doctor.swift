@@ -32,7 +32,7 @@ enum Doctor {
         do {
             let github = try await service.refreshGitHub(now: now)
             state.github = github
-            print("login \(github.login): \(github.mine.count) open PRs, \(github.reviewRequests.count) review requests, \(github.mergedRecent.count) merged recently, \(github.reviewedByMe.count) reviewed by me")
+            print("login \(github.login): \(github.mine.count) open PRs, \(github.reviewRequests.count) review requests, \(github.mergedRecent.count) merged recently")
             print("review queue: \(state.reviewQueue(.onMe).count) on me, \(state.openForReview.count) open and unreviewed by me (of \(github.openForReview.count) open by others)")
             for pr in github.mine {
                 let threads = pr.unresolvedThreads > 0 ? "threads:\(pr.unresolvedThreads)" : ""
@@ -84,12 +84,6 @@ enum Doctor {
             if let parent = state.stackParent(of: pr) { print("  \(pr.repoName)#\(pr.number) ← #\(parent.number)") }
             if let reason = state.rebaseReason(pr) { print("  \(pr.repoName)#\(pr.number) needs rebase: \(reason.text)") }
         }
-
-        section("Cycle time (\(state.cycles.count) merged PRs)")
-        for week in state.weekly {
-            print("  \(week.weekStart.formatted(.iso8601.year().month().day()))  merged:\(week.merged)  first review:\(Format.duration(week.medianToFirstReview))  approval:\(Format.duration(week.medianToApproval))  merge:\(Format.duration(week.medianToMerge))  total:\(Format.duration(week.medianTotal))")
-        }
-        print("  my review latency median: \(Format.duration(CycleTime.median(state.reviewLatencies.map(\.latency)))) over \(state.reviewLatencies.count) reviews")
 
         section("Ticket sync (\(state.ticketDrifts.count))")
         print("review: \(config.jiraReviewStatus.isEmpty ? "off" : config.jiraReviewStatus)  done: \(config.jiraDoneStatus.isEmpty ? "off" : config.jiraDoneStatus)")

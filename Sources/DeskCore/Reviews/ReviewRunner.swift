@@ -145,7 +145,7 @@ public actor ReviewRunner {
     public func cleanupClosed(github snapshot: GitHubSnapshot, reviewWorktrees: [Worktree], repos: [RepoRef]) async {
         guard config.cleanupReviewsOnMerge else { return }
         let seen = Dictionary(
-            (snapshot.mergedRecent + snapshot.reviewedByMe + snapshot.allOpen).map { ($0.url.lowercased(), $0) },
+            (snapshot.mergedRecent + snapshot.allOpen).map { ($0.url.lowercased(), $0) },
             uniquingKeysWith: { first, _ in first }
         )
         for worktree in reviewWorktrees {
@@ -157,9 +157,9 @@ public actor ReviewRunner {
             if let pr = seen[target.url] {
                 state = pr.state
             } else {
-                // The searches only ever show a merged PR you authored or submitted a review on; one you
-                // never sent a review for vanishes from all of them the moment it merges, so it is asked
-                // about by name. No answer keeps the worktree: a failed query is not a closed pull request.
+                // The searches only ever show a merged PR you authored; one you review vanishes from all
+                // of them the moment it merges, so it is asked about by name. No answer keeps the
+                // worktree: a failed query is not a closed pull request.
                 state = try? await github?.pullRequestState(repo: slug, number: target.number)
             }
             guard let state, state != .open else { continue }

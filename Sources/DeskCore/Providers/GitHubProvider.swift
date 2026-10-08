@@ -7,19 +7,17 @@ public struct GitHubSnapshot: Codable, Sendable {
     /// Open PRs by other people in the tracked repos, whether or not anyone asked you to review them.
     public var openForReview: [PullRequest]
     public var mergedRecent: [PullRequest]
-    public var reviewedByMe: [PullRequest]
     public var fetchedAt: Date
 
     public init(
         login: String, mine: [PullRequest], reviewRequests: [PullRequest], openForReview: [PullRequest] = [],
-        mergedRecent: [PullRequest], reviewedByMe: [PullRequest], fetchedAt: Date
+        mergedRecent: [PullRequest], fetchedAt: Date
     ) {
         self.login = login
         self.mine = mine
         self.reviewRequests = reviewRequests
         self.openForReview = openForReview
         self.mergedRecent = mergedRecent
-        self.reviewedByMe = reviewedByMe
         self.fetchedAt = fetchedAt
     }
 
@@ -106,22 +104,21 @@ public actor GitHubProvider {
         return repos
     }
 
-    /// Four separate requests: one combined query exceeds GitHub's 10 s GraphQL limit. With no repo
+    /// Separate requests: one combined query exceeds GitHub's 10 s GraphQL limit. With no repo
     /// tracked there is nothing to ask about, so it answers empty without spending a call.
     public func snapshot(repos: [String], since: Date, now: Date = Date()) async throws -> GitHubSnapshot {
         let login = try await viewerLogin()
         guard !repos.isEmpty else {
-            return GitHubSnapshot(login: login, mine: [], reviewRequests: [], mergedRecent: [], reviewedByMe: [], fetchedAt: now)
+            return GitHubSnapshot(login: login, mine: [], reviewRequests: [], mergedRecent: [], fetchedAt: now)
         }
         let queries = GitHubQueries.searches(login: login, repos: repos, since: since)
         async let mine = search(queries.mine, first: 50)
         async let reviews = search(queries.reviews, first: 50)
         async let merged = search(queries.merged, first: 100)
-        async let reviewed = search(queries.reviewed, first: 100)
         async let open = search(queries.openForReview, first: 100)
         return try await GitHubSnapshot(
             login: login, mine: mine, reviewRequests: reviews, openForReview: open,
-            mergedRecent: merged, reviewedByMe: reviewed, fetchedAt: now
+            mergedRecent: merged, fetchedAt: now
         )
     }
 
@@ -177,7 +174,6 @@ public struct GitHubSearches: Sendable, Equatable {
     public var mine: String
     public var reviews: String
     public var merged: String
-    public var reviewed: String
     public var openForReview: String
 }
 
@@ -193,9 +189,8 @@ public enum GitHubQueries {
             mine: "is:pr is:open author:\(login) \(scope)",
             reviews: "is:pr is:open review-requested:\(login) \(scope)",
             merged: "is:pr is:merged author:\(login) \(scope) merged:>=\(day)",
-            reviewed: "is:pr \(scope) reviewed-by:\(login) -author:\(login) updated:>=\(day)",
             // Everything open that someone else wrote. Drafts are dropped server-side because this is the
-            // widest search of the five and `first:` would otherwise fill up with them.
+            // widest search of the four and `first:` would otherwise fill up with them.
             openForReview: "is:pr is:open draft:false -author:\(login) \(scope) sort:created-asc"
         )
     }

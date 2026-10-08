@@ -25,8 +25,6 @@ struct SettingsView: View {
         .frame(width: 580, height: 520)
         .onAppear { if !loaded { load() } }
         .task { model.loadRepositories() }
-        // The Metrics toolbar writes this setting too; an open window must follow rather than call it an edit.
-        .onChange(of: model.config.metricsWeeks) { _, weeks in draft.metricsWeeks = weeks }
     }
 
     private func pane(_ content: some View) -> some View {
@@ -72,7 +70,7 @@ struct SettingsView: View {
             } header: {
                 Text("Noise")
             } footer: {
-                Text("PRs by these authors stay out of the review queue and the cycle-time metrics.")
+                Text("PRs by these authors stay out of the review queue.")
                     .scaled(.caption).foregroundStyle(.secondary)
             }
         }
@@ -264,7 +262,6 @@ struct SettingsView: View {
             }
             Section("Thresholds") {
                 Stepper("Stale PR after \(draft.stalePullRequestDays) days", value: $draft.stalePullRequestDays, in: 1...30)
-                Stepper("Metrics window: \(draft.metricsWeeks) weeks", value: $draft.metricsWeeks, in: 2...26)
             }
             Section {
                 LabeledContent("Text size") { TextSizeControl() }

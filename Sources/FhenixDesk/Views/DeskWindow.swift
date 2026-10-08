@@ -6,7 +6,7 @@ struct DeskWindow: View {
     static let id = "desk"
 
     enum Tab: String, CaseIterable, Identifiable {
-        case today, pullRequests, reviews, tickets, metrics
+        case today, pullRequests, reviews, tickets
 
         /// The row tag must be the same type as the selection binding, or clicks never select.
         var id: Tab { self }
@@ -17,7 +17,6 @@ struct DeskWindow: View {
             case .pullRequests: return "Pull Requests"
             case .reviews: return "Reviews"
             case .tickets: return "Tickets"
-            case .metrics: return "Metrics"
             }
         }
 
@@ -27,7 +26,6 @@ struct DeskWindow: View {
             case .pullRequests: return "arrow.triangle.pull"
             case .reviews: return "eye"
             case .tickets: return "checklist"
-            case .metrics: return "chart.bar"
             }
         }
     }
@@ -67,7 +65,6 @@ struct DeskWindow: View {
                     row(.reviews)
                     row(.tickets)
                 }
-                Section("Insights") { row(.metrics) }
             }
             .safeAreaInset(edge: .bottom) { SidebarFooter() }
             .navigationSplitViewColumnWidth(min: 180, ideal: 200)
@@ -77,7 +74,6 @@ struct DeskWindow: View {
             case .pullRequests: PullRequestsTab()
             case .reviews: ReviewsTab()
             case .tickets: TicketsTab()
-            case .metrics: MetricsTab()
             }
         }
     }
@@ -94,7 +90,6 @@ struct DeskWindow: View {
         case .tickets: return model.state.openTickets.count
         case .pullRequests: return model.state.waiting(on: .pullRequests)
         case .reviews: return model.state.waiting(on: .reviews)
-        case .metrics: return 0
         }
     }
 }

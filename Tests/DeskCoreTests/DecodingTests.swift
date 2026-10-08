@@ -27,7 +27,6 @@ import Testing
         #expect(pr.requestedReviewers == ["Protocol Team"])
         #expect(pr.reviewRequestEvents.count == 1)
         #expect(pr.reviewRequestEvents[0].isTeam)
-        #expect(pr.humanReviews(botLogins: ["claude"]).isEmpty)
         #expect(pr.unresolvedThreads == 2)
         // Your own draft review: not a submitted review, but where the review's state is read from —
         // including which of its comments are Claude's, by the marker.
@@ -134,7 +133,7 @@ import Testing
 @Suite struct RepositoryListTests {
     @Test func searchesScopeToTheTrackedReposRatherThanTheOrg() {
         let queries = GitHubQueries.searches(login: "me", repos: ["fhenixprotocol/cofhe", "fhenixprotocol/gitops"], since: Fixtures.t0)
-        for query in [queries.mine, queries.reviews, queries.merged, queries.reviewed] {
+        for query in [queries.mine, queries.reviews, queries.merged] {
             #expect(query.contains("repo:fhenixprotocol/cofhe"))
             #expect(query.contains("repo:fhenixprotocol/gitops"))
             #expect(!query.contains("org:"))

@@ -7,7 +7,7 @@ import Testing
         var config = DeskConfig()
         config.reviewRoot = "/r/.reviews"
         var state = DeskState(config: config)
-        state.github = GitHubSnapshot(login: "me", mine: [], reviewRequests: [], mergedRecent: [], reviewedByMe: [], fetchedAt: Fixtures.t0)
+        state.github = GitHubSnapshot(login: "me", mine: [], reviewRequests: [], mergedRecent: [], fetchedAt: Fixtures.t0)
         return state
     }
 
@@ -85,7 +85,7 @@ import Testing
         var config = DeskConfig()
         config.reviewRoot = "/r/.reviews"
         var state = DeskState(config: config)
-        state.github = GitHubSnapshot(login: "me", mine: [], reviewRequests: [], mergedRecent: [], reviewedByMe: [], fetchedAt: Fixtures.t0)
+        state.github = GitHubSnapshot(login: "me", mine: [], reviewRequests: [], mergedRecent: [], fetchedAt: Fixtures.t0)
         return state
     }
 
@@ -124,7 +124,7 @@ import Testing
         let fresh = Fixtures.pr(number: 1, head: "a", author: "alice", created: Fixtures.hours(-24))
         let old = Fixtures.pr(number: 2, head: "b", author: "alice", created: Fixtures.hours(-24 * 30))
         state.github = GitHubSnapshot(
-            login: "me", mine: [], reviewRequests: [fresh, old], mergedRecent: [], reviewedByMe: [], fetchedAt: Fixtures.t0
+            login: "me", mine: [], reviewRequests: [fresh, old], mergedRecent: [], fetchedAt: Fixtures.t0
         )
         #expect(state.reviewQueue(.onMe, recentOnly: true, now: Fixtures.t0).map(\.number) == [1])
         #expect(state.reviewQueue(.onMe, recentOnly: false, now: Fixtures.t0).map(\.number) == [1, 2])

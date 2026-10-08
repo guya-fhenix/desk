@@ -46,8 +46,6 @@ public struct Review: Codable, Sendable, Hashable {
         self.submittedAt = submittedAt
         self.author = author
     }
-
-    public var isApproval: Bool { state == "APPROVED" }
 }
 
 /// Your own unsubmitted review on a PR. GitHub shows a pending review to its author only, so any pending
@@ -164,9 +162,5 @@ public struct PullRequest: Codable, Sendable, Hashable, Identifiable {
     /// Bot accounts, and PRs a workflow opens under a human token (detected by title).
     public func isAutomated(_ automation: Automation) -> Bool {
         author.hasSuffix("[bot]") || automation.logins.contains(author) || automation.titlePrefixes.contains { title.hasPrefix($0) }
-    }
-
-    public func humanReviews(botLogins: Set<String>) -> [Review] {
-        reviews.filter { $0.author != author && !$0.author.hasSuffix("[bot]") && !botLogins.contains($0.author) }
     }
 }

@@ -7,7 +7,7 @@ public struct DeskConfig: Codable, Sendable, Equatable {
     /// Empty by default: the app tracks nothing until you say so.
     public var trackedRepos: [String] = []
     public var ghPath: String = ""
-    /// PRs by these authors stay out of the review queue, and their reviews out of the cycle-time metrics.
+    /// PRs by these authors stay out of the review queue.
     public var botLogins: [String] = ["claude", "github-actions", "dependabot", "renovate"]
     /// PRs a workflow opens under a human token: recognised by title and kept out of the review queue too.
     public var automatedTitlePrefixes: [String] = ["Update Submodule from"]
@@ -23,7 +23,6 @@ public struct DeskConfig: Codable, Sendable, Equatable {
     public var gitPollSeconds: Int = 60
     public var jiraPollSeconds: Int = 300
     public var stalePullRequestDays: Int = 3
-    public var metricsWeeks: Int = 8
     public var notificationsEnabled: Bool = true
     public var claudePath: String = ""
     /// The Atlassian CLI. It owns the Jira credentials, the way `gh` owns the GitHub ones.
@@ -52,7 +51,7 @@ public struct DeskConfig: Codable, Sendable, Equatable {
         case repoRoots, githubOrg, trackedRepos, ghPath, botLogins, automatedTitlePrefixes, jiraProjectKeys
         case jiraInProgressStatus, jiraReviewStatus, jiraDoneStatus
         case githubPollSeconds, gitPollSeconds, jiraPollSeconds
-        case stalePullRequestDays, metricsWeeks, notificationsEnabled
+        case stalePullRequestDays, notificationsEnabled
         case claudePath, acliPath, reviewRoot, reviewModel, reviewEffort, reviewBudgetUSD, cleanupReviewsOnMerge
         case reviewConcurrency, reviewTimeoutMinutes, prompts
     }
@@ -76,7 +75,6 @@ public struct DeskConfig: Codable, Sendable, Equatable {
         gitPollSeconds = try c.decodeIfPresent(Int.self, forKey: .gitPollSeconds) ?? d.gitPollSeconds
         jiraPollSeconds = try c.decodeIfPresent(Int.self, forKey: .jiraPollSeconds) ?? d.jiraPollSeconds
         stalePullRequestDays = try c.decodeIfPresent(Int.self, forKey: .stalePullRequestDays) ?? d.stalePullRequestDays
-        metricsWeeks = try c.decodeIfPresent(Int.self, forKey: .metricsWeeks) ?? d.metricsWeeks
         notificationsEnabled = try c.decodeIfPresent(Bool.self, forKey: .notificationsEnabled) ?? d.notificationsEnabled
         claudePath = try c.decodeIfPresent(String.self, forKey: .claudePath) ?? d.claudePath
         acliPath = try c.decodeIfPresent(String.self, forKey: .acliPath) ?? d.acliPath
