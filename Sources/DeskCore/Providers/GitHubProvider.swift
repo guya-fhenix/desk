@@ -125,9 +125,22 @@ public actor GitHubProvider {
         )
     }
 
+    /// A page of 100 with this fragment takes about 11 s and GitHub cuts GraphQL off at 10 s with a 502;
+    /// a page of 25 takes about 3 s.
+    private static let searchPageSize = 25
+
     private func search(_ query: String, first: Int) async throws -> [PullRequest] {
-        let data = try await graphQL(query: GitHubQueries.searchQuery, variables: ["q": query, "first": first])
-        return try GitHubDecoding.pullRequests(from: data)
+        var prs: [PullRequest] = []
+        var after: String?
+        repeat {
+            var variables: [String: any Sendable] = ["q": query, "first": min(Self.searchPageSize, first - prs.count)]
+            if let after { variables["after"] = after }
+            let data = try await graphQL(query: GitHubQueries.searchQuery, variables: variables)
+            let page = try GitHubDecoding.pullRequests(from: data)
+            prs += page.prs
+            after = page.next
+        } while after != nil && prs.count < first
+        return prs
     }
 
     private static let attempts = 3
@@ -205,8 +218,8 @@ public enum GitHubQueries {
     """
 
     public static let searchQuery = """
-    query($q: String!, $first: Int!) {
-      search(query: $q, type: ISSUE, first: $first) { nodes { ...PR } }
+    query($q: String!, $first: Int!, $after: String) {
+      search(query: $q, type: ISSUE, first: $first, after: $after) { pageInfo { hasNextPage endCursor } nodes { ...PR } }
     }
     fragment PR on PullRequest {
       number title body url isDraft createdAt updatedAt mergedAt state baseRefName headRefName additions deletions
@@ -255,11 +268,12 @@ public enum GitHubDecoding {
         return parsed
     }
 
-    public static func pullRequests(from data: Data) throws -> [PullRequest] {
+    public static func pullRequests(from data: Data) throws -> (prs: [PullRequest], next: String?) {
         let response = try JSON.decoder().decode(Response<SearchData>.self, from: data)
         if let errors = response.errors, !errors.isEmpty { throw GitHubError.graphQL(errors.map(\.message)) }
-        guard let payload = response.data else { throw GitHubError.emptyResponse }
-        return payload.search.nodes.map(pullRequest)
+        guard let search = response.data?.search else { throw GitHubError.emptyResponse }
+        let next = search.pageInfo?.hasNextPage == true ? search.pageInfo?.endCursor : nil
+        return (search.nodes.map(pullRequest), next)
     }
 
     private static func pullRequest(_ node: PRNode) -> PullRequest {
@@ -353,7 +367,10 @@ public enum GitHubDecoding {
 
     private struct SearchData: Decodable { var search: SearchResult }
 
-    private struct SearchResult: Decodable { var nodes: [PRNode] }
+    private struct SearchResult: Decodable {
+        var pageInfo: PageInfo?
+        var nodes: [PRNode]
+    }
 
     private struct PRNode: Decodable {
         var number: Int

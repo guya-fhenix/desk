@@ -18,7 +18,7 @@ import Testing
           "timelineItems":{"nodes":[{"createdAt":"2026-08-27T11:12:22Z","requestedReviewer":{"__typename":"Team","name":"Protocol Team"}},{}]},
           "reviewThreads":{"nodes":[{"isResolved":false},{"isResolved":true},{"isResolved":false}]}}]}}}
         """
-        let pr = try #require(GitHubDecoding.pullRequests(from: Data(json.utf8)).first)
+        let pr = try #require(GitHubDecoding.pullRequests(from: Data(json.utf8)).prs.first)
         #expect(pr.repoName == "cofhe")
         #expect(pr.checks == .success)
         #expect(pr.checkCount == 9)
@@ -42,7 +42,7 @@ import Testing
           "repository":{"nameWithOwner":"o/r"},"reviewDecision":null,"mergeStateStatus":null,"commits":{"nodes":[]},"reviews":{"nodes":[]},
           "reviewRequests":{"nodes":[]},"timelineItems":{"nodes":[]}}]}}}
         """
-        let pr = try #require(GitHubDecoding.pullRequests(from: Data(json.utf8)).first)
+        let pr = try #require(GitHubDecoding.pullRequests(from: Data(json.utf8)).prs.first)
         #expect(pr.unresolvedThreads == 0)
     }
 
@@ -54,7 +54,7 @@ import Testing
               "repository":{"nameWithOwner":"o/r"},"reviewDecision":null,"mergeStateStatus":null,"baseRef":{"rules":{"nodes":[\(rules)]}},"commits":{"nodes":[]},"reviews":{"nodes":[\(reviews)]},
               "reviewRequests":{"nodes":[]},"timelineItems":{"nodes":[]}}]}}}
             """
-            return try #require(GitHubDecoding.pullRequests(from: Data(json.utf8)).first).reviewDecision
+            return try #require(GitHubDecoding.pullRequests(from: Data(json.utf8)).prs.first).reviewDecision
         }
         func review(_ state: String, _ at: String, _ by: String) -> String {
             #"{"state":"\#(state)","submittedAt":"2026-08-27T\#(at):00:00Z","author":{"login":"\#(by)"}}"#
@@ -164,6 +164,15 @@ import Testing
     @Test func lastPageStopsThePaging() throws {
         let json = #"{"data":{"organization":{"repositories":{"pageInfo":{"hasNextPage":false,"endCursor":"z"},"nodes":[]}}}}"#
         #expect(try GitHubDecoding.repositories(from: Data(json.utf8)).next == nil)
+    }
+
+    @Test func searchPageCarriesItsCursorUntilTheLast() throws {
+        func next(_ hasNextPage: Bool) throws -> String? {
+            let json = #"{"data":{"search":{"pageInfo":{"hasNextPage":\#(hasNextPage),"endCursor":"Y3Vyc29y"},"nodes":[]}}}"#
+            return try GitHubDecoding.pullRequests(from: Data(json.utf8)).next
+        }
+        #expect(try next(true) == "Y3Vyc29y")
+        #expect(try next(false) == nil)
     }
 }
 
