@@ -21,7 +21,7 @@ Recheck. Desk stores no Jira token.
 
 The window opens on Today: every nudge (CI failed, changes requested, needs rebase, ready to merge, review
 waiting, Claude reviewed, quiet PRs) and every ticket the app could not move to where its PRs say, each
-with the button that deals with it. Pull Requests, Reviews and Tickets show a trailing inspector for the selected row.
+with the button that deals with it. Pull Requests and Tickets show a details panel on the right for the selected row, and Settings (⌘,) open inside the same window.
 
 Claude reviews: the Reviews tab lists the PRs waiting on you and marks which are ready to run — ones you
 have not reviewed, ones re-requested since your last review, and a run that failed. Nothing starts on its own; you press
