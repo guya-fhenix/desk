@@ -23,8 +23,8 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         case .general: return "slider.horizontal.3"
         case .github: return "chevron.left.forwardslash.chevron.right"
         case .repos: return "folder"
-        case .jira: return "checklist"
-        case .reviews: return "eye"
+        case .jira: return "ticket"
+        case .reviews: return "bubble.left.and.text.bubble.right"
         case .prompts: return "text.bubble"
         }
     }

@@ -15,7 +15,7 @@ struct MenuPanelView: View {
                 Divider().frame(height: 34 * AppTextStyle.scale)
                 counter("Reviews", model.state.waiting(on: .reviews))
                 Divider().frame(height: 34 * AppTextStyle.scale)
-                counter("Tickets", model.state.openTickets.count)
+                counter("Jira", model.state.openTickets.count)
             }
             if !model.state.nudges.isEmpty { topNudges }
             footer

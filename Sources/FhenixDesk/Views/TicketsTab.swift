@@ -18,7 +18,7 @@ struct TicketsTab: View {
     var body: some View {
         let groups = filtered(model.state.ticketGroups(placement))
         Screen {
-            PageHeader(title: "Tickets") { HeaderControls(inspector: "tickets") }
+            PageHeader(title: "Jira") { HeaderControls(inspector: "tickets") }
             header
         } content: {
             Hairline()

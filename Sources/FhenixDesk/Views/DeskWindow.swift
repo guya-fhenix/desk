@@ -16,7 +16,7 @@ struct DeskWindow: View {
             case .today: return "Today"
             case .pullRequests: return "Pull Requests"
             case .reviews: return "Reviews"
-            case .tickets: return "Tickets"
+            case .tickets: return "Jira"
             }
         }
 
@@ -24,8 +24,8 @@ struct DeskWindow: View {
             switch self {
             case .today: return "tray"
             case .pullRequests: return "arrow.triangle.pull"
-            case .reviews: return "eye"
-            case .tickets: return "checklist"
+            case .reviews: return "bubble.left.and.text.bubble.right"
+            case .tickets: return "ticket"
             }
         }
     }
