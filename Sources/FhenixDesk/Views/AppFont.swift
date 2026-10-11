@@ -43,7 +43,9 @@ struct AppTextStyle: Equatable {
         return copy
     }
 
-    var font: Font { .system(size: size * Self.scale, weight: weight, design: design) }
+    /// Rounded to a whole point: a fractional size (15.6, 14.4) puts glyph edges between pixels, which reads as
+    /// soft text on a 1× display such as an external monitor without Retina scaling.
+    var font: Font { .system(size: (size * Self.scale).rounded(), weight: weight, design: design) }
 }
 
 extension View {

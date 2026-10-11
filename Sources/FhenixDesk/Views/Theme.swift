@@ -215,7 +215,7 @@ struct Avatar: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(Theme.raised)
         }
-        .frame(width: 28 * scale, height: 28 * scale)
+        .frame(width: (28 * scale).rounded(), height: (28 * scale).rounded())
         .clipShape(Circle())
         .help(login)
     }

@@ -45,7 +45,8 @@ struct DeskWindow: View {
                 }
             }
         }
-        .blur(radius: model.showingFinder ? 3 : 0)
+        // Dimmed, not blurred: a blur filter on the window — even at radius 0 — draws it through an offscreen
+        // image, and its text comes out soft.
         .overlay { if model.showingFinder { FinderView() } }
         .appFont()
         .preferredColorScheme(.dark)

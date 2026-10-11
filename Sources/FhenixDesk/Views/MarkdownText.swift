@@ -99,7 +99,7 @@ struct MarkdownText: View {
     private func inline(_ text: String) -> AttributedString {
         var string = Markdown.inline(text)
         for run in string.runs where run.inlinePresentationIntent?.contains(.code) == true {
-            string[run.range].font = .system(size: (Self.bodySize - 1) * scale, design: .monospaced)
+            string[run.range].font = .system(size: ((Self.bodySize - 1) * scale).rounded(), design: .monospaced)
             string[run.range].backgroundColor = Color.secondary.opacity(0.14)
         }
         return string
