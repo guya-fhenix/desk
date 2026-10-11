@@ -140,9 +140,9 @@ public enum PromptID: String, CaseIterable, Sendable, Identifiable {
                   "line": 42,
                   "lineText": "        let mut n = 0;",
                   "severity": "blocker" | "major" | "minor" | "nit" | "question",
-                  "body": "Two or three short sentences in plain words, the way you would say it to the author \
-            sitting next to you: what goes wrong, when it happens, and what to do about it. Markdown is allowed, \
-            and a ```suggestion block is welcome when the fix fits on the line."
+                  "body": "Three lines at most, in plain words, the way you would say it to the author sitting \
+            next to you: what goes wrong, when it happens, and what to do about it. No headings, lists or blank \
+            lines. A ```suggestion block is welcome below those lines when the fix fits on the line."
                 }
               ]
             }
