@@ -109,9 +109,10 @@ public enum PromptID: String, CaseIterable, Sendable, Identifiable {
             """
         // The session starts in the repository's checkout, so it is sent into the branch's worktree before
         // anything else, or it reads the wrong checkout — or makes a worktree of its own off the default
-        // branch. Unresolved threads get a proposal and no change, the way review fixes wait for your approval in
-        // the flow; a conflict is fixed outright, as the flow fixes one. "Unresolved" is what GitHub reports; which
-        // threads went unanswered only the threads themselves say, so that part is the session's to work out.
+        // branch. Both problem sections ask for a proposal and no change: this session also opens on teammates'
+        // PRs, from Reviews, where it must never push — on your own PRs the flow sends the conflict fix itself.
+        // "Unresolved" is what GitHub reports; which threads went unanswered only the threads themselves say, so
+        // that part is the session's to work out.
         case .session:
             """
             Working on {repo}#{number} — {title}
@@ -125,8 +126,8 @@ public enum PromptID: String, CaseIterable, Sendable, Identifiable {
             {#unresolved}{threads} still unresolved. Work out which of them nobody has replied to, and for each \
             one propose the fix it is asking for — show the change rather than making it.{/unresolved}
 
-            {#conflict}It conflicts with {baseRef}. Resolve that without asking me, and push: rebase onto \
-            origin/{baseRef} while the PR is a draft, merge origin/{baseRef} into it once it is ready for review.{/conflict}
+            {#conflict}It conflicts with {baseRef}. Work out which files conflict and propose how to resolve each \
+            one, but leave the branch as it is until I say so.{/conflict}
             """
         // The whole text is the goal's condition, and a multi-paragraph one holds: the session works until the
         // evaluator agrees it is met. The result file comes last because writing it is the last thing to do, and it

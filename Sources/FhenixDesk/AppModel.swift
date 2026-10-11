@@ -348,7 +348,8 @@ final class AppModel {
                 let job = try await service.startClaudeSession(pr: pr, repoRoot: repo.root, worktree: existing)
                 // Held until the next scan reads the same session off disk.
                 state.claudeJobs.insert(job, at: 0)
-                joinFlow(job, pr)
+                // Only your own PRs have a flow; a session on a teammate's, from Reviews, is just a session.
+                if state.mine.contains(where: { $0.url == pr.url }) { joinFlow(job, pr) }
                 sessionErrors[pr.url] = nil
                 if existing == nil { Task { await refresh(.git) } }
             } catch {

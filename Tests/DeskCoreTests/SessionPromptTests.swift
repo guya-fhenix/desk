@@ -39,11 +39,12 @@ import Testing
         #expect(DeskService.sessionPrompt(for: pr).contains("1 review thread is still unresolved"))
     }
 
-    @Test func conflictsNameTheBaseAndAreResolvedWithoutAsking() {
+    /// A proposal, never a push: the same text opens sessions on teammates' PRs from Reviews.
+    @Test func conflictsNameTheBaseAndAskToLeaveTheBranchAlone() {
         let pr = Fixtures.pr(number: 4, head: "feat/x", base: "master", merge: .dirty)
         let prompt = DeskService.sessionPrompt(for: pr)
         #expect(prompt.contains("It conflicts with master"))
-        #expect(prompt.contains("Resolve that without asking me"))
+        #expect(prompt.contains("leave the branch as it is"))
     }
 
     /// Behind is not dirty: a PR that only needs a rebase has nothing to resolve, and saying otherwise
