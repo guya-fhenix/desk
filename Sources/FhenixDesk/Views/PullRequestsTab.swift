@@ -48,7 +48,7 @@ struct PullRequestsTab: View {
                         }
                     }
                 }
-                // Find a PR lands here with the row selected; it may be far down the list.
+                // Search lands here with the row selected; it may be far down the list.
                 .onChange(of: selection, initial: true) { _, url in
                     if let url { withAnimation { proxy.scrollTo(url, anchor: .center) } }
                 }

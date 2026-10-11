@@ -32,7 +32,7 @@ struct FhenixDeskApp: App {
                 .keyboardShortcut(",", modifiers: .command)
             }
             CommandMenu("Go") {
-                Button("Find a PR…") {
+                Button("Search…") {
                     model.showingFinder.toggle()
                     AppDelegate.openDesk?()
                 }

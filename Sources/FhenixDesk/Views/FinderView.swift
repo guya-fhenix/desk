@@ -1,7 +1,7 @@
 import DeskCore
 import SwiftUI
 
-/// Find a PR (⌘K): one box over the dimmed window that finds any open PR the app knows of by `repo#number`,
+/// Search (⌘K): one box over the dimmed window that finds any open PR the app knows of by `repo#number`,
 /// title or branch, and any screen by name. ↩ opens it here — your own PR in Pull Requests, one in the review
 /// queue in Reviews, anything else on GitHub — and ⌘↩ opens it on GitHub.
 struct FinderView: View {

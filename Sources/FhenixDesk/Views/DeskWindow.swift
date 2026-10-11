@@ -66,7 +66,7 @@ struct DeskWindow: View {
     private var sidebar: some View {
         SidebarColumn {
             SidebarHeading(title: "Workspace")
-            SidebarItem(title: "Find a PR", icon: "magnifyingglass", action: { model.showingFinder = true }) {
+            SidebarItem(title: "Search", icon: "magnifyingglass", action: { model.showingFinder = true }) {
                 HStack(spacing: 3) {
                     KeyCap(key: "⌘")
                     KeyCap(key: "K")

@@ -61,7 +61,7 @@ struct ReviewsTab: View {
             }
         }
         .remembersSort(Self.sort, order: $sortOrder, stored: $storedSort)
-        // Find a PR lands here with a PR to select. One the filters hide is shown by widening them to the whole
+        // Search lands here with a PR to select. One the filters hide is shown by widening them to the whole
         // queue: a find that opens a screen without its PR on it would be no find at all.
         .onChange(of: model.selectPullRequest, initial: true) { _, url in
             guard let url else { return }
