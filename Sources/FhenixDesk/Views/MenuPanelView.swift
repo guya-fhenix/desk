@@ -6,6 +6,7 @@ import SwiftUI
 /// Anything longer than the top of Up Next belongs in the window.
 struct MenuPanelView: View {
     @Environment(AppModel.self) private var model
+    private var reviewDays = ReviewDays()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -13,7 +14,7 @@ struct MenuPanelView: View {
             HStack(spacing: 0) {
                 counter("Pull requests", model.state.waiting(on: .pullRequests))
                 Divider().frame(height: 34 * AppTextStyle.scale)
-                counter("Reviews", model.state.waiting(on: .reviews))
+                counter("Reviews", model.state.reviewQueue(.all, days: reviewDays.window).count)
                 Divider().frame(height: 34 * AppTextStyle.scale)
                 counter("Jira", model.state.openTickets.count)
             }

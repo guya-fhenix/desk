@@ -32,9 +32,7 @@ struct DeskWindow: View {
 
     @Environment(AppModel.self) private var model
     @State private var tab: Tab = Tab(rawValue: ProcessInfo.processInfo.environment["FHENIX_DESK_OPEN_WINDOW"] ?? "") ?? .upNext
-    // The Reviews screen's day filter, so its badge counts what that screen lists.
-    @AppStorage("reviews.limited") private var reviewsLimited = false
-    @AppStorage("reviews.days") private var reviewsDays = 14
+    private var reviewDays = ReviewDays()
 
     var body: some View {
         Group {
@@ -120,7 +118,7 @@ struct DeskWindow: View {
         case .upNext: return model.urgentCount
         case .tickets: return model.state.openTickets.count
         case .pullRequests: return model.state.waiting(on: .pullRequests)
-        case .reviews: return model.state.reviewQueue(.all, days: reviewsLimited ? max(reviewsDays, 1) : nil).count
+        case .reviews: return model.state.reviewQueue(.all, days: reviewDays.window).count
         }
     }
 }

@@ -10,9 +10,7 @@ struct ReviewsTab: View {
     // The filters are remembered, not view state: the screen is rebuilt every time you come back to it,
     // and a filter that quietly resets shows a different queue than the one you left.
     @AppStorage("reviews.scope") private var scope: ReviewScope = .all
-    /// Off by default, so the whole queue shows; on, only the PRs opened in the last `days` days.
-    @AppStorage("reviews.limited") private var limited = false
-    @AppStorage("reviews.days") private var days = 14
+    private var reviewDays = ReviewDays()
     @State private var selection: String?
 
     private static let sort = TableSort<PullRequest>(
@@ -26,8 +24,7 @@ struct ReviewsTab: View {
         fallback: [KeyPathComparator(\PullRequest.createdAt)]
     )
 
-    /// The day limit in force, or nil for all time. A typed 0 or less reads as one day.
-    private var window: Int? { limited ? max(days, 1) : nil }
+    private var window: Int? { reviewDays.window }
     private func queue(_ scope: ReviewScope) -> [PullRequest] { model.state.reviewQueue(scope, days: window) }
     private var rows: [PullRequest] { queue(scope).sorted(using: sortOrder) }
     /// The ones GitHub actually put on you, so a row in the mixed list says which it is.
@@ -67,7 +64,7 @@ struct ReviewsTab: View {
             guard let url else { return }
             if !self.rows.contains(where: { $0.url == url }) {
                 scope = .all
-                limited = false
+                reviewDays.limited = false
             }
             selection = url
             model.selectPullRequest = nil
@@ -108,10 +105,21 @@ struct ReviewsTab: View {
             if !model.canStartReview {
                 Text("\(model.busyReviews.count) running").scaled(.caption).foregroundStyle(.secondary)
             }
-            DaysFilter(limited: $limited, days: $days)
+            DaysFilter(limited: reviewDays.$limited, days: reviewDays.$days)
             SortMenu(sort: Self.sort, order: $sortOrder)
         }
     }
+}
+
+/// The Reviews screen's day filter. The sidebar badge and the menu panel read it too, so their count is what the
+/// screen lists.
+struct ReviewDays: DynamicProperty {
+    /// Off by default, so the whole queue shows; on, only the PRs opened in the last `days` days.
+    @AppStorage("reviews.limited") var limited = false
+    @AppStorage("reviews.days") var days = 14
+
+    /// The day limit in force, or nil for all time. A typed 0 or less reads as one day.
+    var window: Int? { limited ? max(days, 1) : nil }
 }
 
 /// How far back the queue reaches, drawn like the sort menu beside it: every PR, or only the ones opened in the
