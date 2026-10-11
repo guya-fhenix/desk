@@ -58,16 +58,12 @@ struct Hairline: View {
     var body: some View { Rectangle().fill(Theme.line).frame(height: 1) }
 }
 
-/// The controls every screen's header carries on the right: the details panel's switch when the screen has
-/// one, and the sync state, which is also the refresh button.
+/// What a screen's header carries on the right: the details panel's switch, on the screens that have one.
 struct HeaderControls: View {
     var inspector: String?
 
     var body: some View {
-        HStack(spacing: 8) {
-            if let inspector { InspectorToggle(key: inspector) }
-            RefreshControl()
-        }
+        if let inspector { InspectorToggle(key: inspector) }
     }
 }
 
@@ -439,13 +435,14 @@ extension SidebarItem where Trailing == EmptyView {
     }
 }
 
-/// Pinned under the sidebar: what is running, and one dot per source, which says on its own whether each
-/// answered.
+/// Pinned under the sidebar: the sync pill, which refreshes every source at once, what is running, and one dot
+/// per source, which says on its own whether each answered.
 struct SidebarStatus: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
+        VStack(alignment: .leading, spacing: 8) {
+            RefreshControl()
             if let running {
                 HStack(spacing: 6) {
                     ProgressView().controlSize(.mini)
