@@ -405,7 +405,8 @@ final class AppModel {
         let moved = state.flows.map { flow in
             let input = FlowInput(
                 job: state.job(id: flow.jobId), mine: github.mine, merged: github.mergedRecent, ticketKeys: state.ticketKeys,
-                result: flow.awaiting == nil ? nil : DeskService.result(jobId: flow.jobId, step: flow.step)
+                result: flow.awaiting == nil ? nil : DeskService.result(jobId: flow.jobId, step: flow.step),
+                login: github.login, bots: config.botLoginSet
             )
             let (next, queued) = FlowEngine.advance(flow, input)
             effects += queued.map { (next, $0) }
@@ -415,9 +416,24 @@ final class AppModel {
             state.flows = moved
             saveFlows()
         }
-        for (flow, effect) in effects {
-            switch effect {
-            case .send(let prompt): send(prompt, for: flow)
+        for (flow, effect) in effects { perform(effect, for: flow) }
+    }
+
+    private func perform(_ effect: FlowEffect, for flow: Flow) {
+        switch effect {
+        case .send(let prompt): send(prompt, for: flow)
+        case .requestTeam: requestTeam(flow)
+        }
+    }
+
+    /// Fixes went in and the PR is still not approved: the review team is asked again.
+    private func requestTeam(_ flow: Flow) {
+        guard let pr = state.pullRequest(of: flow) else { return }
+        Task {
+            do {
+                try await service.requestTeamReview(pr)
+            } catch {
+                updateFlow(flow.id) { $0.note = "Could not ask \(config.reviewTeam) again: \(error)" }
             }
         }
     }
@@ -432,7 +448,8 @@ final class AppModel {
         let worktrees = state.worktrees.filter { $0.repoRoot == flow.repoRoot }
         let branchWorktree = worktrees.first { $0.branch == pr.headRef }?.path
         let text = DeskService.flowPrompt(
-            prompt, pr: pr, worktree: branchWorktree, resultFile: DeskService.resultFile(jobId: flow.jobId, step: flow.step), config: config
+            prompt, pr: pr, worktree: branchWorktree, resultFile: DeskService.resultFile(jobId: flow.jobId, step: flow.step),
+            fixes: FlowEngine.approvedFixes(flow.proposals), config: config
         )
         let candidates = worktrees.map(\.path) + [job.cwd, flow.repoRoot].filter { !$0.isEmpty }
         let cwd = job.sessionId.flatMap { DeskService.resumeDirectory(sessionId: $0, candidates: candidates) } ?? flow.repoRoot
@@ -514,9 +531,39 @@ final class AppModel {
 
     /// …or go on as if it had written nothing.
     func skipAwaited(_ flow: Flow) {
+        let pr = state.pullRequest(of: flow)
+        var effects: [FlowEffect] = []
         updateFlow(flow.id) {
             guard let awaiting = $0.awaiting else { return }
-            FlowEngine.finish(&$0, awaiting, result: nil)
+            effects = FlowEngine.finish(&$0, awaiting, result: nil, pr: pr)
+        }
+        for effect in effects { perform(effect, for: flow) }
+        advanceFlows()
+    }
+
+    /// Your call on one proposed fix: apply it or skip it.
+    func decide(_ flow: Flow, proposal index: Int, apply: Bool) {
+        updateFlow(flow.id) { if $0.proposals.indices.contains(index) { $0.proposals[index].apply = apply } }
+    }
+
+    /// Whether the fix's thread is resolved once it is in.
+    func setResolve(_ flow: Flow, proposal index: Int, _ resolve: Bool) {
+        updateFlow(flow.id) { if $0.proposals.indices.contains(index) { $0.proposals[index].resolve = resolve } }
+    }
+
+    /// Sends the fixes you approved to the session. Skipping all of them changes nothing, so the PR goes back to
+    /// waiting for review without asking anyone again.
+    func applyProposals(_ flow: Flow) {
+        updateFlow(flow.id) {
+            guard $0.stage == .fixesProposed, !$0.proposals.contains(where: { $0.apply == nil }) else { return }
+            if $0.proposals.contains(where: { $0.apply == true }) {
+                $0.stage = .applying
+                $0.pending = .applyFixes
+            } else {
+                $0.stage = .inReview
+                $0.proposals = []
+            }
+            $0.note = nil
         }
         advanceFlows()
     }

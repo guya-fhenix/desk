@@ -74,7 +74,7 @@ import Testing
         var pr = Fixtures.pr(number: 1, head: "h", merge: .dirty)
         pr.unresolvedThreads = 2
         let repos = [OtherRepo(name: "a", root: "/r/a", ref: "origin/main", fetched: true)]
-        for id in [PromptID.ticketPlan, .session, .selfReview, .review] {
+        for id in [PromptID.ticketPlan, .session, .selfReview, .proposeFixes, .applyFixes, .review] {
             var config = DeskConfig()
             config.prompts[id.rawValue] = (id.placeholders.map { "{\($0.name)}" } + id.conditions.map { "{#\($0.name)}C{/\($0.name)}" })
                 .joined(separator: " ")
@@ -82,6 +82,8 @@ import Testing
             case .ticketPlan: DeskService.ticketPrompt(for: ticket, note: "N", config: config)
             case .review: ReviewCommand.prompt(pr, otherRepos: repos, config: config)
             case .selfReview: DeskService.flowPrompt(.selfReview, pr: pr, worktree: "/w", resultFile: "/f", config: config)
+            case .proposeFixes: DeskService.flowPrompt(.proposeFixes, pr: pr, worktree: "/w", resultFile: "/f", config: config)
+            case .applyFixes: DeskService.flowPrompt(.applyFixes, pr: pr, worktree: "/w", resultFile: "/f", fixes: "1. F", config: config)
             default: DeskService.sessionPrompt(for: pr, worktree: "/w", config: config)
             }
             #expect(!text.contains("{"), "\(id) left a marker: \(text)")

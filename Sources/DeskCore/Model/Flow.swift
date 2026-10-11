@@ -79,6 +79,64 @@ public struct SelfReview: Codable, Sendable, Hashable {
     }
 }
 
+/// One fix the session proposes for a reviewer's comment. Nothing happens to it until you decide.
+public struct Proposal: Codable, Sendable, Hashable {
+    /// The review thread's node id, which resolving it takes.
+    public var thread: String?
+    public var reviewer: String?
+    public var file: String?
+    public var line: Int?
+    /// What the reviewer asks for.
+    public var comment: String
+    /// What the session would change.
+    public var fix: String
+    public var diff: String?
+    /// Resolve the thread once the fix is in: the session's call on whether it is simple, yours to flip.
+    public var resolve: Bool
+    /// Apply it, skip it, or nil while you have not decided.
+    public var apply: Bool?
+
+    public init(
+        thread: String? = nil, reviewer: String? = nil, file: String? = nil, line: Int? = nil, comment: String, fix: String,
+        diff: String? = nil, resolve: Bool = false, apply: Bool? = nil
+    ) {
+        self.thread = thread
+        self.reviewer = reviewer
+        self.file = file
+        self.line = line
+        self.comment = comment
+        self.fix = fix
+        self.diff = diff
+        self.resolve = resolve
+        self.apply = apply
+    }
+
+    private enum CodingKeys: String, CodingKey { case thread, reviewer, file, line, comment, fix, diff, resolve, apply }
+
+    /// Lenient: the session writes these, and a field it leaves out must not cost the rest of the file.
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        thread = try c.decodeIfPresent(String.self, forKey: .thread)
+        reviewer = try c.decodeIfPresent(String.self, forKey: .reviewer)
+        file = try c.decodeIfPresent(String.self, forKey: .file)
+        line = try? c.decodeIfPresent(Int.self, forKey: .line)
+        comment = try c.decodeIfPresent(String.self, forKey: .comment) ?? ""
+        fix = try c.decodeIfPresent(String.self, forKey: .fix) ?? ""
+        diff = try c.decodeIfPresent(String.self, forKey: .diff)
+        resolve = try c.decodeIfPresent(Bool.self, forKey: .resolve) ?? false
+        apply = try c.decodeIfPresent(Bool.self, forKey: .apply)
+    }
+
+    /// `file:line`, or whichever of them there is.
+    public var place: String {
+        [file, line.map(String.init)].compactMap { $0 }.joined(separator: ":")
+    }
+}
+
+private struct ProposalsFile: Decodable {
+    var proposals: [Proposal]
+}
+
 /// One background session carried from a ticket to its merge. Saved in `flows.json`: the stage is the one thing
 /// here that neither GitHub nor the session can tell the app again after it quits.
 public struct Flow: Codable, Sendable, Hashable, Identifiable {
@@ -105,6 +163,8 @@ public struct Flow: Codable, Sendable, Hashable, Identifiable {
     /// The PR head when self-review started: where its changes begin.
     public var baseSha: String?
     public var selfReview: SelfReview?
+    /// The session's proposed fixes for the latest reviews, with your decisions.
+    public var proposals: [Proposal] = []
     /// Reviews submitted after this start a round of proposed fixes.
     public var reviewsSince: Date?
     /// What last went wrong, shown until the next instruction goes out.
@@ -125,7 +185,7 @@ public struct Flow: Codable, Sendable, Hashable, Identifiable {
 
     private enum CodingKeys: String, CodingKey {
         case jobId, ticketKey, repoRoot, prURL, stage, startedAt, paused, pending, awaiting, step, sentAt, baseSha, selfReview
-        case reviewsSince, note
+        case proposals, reviewsSince, note
     }
 
     /// Every field after the first few is optional on the way in, so a flows.json written before it existed loads.
@@ -144,6 +204,7 @@ public struct Flow: Codable, Sendable, Hashable, Identifiable {
         sentAt = try c.decodeIfPresent(Date.self, forKey: .sentAt)
         baseSha = try c.decodeIfPresent(String.self, forKey: .baseSha)
         selfReview = try c.decodeIfPresent(SelfReview.self, forKey: .selfReview)
+        proposals = try c.decodeIfPresent([Proposal].self, forKey: .proposals) ?? []
         reviewsSince = try c.decodeIfPresent(Date.self, forKey: .reviewsSince)
         note = try c.decodeIfPresent(String.self, forKey: .note)
     }
@@ -157,17 +218,23 @@ public struct FlowInput: Sendable {
     public var ticketKeys: [String: [String]]
     /// The awaited instruction's result file, once the session has written it.
     public var result: Data?
+    /// You, whose own reviews start nothing.
+    public var login: String
+    /// Accounts whose reviews start nothing either: the bot list in Settings.
+    public var bots: Set<String>
     public var now: Date
 
     public init(
         job: ClaudeJob?, mine: [PullRequest], merged: [PullRequest], ticketKeys: [String: [String]] = [:], result: Data? = nil,
-        now: Date = Date()
+        login: String = "", bots: Set<String> = [], now: Date = Date()
     ) {
         self.job = job
         self.mine = mine
         self.merged = merged
         self.ticketKeys = ticketKeys
         self.result = result
+        self.login = login
+        self.bots = bots
         self.now = now
     }
 }
@@ -176,6 +243,8 @@ public struct FlowInput: Sendable {
 public enum FlowEffect: Sendable, Equatable {
     /// Stop the idle session and resume it with this instruction.
     case send(FlowPrompt)
+    /// Ask the review team again: fixes went in and the PR is still not approved.
+    case requestTeam
 }
 
 /// Moves a flow along on what GitHub and the session say. Only the moves nobody has to press for happen here;
@@ -199,23 +268,44 @@ public enum FlowEngine {
             flow.awaiting = nil
             return (flow, [])
         }
-        if flow.stage == .draft, input.mine.first(where: { $0.url == url })?.isDraft == false {
+        let pr = input.mine.first { $0.url == url }
+        if flow.stage == .draft, pr?.isDraft == false {
             // Marked ready by hand on GitHub: the draft stages are behind it.
             flow.stage = .inReview
             flow.reviewsSince = input.now
         }
+        var effects: [FlowEffect] = []
         if let awaiting = flow.awaiting, let result = input.result {
-            finish(&flow, awaiting, result: result)
+            effects += finish(&flow, awaiting, result: result, pr: pr)
         }
+        if let pr, flow.pending == nil, flow.awaiting == nil { review(&flow, pr, input) }
         guard let pending = flow.pending, flow.awaiting == nil, !flow.paused, let job = input.job,
               canSend(job, automatic: pending.isAutomatic, now: input.now)
-        else { return (flow, []) }
+        else { return (flow, effects) }
         flow.pending = nil
         flow.awaiting = pending
         flow.step += 1
         flow.sentAt = input.now
         flow.note = nil
-        return (flow, [.send(pending)])
+        return (flow, effects + [.send(pending)])
+    }
+
+    /// While the PR is out for review: an approval with nothing left open moves it to Approved, and a teammate's
+    /// new review asks the session for proposed fixes. Your own reviews and the bots' start nothing.
+    private static func review(_ flow: inout Flow, _ pr: PullRequest, _ input: FlowInput) {
+        if flow.stage == .approved, pr.reviewDecision != .approved { flow.stage = .inReview }
+        guard flow.stage == .inReview else { return }
+        let since = flow.reviewsSince ?? .distantPast
+        let fresh = pr.reviews.filter { review in
+            review.submittedAt > since && review.author != input.login && !input.bots.contains(review.author)
+                && !review.author.hasSuffix("[bot]")
+        }
+        if let latest = fresh.map(\.submittedAt).max() { flow.reviewsSince = latest }
+        if pr.reviewDecision == .approved, pr.unresolvedThreads == 0 {
+            flow.stage = .approved
+        } else if !fresh.isEmpty {
+            flow.pending = .proposeFixes
+        }
     }
 
     /// The session went quiet on the awaited instruction without writing its result: idle for two minutes after
@@ -233,16 +323,46 @@ public enum FlowEngine {
     }
 
     /// Takes in what the awaited instruction left behind. `result` nil is a result you chose to go on without.
-    public static func finish(_ flow: inout Flow, _ prompt: FlowPrompt, result: Data?) {
+    public static func finish(_ flow: inout Flow, _ prompt: FlowPrompt, result: Data?, pr: PullRequest?) -> [FlowEffect] {
         flow.awaiting = nil
         switch prompt {
         case .selfReview:
             flow.selfReview = result.flatMap { try? JSON.decoder().decode(SelfReview.self, from: $0) }
             if result != nil, flow.selfReview == nil { flow.note = "The self-review's summary did not read; the changes are still there to look at." }
             flow.stage = .fixesToCheck
-        case .proposeFixes, .applyFixes, .fixConflict, .fixChecks:
+        case .proposeFixes:
+            let proposals = result.flatMap { try? JSON.decoder().decode(ProposalsFile.self, from: $0) }?.proposals
+            flow.proposals = proposals ?? []
+            if flow.proposals.isEmpty {
+                flow.stage = .inReview
+                flow.note = proposals == nil
+                    ? "The session's proposals did not read. Attach to ask it again."
+                    : "The session found nothing to fix in the new review."
+            } else {
+                flow.stage = .fixesProposed
+            }
+        case .applyFixes:
+            flow.proposals = []
+            if pr?.reviewDecision == .approved {
+                flow.stage = .approved
+            } else {
+                flow.stage = .inReview
+                return [.requestTeam]
+            }
+        case .fixConflict, .fixChecks:
             break
         }
+        return []
+    }
+
+    /// The fixes you approved, as the apply instruction lists them.
+    public static func approvedFixes(_ proposals: [Proposal]) -> String {
+        proposals.filter { $0.apply == true }.enumerated().map { index, proposal in
+            let place = proposal.place.isEmpty ? "" : "\(proposal.place): "
+            let thread = proposal.thread.map { " (thread \($0): \(proposal.resolve ? "resolve it" : "leave it open"))" } ?? ""
+            return "\(index + 1). \(place)\(proposal.fix)\(thread)"
+        }
+        .joined(separator: "\n")
     }
 
     /// The PR this session opened. Claude Code's link scan lists every PR a session touched, including ones it

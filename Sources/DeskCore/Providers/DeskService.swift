@@ -213,17 +213,21 @@ public actor DeskService {
     }
 
     /// The text of one flow instruction for this PR. `worktree` is where its branch is checked out, if anywhere.
+    /// `fixes` is the approved list the apply instruction carries.
     public static func flowPrompt(
-        _ prompt: FlowPrompt, pr: PullRequest, worktree: String?, resultFile: String, config: DeskConfig = DeskConfig()
+        _ prompt: FlowPrompt, pr: PullRequest, worktree: String?, resultFile: String, fixes: String = "",
+        config: DeskConfig = DeskConfig()
     ) -> String {
         let values = [
             "repo": pr.repo, "number": String(pr.number), "title": pr.title, "url": pr.url, "baseRef": pr.baseRef,
-            "headRef": pr.headRef, "worktree": worktree ?? "", "resultFile": resultFile,
+            "headRef": pr.headRef, "worktree": worktree ?? "", "resultFile": resultFile, "fixes": fixes,
         ]
         let id: PromptID
         switch prompt {
         case .selfReview: id = .selfReview
-        case .proposeFixes, .applyFixes, .fixConflict, .fixChecks: id = .selfReview
+        case .proposeFixes: id = .proposeFixes
+        case .applyFixes: id = .applyFixes
+        case .fixConflict, .fixChecks: id = .selfReview
         }
         return config.prompt(id, values, when: ["worktree": worktree != nil])
     }

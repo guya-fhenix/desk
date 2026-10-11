@@ -122,6 +122,82 @@ import Testing
         #expect(again == flows)
     }
 
+    /// A teammate's review asks the session for fixes; yours and the bots' start nothing, and neither does one
+    /// already answered. An approval with nothing left open is the end of review.
+    @Test func aTeammatesReviewAsksForProposedFixes() {
+        let since = Fixtures.hours(4)
+        var waiting = flow(stage: .inReview, pr: 11)
+        waiting.reviewsSince = since
+        func pr(_ reviews: [Review], decision: ReviewDecision = .changesRequested, threads: Int = 1) -> PullRequest {
+            var pr = Fixtures.pr(number: 11, head: "worktree-pro-1", created: Fixtures.hours(3), review: decision, reviews: reviews)
+            pr.unresolvedThreads = threads
+            return pr
+        }
+        func run(_ flow: Flow, _ pr: PullRequest) -> Flow {
+            // Working: nothing goes out, so what was queued stays visible.
+            FlowEngine.advance(flow, FlowInput(job: job([11], state: "working"), mine: [pr], merged: [], login: "me", bots: ["copilot"])).flow
+        }
+
+        let teammate = run(waiting, pr([Fixtures.review("CHANGES_REQUESTED", at: Fixtures.hours(5), by: "haim")]))
+        #expect(teammate.pending == .proposeFixes && teammate.reviewsSince == Fixtures.hours(5))
+        // Already handled: the same review a poll later queues nothing new.
+        var handled = teammate
+        handled.pending = nil
+        #expect(run(handled, pr([Fixtures.review("CHANGES_REQUESTED", at: Fixtures.hours(5), by: "haim")])).pending == nil)
+
+        #expect(run(waiting, pr([Fixtures.review(at: Fixtures.hours(5), by: "me")])).pending == nil)
+        #expect(run(waiting, pr([Fixtures.review(at: Fixtures.hours(5), by: "copilot")])).pending == nil)
+        #expect(run(waiting, pr([Fixtures.review(at: Fixtures.hours(5), by: "github-actions[bot]")])).pending == nil)
+        #expect(run(waiting, pr([Fixtures.review(at: Fixtures.hours(3), by: "haim")])).pending == nil)
+
+        let approved = run(waiting, pr([Fixtures.review("APPROVED", at: Fixtures.hours(5), by: "haim")], decision: .approved, threads: 0))
+        #expect(approved.stage == .approved && approved.pending == nil)
+        // Approved but a thread is still open: the session proposes fixes for it first.
+        #expect(run(waiting, pr([Fixtures.review("APPROVED", at: Fixtures.hours(5), by: "haim")], decision: .approved)).pending == .proposeFixes)
+        // An approval dismissed by a later change request puts it back in review.
+        #expect(run(approved, pr([], decision: .changesRequested, threads: 0)).stage == .inReview)
+    }
+
+    @Test func proposalsWaitForYouAndAnEmptyAnswerGoesBackToReview() {
+        let pr = Fixtures.pr(number: 11, head: "worktree-pro-1", created: Fixtures.hours(3))
+        var proposing = flow(stage: .inReview, pr: 11)
+        proposing.awaiting = .proposeFixes
+        proposing.reviewsSince = Fixtures.hours(9)
+        let file = Data(#"{"proposals": [{"thread": "PRRT_1", "reviewer": "haim", "file": "a.rs", "line": 3, "comment": "C", "fix": "F", "resolve": true}, {"comment": "Rename it", "fix": "Renamed"}]}"#.utf8)
+        let proposed = FlowEngine.advance(proposing, FlowInput(job: job([11], state: "working"), mine: [pr], merged: [], result: file)).flow
+        #expect(proposed.stage == .fixesProposed)
+        #expect(proposed.proposals == [
+            Proposal(thread: "PRRT_1", reviewer: "haim", file: "a.rs", line: 3, comment: "C", fix: "F", resolve: true),
+            Proposal(comment: "Rename it", fix: "Renamed"),
+        ])
+        let empty = FlowEngine.advance(proposing, FlowInput(job: job([11], state: "working"), mine: [pr], merged: [], result: Data(#"{"proposals": []}"#.utf8))).flow
+        #expect(empty.stage == .inReview && empty.note != nil)
+    }
+
+    /// After the fixes are in, a PR that is still not approved goes back to the review team.
+    @Test func appliedFixesAskTheTeamAgainUnlessApproved() {
+        var applying = flow(stage: .applying, pr: 11)
+        applying.awaiting = .applyFixes
+        applying.proposals = [Proposal(comment: "C", fix: "F", apply: true)]
+        let file = Data(#"{"applied": 1, "summary": "S"}"#.utf8)
+        let open = Fixtures.pr(number: 11, head: "worktree-pro-1", created: Fixtures.hours(3), review: .changesRequested)
+        let notYet = FlowEngine.advance(applying, FlowInput(job: job([11], state: "working"), mine: [open], merged: [], result: file))
+        #expect(notYet.flow.stage == .inReview && notYet.flow.proposals.isEmpty && notYet.effects == [.requestTeam])
+
+        let approved = Fixtures.pr(number: 11, head: "worktree-pro-1", created: Fixtures.hours(3), review: .approved)
+        let done = FlowEngine.advance(applying, FlowInput(job: job([11], state: "working"), mine: [approved], merged: [], result: file))
+        #expect(done.flow.stage == .approved && done.effects.isEmpty)
+    }
+
+    @Test func theApplyInstructionListsOnlyTheFixesYouApproved() {
+        let text = FlowEngine.approvedFixes([
+            Proposal(thread: "PRRT_1", file: "a.rs", line: 3, comment: "C", fix: "Check for empty input.", resolve: true, apply: true),
+            Proposal(thread: "PRRT_2", comment: "C", fix: "Skipped one.", apply: false),
+            Proposal(thread: "PRRT_3", comment: "C", fix: "Rename the helper.", resolve: false, apply: true),
+        ])
+        #expect(text == "1. a.rs:3: Check for empty input. (thread PRRT_1: resolve it)\n2. Rename the helper. (thread PRRT_3: leave it open)")
+    }
+
     @Test func aMergeEndsTheFlowWhateverStageItWasIn() {
         let merged = Fixtures.pr(number: 11, head: "worktree-pro-1", created: Fixtures.hours(3), merged: Fixtures.hours(9))
         #expect(FlowEngine.advance(flow(stage: .inReview, pr: 11), FlowInput(job: nil, mine: [], merged: [merged])).flow.stage == .merged)

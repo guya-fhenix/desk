@@ -96,9 +96,71 @@ struct FlowSection: View {
             }
         case .inReview:
             Text("Waiting for a review from \(model.config.reviewTeam).").scaled(.caption).foregroundStyle(.secondary)
-        case .working, .selfReview, .fixesProposed, .applying, .approved, .merged:
+        case .fixesProposed:
+            let undecided = flow.proposals.count { $0.apply == nil }
+            let applying = flow.proposals.count { $0.apply == true }
+            ForEach(Array(flow.proposals.enumerated()), id: \.offset) { index, proposal in
+                ProposalCard(proposal: proposal, index: index, flow: flow, model: model)
+            }
+            HStack {
+                Text(undecided > 0 ? "\(undecided) left to decide" : "Nothing is posted on the threads you skip.")
+                    .scaled(.caption).foregroundStyle(.secondary)
+                Spacer()
+                Button(applying == 0 ? "Skip all" : "Apply \(applying) \(applying == 1 ? "fix" : "fixes")") { model.applyProposals(flow) }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(undecided > 0 || flow.paused)
+            }
+        case .working, .selfReview, .applying, .approved, .merged:
             EmptyView()
         }
+    }
+}
+
+/// One proposed fix for a reviewer's comment, and your two calls on it: apply or skip, and whether its thread is
+/// resolved once it is in.
+private struct ProposalCard: View {
+    var proposal: Proposal
+    var index: Int
+    var flow: Flow
+    var model: AppModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 6) {
+                if let reviewer = proposal.reviewer { Text("@\(reviewer)").scaled(.caption.weight(.semibold)) }
+                Text(proposal.place).scaled(.caption.monospaced()).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+            }
+            Text(proposal.comment).scaled(.caption).fixedSize(horizontal: false, vertical: true)
+            Text("→ \(proposal.fix)").scaled(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            if let diff = proposal.diff, !diff.isEmpty {
+                DisclosureGroup("Diff") {
+                    ScrollView(.horizontal) { Text(diff).scaled(.caption.monospaced()).textSelection(.enabled) }
+                }
+                .scaled(.caption)
+            }
+            HStack {
+                if proposal.thread != nil {
+                    Toggle("Resolve after fixing", isOn: Binding(
+                        get: { proposal.resolve }, set: { model.setResolve(flow, proposal: index, $0) }
+                    ))
+                    .toggleStyle(.checkbox)
+                    .scaled(.caption)
+                    .disabled(proposal.apply == false)
+                    .help("On: the thread is resolved once the fix is pushed. Off: it stays open for the reviewer.")
+                }
+                Spacer()
+                Picker("Decision", selection: Binding<Bool?>(
+                    get: { proposal.apply }, set: { if let apply = $0 { model.decide(flow, proposal: index, apply: apply) } }
+                )) {
+                    Text("Apply").tag(Bool?.some(true))
+                    Text("Skip").tag(Bool?.some(false))
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .fixedSize()
+            }
+        }
+        .padding(.vertical, 2)
     }
 }
 
