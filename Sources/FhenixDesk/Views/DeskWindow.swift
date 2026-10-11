@@ -45,6 +45,14 @@ struct DeskWindow: View {
                 }
             }
         }
+        .overlay(alignment: .top) {
+            // Only the strip takes clicks; the spacer under it is not hit-testable, so the rest passes through.
+            VStack(spacing: 0) {
+                TitleBarArea().frame(height: 40)
+                Spacer(minLength: 0)
+            }
+            .ignoresSafeArea()
+        }
         // Dimmed, not blurred: a blur filter on the window — even at radius 0 — draws it through an offscreen
         // image, and its text comes out soft.
         .overlay { if model.showingFinder { FinderView() } }
@@ -109,6 +117,32 @@ struct DeskWindow: View {
         case .tickets: return model.state.openTickets.count
         case .pullRequests: return model.state.waiting(on: .pullRequests)
         case .reviews: return model.state.waiting(on: .reviews)
+        }
+    }
+}
+
+/// The strip along the top of the window where its title bar would be. With the title bar hidden, SwiftUI takes the
+/// clicks there, so the window neither zoomed on a double-click nor dragged; this hands both back to the window. A
+/// double-click does what System Settings → Desktop & Dock says it should. The window buttons sit above it and keep
+/// their own clicks.
+private struct TitleBarArea: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView { StripView() }
+    func updateNSView(_ nsView: NSView, context: Context) {}
+
+    final class StripView: NSView {
+        override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+        override func mouseDown(with event: NSEvent) {
+            guard let window else { return }
+            guard event.clickCount == 2 else {
+                window.performDrag(with: event)
+                return
+            }
+            switch UserDefaults.standard.string(forKey: "AppleActionOnDoubleClick") {
+            case "Minimize": window.miniaturize(nil)
+            case "None": break
+            default: window.zoom(nil)
+            }
         }
     }
 }
