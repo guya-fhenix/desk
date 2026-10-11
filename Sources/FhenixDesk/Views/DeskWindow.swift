@@ -31,55 +31,65 @@ struct DeskWindow: View {
     }
 
     @Environment(AppModel.self) private var model
-    @State private var tab: Tab? = Tab(rawValue: ProcessInfo.processInfo.environment["FHENIX_DESK_OPEN_WINDOW"] ?? "") ?? .today
+    @State private var tab: Tab = Tab(rawValue: ProcessInfo.processInfo.environment["FHENIX_DESK_OPEN_WINDOW"] ?? "") ?? .today
 
     var body: some View {
-        splitView
-            .textScale(model.textScale)
+        Group {
+            if model.showingSettings {
+                SettingsView()
+            } else {
+                HStack(spacing: 0) {
+                    sidebar
+                    Rectangle().fill(Theme.line).frame(width: 1).ignoresSafeArea()
+                    screen
+                }
+            }
+        }
+        .textScale(model.textScale)
+        .preferredColorScheme(.dark)
+        .background(Theme.background.ignoresSafeArea())
         // A regular app while the window shows, so ⌘-Tab and the Dock can bring it back.
         .onAppear { NSApp.setActivationPolicy(.regular) }
         // The menu bar and the nudges ask for a tab by setting this; clearing it keeps it a one-shot.
         .onChange(of: model.pendingTab) { _, requested in
             guard let requested else { return }
             tab = requested
+            model.showingSettings = false
             model.pendingTab = nil
         }
         .onDisappear { NSApp.setActivationPolicy(.accessory) }
-        // Toolbar items live in their own hosting view, which AppKit keeps updating after the window
-        // closes while the window's environment is gone. The item carries the model itself so a late
-        // update cannot hit "No Observable object of type AppModel found".
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) { TextSizeControl().environment(model) }
-            ToolbarItem(placement: .primaryAction) { RefreshControl().environment(model) }
-        }
     }
 
-    /// The window's whole content, apart from the toolbar: the toolbar keeps the system size at every
-    /// setting, so the control that changes the text never moves under the pointer.
-    private var splitView: some View {
-        NavigationSplitView {
-            List(selection: $tab) {
-                row(.today)
-                Section("Work") {
-                    row(.pullRequests)
-                    row(.reviews)
-                    row(.tickets)
+    private var sidebar: some View {
+        SidebarColumn {
+            SidebarHeading(title: "Workspace")
+            ForEach(Tab.allCases) { item in
+                SidebarItem(title: item.title, icon: item.icon, selected: tab == item, action: { tab = item }) {
+                    let count = badge(for: item)
+                    if count > 0 {
+                        Text("\(count)")
+                            .scaled(.caption).monospacedDigit().foregroundStyle(.secondary)
+                            .padding(.horizontal, 6).padding(.vertical, 1)
+                            .background(Theme.raised, in: RoundedRectangle(cornerRadius: 4))
+                    }
                 }
             }
-            .safeAreaInset(edge: .bottom) { SidebarFooter() }
-            .navigationSplitViewColumnWidth(min: 180, ideal: 200)
-        } detail: {
-            switch tab ?? .today {
-            case .today: TodayTab()
-            case .pullRequests: PullRequestsTab()
-            case .reviews: ReviewsTab()
-            case .tickets: TicketsTab()
+            SidebarItem(title: "Settings", icon: "gearshape", action: { model.showingSettings = true }) {
+                HStack(spacing: 3) {
+                    KeyCap(key: "⌘")
+                    KeyCap(key: ",")
+                }
             }
         }
     }
 
-    private func row(_ tab: Tab) -> some View {
-        Label(tab.title, systemImage: tab.icon).badge(badge(for: tab)).tag(tab)
+    @ViewBuilder private var screen: some View {
+        switch tab {
+        case .today: TodayTab()
+        case .pullRequests: PullRequestsTab()
+        case .reviews: ReviewsTab()
+        case .tickets: TicketsTab()
+        }
     }
 
     /// The badge is what waits for you on that screen, so the sidebar is the whole to-do list. Today counts
@@ -91,52 +101,6 @@ struct DeskWindow: View {
         case .pullRequests: return model.state.waiting(on: .pullRequests)
         case .reviews: return model.state.waiting(on: .reviews)
         }
-    }
-}
-
-/// Pinned under the sidebar: the way into Settings, drawn as one more sidebar row, then a quiet status
-/// strip — what is running and whether each source answered.
-private struct SidebarFooter: View {
-    @Environment(AppModel.self) private var model
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            SettingsLink {
-                HStack(spacing: 7) {
-                    Image(systemName: "gearshape").foregroundStyle(.tint).frame(width: 18)
-                    Text("Settings")
-                    Spacer()
-                }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 5)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .help("Settings (⌘,)")
-            .padding(.horizontal, 10)
-            .padding(.bottom, 6)
-            Divider()
-            VStack(alignment: .leading, spacing: 5) {
-                if let running {
-                    HStack(spacing: 6) {
-                        ProgressView().controlSize(.mini)
-                        Text(running).scaled(.caption).foregroundStyle(.secondary)
-                    }
-                }
-                SourceDots()
-            }
-            .padding(.horizontal, 18)
-            .padding(.vertical, 8)
-        }
-    }
-
-    private var running: String? {
-        let reviews = model.busyReviews.count
-        let sessions = model.state.claudeJobs.count { $0.isRunning }
-        var parts: [String] = []
-        if reviews > 0 { parts.append("\(reviews) \(reviews == 1 ? "review" : "reviews")") }
-        if sessions > 0 { parts.append("\(sessions) \(sessions == 1 ? "session" : "sessions")") }
-        return parts.isEmpty ? nil : parts.joined(separator: " · ") + " running"
     }
 }
 
@@ -157,8 +121,8 @@ struct SourceDots: View {
     }
 }
 
-/// The trailing inspector the table screens share, and the toolbar button that shows and hides it. The
-/// flag is remembered per screen, so closing it on one does not close it everywhere.
+/// The details panel the list screens share, on the right. Its switch sits in the screen's header; the flag is
+/// remembered per screen, so closing it on one does not close it everywhere.
 extension View {
     /// `width` is where the column starts; the user can drag it anywhere from 260 to 560.
     func deskInspector<Inspector: View>(
@@ -182,18 +146,10 @@ private struct DeskInspector<Inspector: View>: ViewModifier {
     func body(content: Content) -> some View {
         content
             .inspector(isPresented: $shown) {
-                inspector()
-                    // A grouped form in a column this narrow runs its cards under the scroller; this lane
-                    // keeps them clear of it, and the scroller stays at the edge.
-                    .contentMargins(.trailing, 14, for: .scrollContent)
+                VStack(alignment: .leading, spacing: 0) { inspector() }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    .background(Theme.background.ignoresSafeArea())
                     .inspectorColumnWidth(min: 260, ideal: width, max: 560)
-            }
-            // On the content, not inside the inspector: there it would leave with the column it reopens.
-            .toolbar {
-                ToolbarItem(placement: .primaryAction) {
-                    Button { shown.toggle() } label: { Label("Inspector", systemImage: "sidebar.trailing") }
-                        .help(shown ? "Hide the inspector" : "Show the inspector")
-                }
             }
     }
 }

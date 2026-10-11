@@ -38,33 +38,33 @@ struct TodayTab: View {
         let byGroup = Dictionary(grouping: model.state.nudges) { Group.of($0.kind) }
         // Only the moves that failed: the rest the app makes on its own, and they need nothing from you.
         let drifts = model.state.ticketDrifts.filter { model.ticketMoveErrors[$0.ticket.key] != nil }
-        List {
-            Section { tiles }
-            ForEach(Group.allCases) { group in
-                let nudges = byGroup[group] ?? []
-                let count = group == .sync ? drifts.count : nudges.count
-                if count > 0 {
-                    Section {
-                        if group == .sync {
-                            ForEach(drifts) { DriftRow(drift: $0, model: model) }
-                        } else {
-                            ForEach(nudges) { NudgeRow(nudge: $0, model: model) }
-                        }
-                    } header: {
-                        HStack {
-                            Text(group.title)
-                            Spacer()
-                            Text("\(count)").monospacedDigit().foregroundStyle(.secondary)
+        Screen {
+            PageHeader(title: "Today", subtitle: Date.now.formatted(.dateTime.weekday(.wide).day().month(.wide))) {
+                HeaderControls()
+            }
+        } content: {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    tiles.padding(.vertical, 14)
+                    ForEach(Group.allCases) { group in
+                        let nudges = byGroup[group] ?? []
+                        let count = group == .sync ? drifts.count : nudges.count
+                        if count > 0 {
+                            GroupHeader(title: group.title, count: count)
+                            if group == .sync {
+                                ForEach(drifts) { drift in ListRow { DriftRow(drift: drift, model: model) } }
+                            } else {
+                                ForEach(nudges) { nudge in ListRow { NudgeRow(nudge: nudge, model: model) } }
+                            }
                         }
                     }
+                    if model.state.nudges.isEmpty && drifts.isEmpty {
+                        EmptyText(text: "Nothing needs you right now.").padding(.vertical, 20)
+                    }
                 }
-            }
-            if model.state.nudges.isEmpty && drifts.isEmpty {
-                EmptyText(text: "Nothing needs you right now.")
+                .padding(.bottom, 20)
             }
         }
-        .navigationTitle("Today")
-        .navigationSubtitle(Date.now.formatted(.dateTime.weekday(.wide).day().month(.wide)))
     }
 
     /// The three numbers that say how full the other screens are; each one opens its screen.
@@ -84,9 +84,10 @@ struct TodayTab: View {
                 Text(label).scaled(.caption).foregroundStyle(.secondary)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 10))
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .background(Theme.raised, in: RoundedRectangle(cornerRadius: 8))
+            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Theme.line))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

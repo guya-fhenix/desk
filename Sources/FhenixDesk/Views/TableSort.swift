@@ -7,7 +7,8 @@ import SwiftUI
 /// names its sortable columns here, and only the names and directions are written to disk; the
 /// comparator itself is rebuilt from the template, which matters for the columns that sort optionals.
 struct TableSort<Value> {
-    private let columns: [(name: String, template: KeyPathComparator<Value>)]
+    /// The sortable columns, by name: what the sort menu offers.
+    let columns: [(name: String, template: KeyPathComparator<Value>)]
     let fallback: [KeyPathComparator<Value>]
 
     init(_ columns: [(String, KeyPathComparator<Value>)], fallback: [KeyPathComparator<Value>]) {

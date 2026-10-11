@@ -20,6 +20,10 @@ final class AppModel {
     /// Set to ask the window to switch tabs; `DeskWindow` clears it. The menu bar and the nudges use it
     /// to land on the screen they mean.
     var pendingTab: DeskWindow.Tab?
+    /// True while the Desk window shows Settings in place of the workspace.
+    var showingSettings = false
+    /// What Settings is editing, kept here so leaving Settings and coming back keeps what you had typed.
+    let settings = SettingsDraft()
     /// PR urls with a review running from this side, for spinners and disabled buttons.
     var busyReviews: Set<String> = []
     /// Ticket keys with a transition in flight, so a poll that lands mid-move does not start another.

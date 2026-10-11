@@ -24,6 +24,7 @@ struct MenuPanelView: View {
         // Widened with the text, or a larger setting would wrap the three counters into each other.
         .frame(width: 320 * model.textScale)
         .textScale(model.textScale)
+        .preferredColorScheme(.dark)
     }
 
     private var header: some View {

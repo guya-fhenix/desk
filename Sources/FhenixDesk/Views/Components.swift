@@ -1,16 +1,17 @@
 import DeskCore
 import SwiftUI
 
+/// A status tag: a small tinted rectangle, the way the reference app marks "ready" or "failing".
 struct Chip: View {
     var text: String
     var color: Color = .secondary
 
     var body: some View {
         Text(text)
-            .scaled(.caption2.weight(.medium))
+            .scaled(.caption.weight(.medium))
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
-            .background(color.opacity(0.15), in: Capsule())
+            .background(color.opacity(0.18), in: RoundedRectangle(cornerRadius: 4))
             .foregroundStyle(color)
     }
 }
@@ -105,28 +106,27 @@ struct SeverityDot: View {
     }
 }
 
-/// The refresh button doubles as the refresh indicator: a spinner replaces the arrow while any
-/// source loads, and an orange dot marks a failed source. The fixed frame keeps the toolbar capsule
-/// the same size in every state; the tooltip carries the error text.
+/// The sync pill doubles as the refresh button: "Synced" with a green dot, a spinner while any source loads,
+/// and an orange dot when one failed, whose error is the tooltip. Pressing it refreshes everything.
 struct RefreshControl: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
         Button { model.refreshAll() } label: {
-            ZStack {
+            HStack(spacing: 6) {
                 if model.refreshing.isEmpty {
-                    Image(systemName: "arrow.clockwise")
+                    Circle().fill(model.state.errors.isEmpty ? Color.green : .orange).frame(width: 6, height: 6)
                 } else {
-                    ProgressView().controlSize(.small)
+                    ProgressView().controlSize(.mini)
                 }
+                Text(!model.refreshing.isEmpty ? "Syncing" : model.state.errors.isEmpty ? "Synced" : "Sync failed")
             }
-            .frame(width: 18, height: 18)
-            .overlay(alignment: .topTrailing) {
-                if !model.state.errors.isEmpty {
-                    Circle().fill(.orange).frame(width: 7, height: 7).offset(x: 2, y: -2)
-                }
-            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(Theme.raised, in: Capsule())
+            .contentShape(Capsule())
         }
+        .buttonStyle(.plain)
         .help(helpText)
     }
 
@@ -152,6 +152,10 @@ struct TextSizeControl: View {
                 .help("Text size")
             step("plus", 1, "Larger text", enabled: model.canZoomText.larger)
         }
+        .padding(.horizontal, 4)
+        .padding(.vertical, 2)
+        .background(Theme.raised, in: Capsule())
+        .buttonStyle(.plain)
     }
 
     private var percent: String { "\(Int((model.textScale * 100).rounded()))%" }

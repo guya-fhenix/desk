@@ -10,7 +10,7 @@ struct FlowSection: View {
 
     var body: some View {
         let job = model.state.job(id: flow.jobId)
-        Section("Flow") {
+        PanelSection("Flow") {
             LabeledContent("Stage") {
                 HStack(spacing: 6) {
                     StageChip(stage: flow.stage)
@@ -27,6 +27,8 @@ struct FlowSection: View {
             sessionLine(job)
             stageContent
             Toggle("Pause", isOn: Binding(get: { flow.paused }, set: { model.setPaused(flow, $0) }))
+                .toggleStyle(.switch)
+                .controlSize(.small)
                 .help("While paused the app sends this session nothing, and you drive it yourself.")
             if let note = flow.note {
                 Text(note).scaled(.caption).foregroundStyle(.red).textSelection(.enabled)

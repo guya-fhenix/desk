@@ -34,34 +34,28 @@ struct ReviewsTab: View {
     private var onMe: Set<String> { Set(model.state.reviewRequests.map(\.url)) }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        let rows = self.rows
+        let onMe = self.onMe
+        Screen {
+            PageHeader(title: "Reviews") { HeaderControls() }
             header
-            Divider()
-            Table(rows, selection: $selection, sortOrder: $sortOrder) {
-                TableColumn("Repo", value: \.repoName) { pr in Text(pr.repoName) }.width(min: 90, ideal: 110)
-                TableColumn("Pull request", value: \.number) { pr in
-                    QueueTitle(pr: pr, model: model, onMe: onMe.contains(pr.url))
-                }
-                .width(min: 220, ideal: 340)
-                TableColumn("Author", value: \.author) { pr in Text(pr.author) }.width(100)
-                TableColumn("Size", value: \.size) { pr in DiffStat(pr: pr) }.width(110)
-                TableColumn("Checks") { pr in ChecksBadge(pr: pr) }.width(50)
-                TableColumn("Waiting", value: \.createdAt) { pr in Text(Format.age(pr.createdAt)).monospacedDigit() }.width(64)
-                TableColumn("Review") { pr in QueueReviewCell(pr: pr, model: model) }.width(min: 210, ideal: 260)
-                TableColumn("") { pr in QueueActions(pr: pr, model: model) }.width(170)
+        } content: {
+            GroupHeader(title: "Review queue", count: rows.count)
+            if rows.isEmpty {
+                EmptyText(text: model.state.errors[.github] ?? emptyText).padding(.vertical, 20)
             }
-            // Double-click opens the review on GitHub, in the Files tab where a draft is finished.
-            .contextMenu(forSelectionType: String.self) { _ in } primaryAction: { urls in
-                if let url = urls.first, let pr = rows.first(where: { $0.url == url }) { model.openDraft(pr) }
-            }
-            .overlay {
-                if rows.isEmpty {
-                    EmptyText(text: model.state.errors[.github] ?? emptyText).padding()
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    ForEach(rows) { pr in
+                        // A double-click opens the review on GitHub, in the Files tab where a draft is finished.
+                        ListRow(selected: selection == pr.url, select: { selection = pr.url }, open: { model.openDraft(pr) }) {
+                            QueueRow(pr: pr, model: model, onMe: onMe.contains(pr.url))
+                        }
+                    }
                 }
             }
         }
         .remembersSort(Self.sort, order: $sortOrder, stored: $storedSort)
-        .navigationTitle("Reviews")
     }
 
     private var emptyText: String {
@@ -85,15 +79,11 @@ struct ReviewsTab: View {
     /// filters would point at rows the table is not showing.
     private var header: some View {
         let ready = rows.count { model.state.reviewNeed(for: $0) != nil }
-        return HStack(spacing: 8) {
-            Picker("Scope", selection: $scope) {
-                ForEach(ReviewScope.allCases) { scope in
-                    Text("\(scope.title) \(queue(scope).count)").tag(scope)
-                }
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .fixedSize()
+        return FilterBar {
+            PillTabs(
+                options: ReviewScope.allCases.map { .init(value: $0, title: $0.title, count: queue($0).count) },
+                selection: $scope
+            )
             Toggle(isOn: $limited) { Text(limited ? "Last" : "All time") }
                 .toggleStyle(.button)
                 .controlSize(.small)
@@ -113,13 +103,43 @@ struct ReviewsTab: View {
                 Chip(text: "\(ready) ready to run", color: .orange)
                     .help("Of the rows shown. Press Review on one to run it; nothing runs on its own.")
             }
-            Spacer()
+        } trailing: {
             if !model.canStartReview {
                 Text("\(model.busyReviews.count) running").scaled(.caption).foregroundStyle(.secondary)
             }
+            SortMenu(sort: Self.sort, order: $sortOrder)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+    }
+}
+
+/// One PR in the queue: the author's picture, where the review stands and the title, a monospaced line with
+/// number, repo, author, branches, size and checks, the presses on the right, and how long it has waited.
+private struct QueueRow: View {
+    var pr: PullRequest
+    var model: AppModel
+    var onMe: Bool
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 12) {
+            Avatar(login: pr.author)
+            VStack(alignment: .leading, spacing: 5) {
+                HStack(spacing: 8) {
+                    QueueTitle(pr: pr, model: model, onMe: onMe)
+                }
+                HStack(spacing: 8) {
+                    MetaLine(parts: [
+                        Text("#\(pr.number)"), Text(pr.repoName), Text(pr.author), Text("\(pr.baseRef) ← \(pr.headRef)"),
+                        Text("\(Format.sizeBucket(pr.size)) ") + Text("+\(pr.additions)").foregroundStyle(.green)
+                            + Text(" −\(pr.deletions)").foregroundStyle(.red),
+                    ])
+                    ChecksBadge(pr: pr)
+                }
+                QueueReviewCell(pr: pr, model: model)
+            }
+            Spacer(minLength: 8)
+            QueueActions(pr: pr, model: model)
+            Text(Format.age(pr.createdAt)).monospacedDigit().foregroundStyle(.secondary).help("Waiting since it was opened")
+        }
     }
 }
 
@@ -134,8 +154,9 @@ private struct QueueTitle: View {
     var body: some View {
         HStack(spacing: 6) {
             if onMe { Chip(text: "on you", color: .orange) }
-            Button { model.open(pr.url) } label: { Text("#\(pr.number) \(pr.title)").lineLimit(1) }
-                .buttonStyle(.link)
+            Button { model.open(pr.url) } label: { Text(pr.title).lineLimit(1) }
+                .buttonStyle(.plain)
+                .help("Open #\(pr.number) on GitHub")
         }
     }
 }

@@ -18,23 +18,23 @@ struct TicketsTab: View {
 
     var body: some View {
         let groups = filtered(model.state.ticketGroups(placement))
-        VStack(alignment: .leading, spacing: 0) {
+        Screen {
+            PageHeader(title: "Tickets") { HeaderControls(inspector: "tickets") }
             header
-            Divider()
+        } content: {
+            Hairline()
             if groups.isEmpty {
-                EmptyText(text: emptyText).padding()
+                EmptyText(text: emptyText).padding(.vertical, 20)
                 Spacer()
             } else {
                 ScrollView(.horizontal) {
                     HStack(alignment: .top, spacing: 12) {
                         ForEach(groups) { column($0) }
                     }
-                    .padding(12)
+                    .padding(.vertical, 14)
                 }
             }
         }
-        .searchable(text: $search, placement: .toolbar, prompt: "Key or summary")
-        .navigationTitle("Tickets")
         // Wider than the others: this one is for reading a description, tables and all.
         .deskInspector("tickets", width: 420) {
             if let key = selection, let ticket = model.state.ticket(key) {
@@ -71,23 +71,20 @@ struct TicketsTab: View {
 
     /// The sprint/backlog switch, each side counted over what the search leaves, like the Reviews scopes.
     private var header: some View {
-        HStack(spacing: 8) {
-            Picker("Placement", selection: $placement) {
-                ForEach([TicketPlacement.sprint, .backlog], id: \.self) { option in
+        FilterBar {
+            PillTabs(
+                options: [TicketPlacement.sprint, .backlog].map { option in
                     let count = filtered(model.state.ticketGroups(option)).reduce(0) { $0 + $1.tickets.count }
-                    Text("\(option == .sprint ? "Sprint" : "Backlog") \(count)").tag(option)
-                }
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .fixedSize()
-            Spacer()
+                    return .init(value: option, title: option == .sprint ? "Sprint" : "Backlog", count: count)
+                },
+                selection: $placement
+            )
+        } trailing: {
             if let error = model.state.errors[.jira] {
                 Text(error).scaled(.caption).foregroundStyle(.red).lineLimit(1).textSelection(.enabled).help(error)
             }
+            SearchBox(prompt: "Key or summary", text: $search)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
     }
 
     /// One status: its header stays put while its cards scroll.
@@ -108,7 +105,8 @@ struct TicketsTab: View {
         }
         .padding(8)
         .frame(width: 270 * scale)
-        .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 10))
+        .background(Theme.sidebar, in: RoundedRectangle(cornerRadius: 10))
+        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Theme.line))
     }
 
     private func card(_ ticket: Ticket) -> some View {
@@ -140,10 +138,10 @@ struct TicketsTab: View {
         }
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.background, in: RoundedRectangle(cornerRadius: 8))
+        .background(selected ? Theme.rowSelected : Theme.raised, in: RoundedRectangle(cornerRadius: 8))
         .overlay(
             RoundedRectangle(cornerRadius: 8)
-                .strokeBorder(selected ? Color.accentColor : Color.primary.opacity(0.1), lineWidth: selected ? 2 : 1)
+                .strokeBorder(selected ? Theme.accent : Theme.line, lineWidth: selected ? 1.5 : 1)
         )
         .contentShape(RoundedRectangle(cornerRadius: 8))
         .onTapGesture { selection = ticket.key }
@@ -169,11 +167,11 @@ private struct TicketInspector: View {
     var plan: (Ticket, RepoRef) -> Void
 
     var body: some View {
-        Form {
-            Section {
+        Panel {
+            PanelSection {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(ticket.key).scaled(.caption.monospaced()).foregroundStyle(.secondary).textSelection(.enabled)
-                    Text(ticket.summary).scaled(.headline).fixedSize(horizontal: false, vertical: true)
+                    Text(ticket.summary).scaled(.title3.weight(.semibold)).fixedSize(horizontal: false, vertical: true)
                 }
                 LabeledContent("Status") {
                     HStack(spacing: 6) { StatusDot(color: TicketColor.of(ticket.category)); Text(ticket.status) }
@@ -186,7 +184,7 @@ private struct TicketInspector: View {
                 .controlSize(.small)
             }
             if let drift = model.state.drift(forKey: ticket.key) {
-                Section("Jira is behind") {
+                PanelSection("Jira is behind") {
                     Text(reason(drift)).scaled(.caption)
                     if let error = model.ticketMoveErrors[ticket.key] {
                         Text("The move failed: \(error)").scaled(.caption).foregroundStyle(.red).textSelection(.enabled)
@@ -196,14 +194,14 @@ private struct TicketInspector: View {
             }
             let flows = model.state.flows(forTicket: ticket.key)
             if !flows.isEmpty {
-                Section("Sessions") {
+                PanelSection("Sessions") {
                     ForEach(flows) { flow in FlowRow(flow: flow, model: model) }
                     if let error = model.sessionErrors[ticket.key] {
                         Text(error).scaled(.caption).foregroundStyle(.red).textSelection(.enabled)
                     }
                 }
             }
-            Section("Pull requests") {
+            PanelSection("Pull requests") {
                 let prs = model.state.pullRequests(forTicket: ticket.key)
                 if prs.isEmpty { Text("None open.").foregroundStyle(.secondary) }
                 ForEach(prs) { pr in
@@ -214,7 +212,7 @@ private struct TicketInspector: View {
                     }
                 }
             }
-            Section("Description") {
+            PanelSection("Description") {
                 if ticket.description.isEmpty {
                     Text("No description.").foregroundStyle(.secondary)
                 } else {
@@ -222,7 +220,6 @@ private struct TicketInspector: View {
                 }
             }
         }
-        .formStyle(.grouped)
     }
 
     @ViewBuilder private var planMenu: some View {
@@ -394,6 +391,8 @@ private struct PlanSheet: View {
         }
         .padding(16)
         .frame(width: 460)
+        .background(Theme.background)
+        .preferredColorScheme(.dark)
         .onAppear { writing = true }
     }
 }

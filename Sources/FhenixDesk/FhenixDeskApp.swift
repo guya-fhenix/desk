@@ -19,8 +19,18 @@ struct FhenixDeskApp: App {
             DeskRoot(model: model, delegate: delegate)
         }
         .defaultSize(width: 1180, height: 720)
-        Settings {
-            SettingsView().environment(model).textScale(model.textScale)
+        // The window's buttons sit on the sidebar and its title bar is gone; the background drags the window.
+        .windowStyle(.hiddenTitleBar)
+        .windowBackgroundDragBehavior(.enabled)
+        .commands {
+            // Settings live in the Desk window now, so ⌘, opens them there.
+            CommandGroup(replacing: .appSettings) {
+                Button("Settings…") {
+                    model.showingSettings = true
+                    AppDelegate.openDesk?()
+                }
+                .keyboardShortcut(",", modifiers: .command)
+            }
         }
     }
 }
@@ -126,6 +136,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // primary click with the panel open would close the panel and never open the window. Dismissing
         // it by hand leaves the button's clicks to the button.
         panel.behavior = .applicationDefined
+        // Dark like the Desk window, whatever the system is set to.
+        panel.appearance = NSAppearance(named: .darkAqua)
         panel.contentViewController = NSHostingController(rootView: MenuPanelView().environment(model))
         popover = panel
         return panel

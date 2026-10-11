@@ -24,32 +24,35 @@ struct PullRequestsTab: View {
     )
 
     var body: some View {
-        Table(rows, selection: $selection, sortOrder: $sortOrder) {
-            TableColumn("") { row in CheckMark(url: row.pullRequest.url, model: model) }.width(20)
-            TableColumn("Repo", value: \.pullRequest.repoName) { row in Text(row.pullRequest.repoName) }.width(min: 90, ideal: 120)
-            TableColumn("Pull request", value: \.pullRequest.number) { row in StackedTitle(row: row, model: model) }.width(min: 200, ideal: 340)
-            TableColumn("Ticket") { row in TicketMark(pr: row.pullRequest, model: model) }.width(min: 70, ideal: 90)
-            // Grouped only because a group has one sort type, so no sortable column can sit among these.
-            Group {
-                TableColumn("Agent") { (row: StackedPullRequest) in ClaudeSessionButton(pr: row.pullRequest, model: model) }.width(44)
-                TableColumn("Stage") { (row: StackedPullRequest) in FlowStageCell(pr: row.pullRequest, model: model) }.width(min: 80, ideal: 100)
-                TableColumn("Status") { (row: StackedPullRequest) in PullRequestStatus(pr: row.pullRequest) }.width(min: 150, ideal: 170)
+        let rows = self.rows
+        Screen {
+            PageHeader(title: "Pull Requests") { HeaderControls(inspector: "pullRequests") }
+            FilterBar {
+                Text("\(model.state.mine.count) open").scaled(.callout).foregroundStyle(.secondary)
+            } trailing: {
+                SearchBox(prompt: "Repo, number or title", text: $search)
+                SortMenu(sort: Self.sort, order: $sortOrder)
             }
-            TableColumn("Threads", value: \.pullRequest.unresolvedThreads) { row in UnresolvedThreads(count: row.pullRequest.unresolvedThreads) }.width(70)
-            TableColumn("Size", value: \.pullRequest.size) { row in DiffStat(pr: row.pullRequest) }.width(110)
-            TableColumn("Age", value: \.pullRequest.createdAt) { row in Text(Format.age(row.pullRequest.createdAt)).monospacedDigit() }.width(44)
-            TableColumn("Updated", value: \.pullRequest.updatedAt) { row in Text(Format.age(row.pullRequest.updatedAt)).monospacedDigit() }.width(56)
+        } content: {
+            Hairline()
+            if model.state.mine.isEmpty {
+                EmptyText(text: model.state.errors[.github] ?? "No open PRs.").padding(.vertical, 20)
+            }
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    ForEach(rows, id: \.pullRequest.url) { row in
+                        PullRequestRow(row: row, model: model, selected: selection == row.pullRequest.url) {
+                            selection = row.pullRequest.url
+                        }
+                    }
+                }
+            }
         }
         .remembersSort(Self.sort, order: $sortOrder, stored: $storedSort)
         .onChange(of: model.selectPullRequest, initial: true) { _, url in
             guard let url else { return }
             selection = url
             model.selectPullRequest = nil
-        }
-        .searchable(text: $search, placement: .toolbar, prompt: "Repo, number or title")
-        .navigationTitle("Pull Requests")
-        .overlay {
-            if model.state.mine.isEmpty { EmptyText(text: model.state.errors[.github] ?? "No open PRs.").padding() }
         }
         .deskInspector("pullRequests") {
             if let pr = model.state.mine.first(where: { $0.url == selection }) {
@@ -74,37 +77,74 @@ struct PullRequestsTab: View {
     }
 }
 
-/// A stack reads top-down: the root carries its size, and each PR stacked on it sits indented beneath.
-/// A root also notes a parent that is not in the table, or a base branch that has no open PR at all.
-///
-/// Table cells are hosted in their own AppKit views, and AppKit can lay one out after its row left the
-/// table and the environment with it. Cells therefore take the model from the table view instead of
-/// reading it from the environment, which would trap with "No Observable object of type AppModel found".
-private struct StackedTitle: View {
+/// One open PR of yours: your own tick, its picture, its status chips and title, and a monospaced line with
+/// number, repo, branches, size, open threads and ticket; its stage, session and ages on the right. A stack
+/// reads top-down: each PR stacked on another sits indented beneath it, and a root notes a parent that is not
+/// in the list, or a base branch that has no open PR at all.
+private struct PullRequestRow: View {
     var row: StackedPullRequest
     var model: AppModel
+    var selected: Bool
+    var select: () -> Void
 
     var body: some View {
         let pr = row.pullRequest
-        HStack(spacing: 6) {
-            if row.depth > 0 {
-                Image(systemName: "arrow.turn.down.right")
-                    .foregroundStyle(.tertiary)
-                    .padding(.leading, CGFloat(row.depth - 1) * 16)
-            }
-            Button { model.open(pr.url) } label: { Text("#\(pr.number) \(pr.title)").lineLimit(1) }.buttonStyle(.link)
-            if row.depth == 0 {
-                if row.stackSize > 1 {
-                    Chip(text: "stack of \(row.stackSize)").fixedSize()
+        ListRow(selected: selected, select: select) {
+            HStack(alignment: .center, spacing: 12) {
+                CheckMark(url: pr.url, model: model)
+                if row.depth > 0 {
+                    Image(systemName: "arrow.turn.down.right")
+                        .foregroundStyle(.tertiary)
+                        .padding(.leading, CGFloat(row.depth - 1) * 16)
                 }
-                if let parent = model.state.stackParent(of: pr) {
-                    Text("on #\(parent.number)").scaled(.caption).foregroundStyle(.secondary).fixedSize()
-                        .help("Stacked on #\(parent.number) by \(parent.author)")
-                } else if pr.baseRef != model.state.defaultBranches[pr.repoName] ?? "main" {
-                    Text("on \(pr.baseRef)").scaled(.caption).foregroundStyle(.orange).fixedSize()
-                        .help("Base branch has no open PR")
+                Avatar(login: pr.author)
+                VStack(alignment: .leading, spacing: 5) {
+                    HStack(spacing: 8) {
+                        PullRequestStatus(pr: pr)
+                        Button { model.open(pr.url) } label: { Text(pr.title).lineLimit(1) }
+                            .buttonStyle(.plain)
+                            .help("Open #\(pr.number) on GitHub")
+                        if row.depth == 0 { stackNote(pr) }
+                    }
+                    HStack(spacing: 8) {
+                        MetaLine(parts: meta(pr))
+                        TicketMark(pr: pr, model: model)
+                    }
+                }
+                Spacer(minLength: 8)
+                FlowStageCell(pr: pr, model: model)
+                ClaudeSessionButton(pr: pr, model: model)
+                VStack(alignment: .trailing, spacing: 3) {
+                    Text(Format.age(pr.updatedAt)).monospacedDigit().foregroundStyle(.secondary).help("Updated")
+                    Text("opened \(Format.age(pr.createdAt))").scaled(.caption).monospacedDigit().foregroundStyle(.tertiary)
                 }
             }
+        }
+    }
+
+    private func meta(_ pr: PullRequest) -> [Text] {
+        var parts = [
+            Text("#\(pr.number)"),
+            Text(pr.repoName),
+            Text("\(pr.baseRef) ← \(pr.headRef)"),
+            Text("\(Format.sizeBucket(pr.size)) ") + Text("+\(pr.additions)").foregroundStyle(.green) + Text(" −\(pr.deletions)").foregroundStyle(.red),
+        ]
+        if pr.unresolvedThreads > 0 {
+            parts.append(Text("\(pr.unresolvedThreads) unresolved").foregroundStyle(.orange))
+        }
+        return parts
+    }
+
+    @ViewBuilder private func stackNote(_ pr: PullRequest) -> some View {
+        if row.stackSize > 1 {
+            Chip(text: "stack of \(row.stackSize)").fixedSize()
+        }
+        if let parent = model.state.stackParent(of: pr) {
+            Text("on #\(parent.number)").scaled(.caption).foregroundStyle(.secondary).fixedSize()
+                .help("Stacked on #\(parent.number) by \(parent.author)")
+        } else if pr.baseRef != model.state.defaultBranches[pr.repoName] ?? "main" {
+            Text("on \(pr.baseRef)").scaled(.caption).foregroundStyle(.orange).fixedSize()
+                .help("Base branch has no open PR")
         }
     }
 }
@@ -124,19 +164,6 @@ private struct CheckMark: View {
         .toggleStyle(.checkbox)
         .labelsHidden()
         .help("Your own mark; cleared when the PR leaves this list")
-    }
-}
-
-/// Review conversations still open on a PR. Zero reads as a dash so the column stays quiet on clean PRs.
-private struct UnresolvedThreads: View {
-    var count: Int
-
-    var body: some View {
-        if count > 0 {
-            Chip(text: "\(count) open", color: .orange).help("\(count) unresolved review \(count == 1 ? "thread" : "threads")")
-        } else {
-            Text("–").foregroundStyle(.secondary)
-        }
     }
 }
 
@@ -177,10 +204,10 @@ private struct PullRequestInspector: View {
     var model: AppModel
 
     var body: some View {
-        Form {
-            Section {
+        Panel {
+            PanelSection {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("#\(pr.number) \(pr.title)").scaled(.headline).fixedSize(horizontal: false, vertical: true)
+                    Text("#\(pr.number) \(pr.title)").scaled(.title3.weight(.semibold)).fixedSize(horizontal: false, vertical: true)
                     Text("\(pr.repoName) · \(pr.headRef) → \(pr.baseRef)")
                         .scaled(.caption).foregroundStyle(.secondary).textSelection(.enabled)
                 }
@@ -193,7 +220,7 @@ private struct PullRequestInspector: View {
                 }
                 .controlSize(.small)
             }
-            Section("Status") {
+            PanelSection("Status") {
                 LabeledContent("Checks") { HStack(spacing: 4) { ChecksBadge(pr: pr); Text(checksText) } }
                 LabeledContent("Review") { ReviewBadge(pr: pr) }
                 LabeledContent("Merge") { MergeBadge(pr: pr) }
@@ -205,16 +232,15 @@ private struct PullRequestInspector: View {
                 LabeledContent("Opened", value: "\(Format.age(pr.createdAt)) ago, updated \(Format.age(pr.updatedAt)) ago")
             }
             if parent != nil || !children.isEmpty {
-                Section("Stack") {
+                PanelSection("Stack") {
                     if let parent { stackLine("On", parent) }
                     ForEach(children) { stackLine("Under it", $0) }
                 }
             }
             if let flow = model.state.flow(for: pr) { FlowSection(flow: flow, pr: pr, model: model) }
-            Section("Jira") { jira }
-            Section("Background session") { sessions }
+            PanelSection("Jira") { jira }
+            PanelSection("Background session") { sessions }
         }
-        .formStyle(.grouped)
     }
 
     private var checksText: String {
