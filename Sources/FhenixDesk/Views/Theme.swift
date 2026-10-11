@@ -206,18 +206,52 @@ struct Avatar: View {
     private let scale = AppTextStyle.scale
 
     var body: some View {
-        AsyncImage(url: URL(string: "https://github.com/\(login).png?size=64")) { image in
-            image.resizable().scaledToFill()
-        } placeholder: {
-            Text(login.prefix(1).uppercased())
-                .scaled(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(Theme.raised)
+        Group {
+            if let image = AvatarStore.shared.images[login] {
+                Image(nsImage: image).resizable().scaledToFill()
+            } else {
+                Text(login.prefix(1).uppercased())
+                    .scaled(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(Theme.raised)
+            }
         }
         .frame(width: (28 * scale).rounded(), height: (28 * scale).rounded())
         .clipShape(Circle())
         .help(login)
+        .task(id: login) { AvatarStore.shared.load(login) }
+    }
+}
+
+/// Every GitHub picture, loaded once for the whole app and kept, so each row by the same person shows the same
+/// one. A per-row loader gave up for good when a list redraw cancelled it mid-download, which is how one row of
+/// an author got the picture and the next only the initial. The download here belongs to no row, so a redraw
+/// cannot cancel it, and a failed one is tried again a few minutes later, the next time a row asks.
+@MainActor
+@Observable
+final class AvatarStore {
+    static let shared = AvatarStore()
+
+    private(set) var images: [String: NSImage] = [:]
+    private var loading: Set<String> = []
+    private var failedAt: [String: Date] = [:]
+
+    func load(_ login: String) {
+        guard images[login] == nil, !loading.contains(login),
+              failedAt[login].map({ Date().timeIntervalSince($0) > 300 }) ?? true,
+              let url = URL(string: "https://github.com/\(login).png?size=64")
+        else { return }
+        loading.insert(login)
+        Task {
+            defer { loading.remove(login) }
+            if let (data, response) = try? await URLSession.shared.data(from: url),
+               (response as? HTTPURLResponse)?.statusCode == 200, let image = NSImage(data: data) {
+                images[login] = image
+            } else {
+                failedAt[login] = Date()
+            }
+        }
     }
 }
 

@@ -118,7 +118,7 @@ struct FinderView: View {
                 Chip(text: pr.isDraft ? "draft" : "open", color: pr.isDraft ? .secondary : .green).frame(width: 52, alignment: .leading)
                 Text(pr.title).lineLimit(1).truncationMode(.tail)
                 Spacer(minLength: 8)
-                Text("\(pr.repoName)#\(pr.number)").scaled(.caption.monospaced()).foregroundStyle(.secondary)
+                Text(verbatim: "\(pr.repoName)#\(pr.number)").scaled(.caption.monospaced()).foregroundStyle(.secondary)
                 StatusDot(color: checksColor(pr)).help("CI: \(pr.checks.rawValue.lowercased())")
             }
             if selected { KeyCap(key: "↩") }

@@ -144,7 +144,7 @@ private struct QueueRow: View {
                 }
                 HStack(spacing: 8) {
                     MetaLine(parts: [
-                        Text("#\(pr.number)"), Text(pr.repoName), Text(pr.author), Text("\(pr.baseRef) ← \(pr.headRef)"),
+                        Text(verbatim: "#\(pr.number)"), Text(pr.repoName), Text(pr.author), Text("\(pr.baseRef) ← \(pr.headRef)"),
                         Text("\(Format.sizeBucket(pr.size)) ") + Text("+\(pr.additions)").foregroundStyle(.green)
                             + Text(" −\(pr.deletions)").foregroundStyle(.red),
                     ])
@@ -172,7 +172,7 @@ private struct QueueTitle: View {
             if onMe { Chip(text: "on you", color: .orange) }
             Button { model.open(pr.url) } label: { Text(pr.title).lineLimit(1) }
                 .buttonStyle(.plain)
-                .help("Open #\(pr.number) on GitHub")
+                .help("Open #\(pr.number) on GitHub" as String)
         }
     }
 }

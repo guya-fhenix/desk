@@ -179,7 +179,7 @@ private struct TicketInspector: View {
                 ForEach(prs) { pr in
                     HStack(spacing: 6) {
                         ChecksBadge(pr: pr)
-                        Button { model.open(pr.url) } label: { Text("\(pr.repoName)#\(pr.number) \(pr.title)").lineLimit(1) }
+                        Button { model.open(pr.url) } label: { Text(verbatim: "\(pr.repoName)#\(pr.number) \(pr.title)").lineLimit(1) }
                             .buttonStyle(.link)
                     }
                 }
@@ -266,7 +266,7 @@ private struct FlowRow: View {
             HStack(spacing: 6) {
                 StageChip(stage: flow.stage).fixedSize()
                 if let pr {
-                    Button { model.open(pr.url) } label: { Text("\(pr.repoName)#\(pr.number)") }.buttonStyle(.link)
+                    Button { model.open(pr.url) } label: { Text(verbatim: "\(pr.repoName)#\(pr.number)") }.buttonStyle(.link)
                 } else {
                     Text(URL(fileURLWithPath: flow.repoRoot).lastPathComponent)
                 }

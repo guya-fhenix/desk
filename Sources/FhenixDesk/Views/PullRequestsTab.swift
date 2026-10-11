@@ -108,7 +108,7 @@ private struct PullRequestRow: View {
                         PullRequestStatus(pr: pr)
                         Button { model.open(pr.url) } label: { Text(pr.title).lineLimit(1) }
                             .buttonStyle(.plain)
-                            .help("Open #\(pr.number) on GitHub")
+                            .help("Open #\(pr.number) on GitHub" as String)
                         if row.depth == 0 { stackNote(pr) }
                     }
                     HStack(spacing: 8) {
@@ -129,7 +129,7 @@ private struct PullRequestRow: View {
 
     private func meta(_ pr: PullRequest) -> [Text] {
         var parts = [
-            Text("#\(pr.number)"),
+            Text(verbatim: "#\(pr.number)"),
             Text(pr.repoName),
             Text("\(pr.baseRef) ← \(pr.headRef)"),
             Text("\(Format.sizeBucket(pr.size)) ") + Text("+\(pr.additions)").foregroundStyle(.green) + Text(" −\(pr.deletions)").foregroundStyle(.red),
@@ -145,8 +145,8 @@ private struct PullRequestRow: View {
             Chip(text: "stack of \(row.stackSize)").fixedSize()
         }
         if let parent = model.state.stackParent(of: pr) {
-            Text("on #\(parent.number)").scaled(.caption).foregroundStyle(.secondary).fixedSize()
-                .help("Stacked on #\(parent.number) by \(parent.author)")
+            Text(verbatim: "on #\(parent.number)").scaled(.caption).foregroundStyle(.secondary).fixedSize()
+                .help("Stacked on #\(parent.number) by \(parent.author)" as String)
         } else if pr.baseRef != model.state.defaultBranches[pr.repoName] ?? "main" {
             Text("on \(pr.baseRef)").scaled(.caption).foregroundStyle(.orange).fixedSize()
                 .help("Base branch has no open PR")
@@ -212,7 +212,7 @@ private struct PullRequestInspector: View {
         Panel {
             PanelSection {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("#\(pr.number) \(pr.title)").scaled(.title3.weight(.semibold)).fixedSize(horizontal: false, vertical: true)
+                    Text(verbatim: "#\(pr.number) \(pr.title)").scaled(.title3.weight(.semibold)).fixedSize(horizontal: false, vertical: true)
                     Text("\(pr.repoName) · \(pr.headRef) → \(pr.baseRef)")
                         .scaled(.caption).foregroundStyle(.secondary).textSelection(.enabled)
                 }
@@ -265,7 +265,7 @@ private struct PullRequestInspector: View {
 
     private func stackLine(_ label: String, _ other: PullRequest) -> some View {
         LabeledContent(label) {
-            Button { model.open(other.url) } label: { Text("#\(other.number) \(other.title)").lineLimit(1) }
+            Button { model.open(other.url) } label: { Text(verbatim: "#\(other.number) \(other.title)").lineLimit(1) }
                 .buttonStyle(.link)
         }
     }
