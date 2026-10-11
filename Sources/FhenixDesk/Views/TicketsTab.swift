@@ -1,12 +1,11 @@
 import DeskCore
 import SwiftUI
 
-/// Your Jira tickets as a board: the running sprint or the backlog, one column per status. Done is left
-/// out: the board is about what is still open. Selecting a card opens it in the inspector, which is
+/// Your Jira tickets as a list: the running sprint or the backlog, one group per status in workflow order. Done
+/// is left out: the list is about what is still open. Selecting a row opens it in the details panel, which is
 /// where its description is read.
 struct TicketsTab: View {
     @Environment(AppModel.self) private var model
-    private let scale = AppTextStyle.scale
     /// Remembered, so a trip to another screen does not drop you back on the sprint.
     @AppStorage("tickets.placement") private var placement: TicketPlacement = .sprint
     /// By key, so a poll that replaces every ticket keeps the selection.
@@ -27,11 +26,18 @@ struct TicketsTab: View {
                 EmptyText(text: emptyText).padding(.vertical, 20)
                 Spacer()
             } else {
-                ScrollView(.horizontal) {
-                    HStack(alignment: .top, spacing: 12) {
-                        ForEach(groups) { column($0) }
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        ForEach(groups) { group in
+                            GroupHeader(title: group.status, count: group.tickets.count)
+                            ForEach(group.tickets) { ticket in
+                                ListRow(selected: selection == ticket.key, select: { selection = ticket.key }) {
+                                    TicketRow(ticket: ticket, model: model) { plan(ticket, $0) }
+                                }
+                            }
+                        }
                     }
-                    .padding(.vertical, 14)
+                    .padding(.bottom, 20)
                 }
             }
         }
@@ -86,65 +92,31 @@ struct TicketsTab: View {
             SearchBox(prompt: "Key or summary", text: $search)
         }
     }
+}
 
-    /// One status: its header stays put while its cards scroll.
-    private func column(_ group: TicketGroup) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 6) {
-                StatusDot(color: TicketColor.of(group.category))
-                Text(group.status).scaled(.callout.weight(.semibold)).lineLimit(1)
-                Spacer()
-                Text("\(group.tickets.count)").scaled(.callout).monospacedDigit().foregroundStyle(.secondary)
-            }
-            .padding(.horizontal, 4)
-            ScrollView {
-                LazyVStack(spacing: 8) {
-                    ForEach(group.tickets) { card($0) }
-                }
-            }
-        }
-        .padding(8)
-        .frame(width: 270 * scale)
-        .background(Theme.sidebar, in: RoundedRectangle(cornerRadius: 10))
-        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Theme.line))
-    }
+/// One ticket in its status group: the status colour, the summary, and a monospaced line with key, priority and
+/// how many open PRs name it; where its PRs say Jira should move it, and the Start press, on the right.
+private struct TicketRow: View {
+    var ticket: Ticket
+    var model: AppModel
+    /// Picking a repository from Start opens the sheet that asks what the plan is for.
+    var plan: (RepoRef) -> Void
 
-    private func card(_ ticket: Ticket) -> some View {
-        let selected = selection == ticket.key
+    var body: some View {
         let linked = model.state.pullRequests(forTicket: ticket.key).count
-        return VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 6) {
-                Text(ticket.key).scaled(.caption.monospaced()).foregroundStyle(.secondary)
-                Spacer()
-                if let priority = ticket.priority {
-                    Text(priority).scaled(.caption).foregroundStyle(.tertiary)
-                }
+        HStack(alignment: .center, spacing: 12) {
+            StatusDot(color: TicketColor.of(ticket.category))
+            VStack(alignment: .leading, spacing: 5) {
+                Text(ticket.summary).lineLimit(1)
+                MetaLine(parts: [Text(ticket.key)] + [ticket.priority.map { Text($0) }].compactMap { $0 }
+                    + (linked > 0 ? [Text("\(linked) open \(linked == 1 ? "PR" : "PRs")")] : []))
             }
-            Text(ticket.summary).scaled(.callout).lineLimit(3)
-            HStack(spacing: 8) {
-                if linked > 0 {
-                    // Inline rather than a Label: the symbol then keeps the text's line height.
-                    Text("\(Image(systemName: "arrow.triangle.pull")) \(linked)")
-                        .scaled(.caption).monospacedDigit().foregroundStyle(.secondary)
-                        .fixedSize()
-                        .help("\(linked) open \(linked == 1 ? "pull request names" : "pull requests name") this ticket")
-                }
-                Spacer()
-                if let drift = model.state.drift(forKey: ticket.key) {
-                    DriftBadge(drift: drift, model: model)
-                }
-                PlanButton(ticket: ticket, model: model) { plan(ticket, $0) }
+            Spacer(minLength: 8)
+            if let drift = model.state.drift(forKey: ticket.key) {
+                DriftBadge(drift: drift, model: model)
             }
+            PlanButton(ticket: ticket, model: model, onPick: plan)
         }
-        .padding(10)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(selected ? Theme.rowSelected : Theme.raised, in: RoundedRectangle(cornerRadius: 8))
-        .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .strokeBorder(selected ? Theme.accent : Theme.line, lineWidth: selected ? 1.5 : 1)
-        )
-        .contentShape(RoundedRectangle(cornerRadius: 8))
-        .onTapGesture { selection = ticket.key }
     }
 }
 
