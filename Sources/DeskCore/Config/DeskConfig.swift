@@ -3,6 +3,8 @@ import Foundation
 public struct DeskConfig: Codable, Sendable, Equatable {
     public var repoRoots: [String] = ["~/Repos"]
     public var githubOrg: String = "FhenixProtocol"
+    /// The org team asked to review a PR when it leaves draft, and again after each round of fixes.
+    public var reviewTeam: String = "protocol-team"
     /// `owner/name` of the repositories to watch, picked in Settings from what GitHub lists for the org.
     /// Empty by default: the app tracks nothing until you say so.
     public var trackedRepos: [String] = []
@@ -48,7 +50,7 @@ public struct DeskConfig: Codable, Sendable, Equatable {
     public init() {}
 
     private enum CodingKeys: String, CodingKey {
-        case repoRoots, githubOrg, trackedRepos, ghPath, botLogins, automatedTitlePrefixes, jiraProjectKeys
+        case repoRoots, githubOrg, reviewTeam, trackedRepos, ghPath, botLogins, automatedTitlePrefixes, jiraProjectKeys
         case jiraInProgressStatus, jiraReviewStatus, jiraDoneStatus
         case githubPollSeconds, gitPollSeconds, jiraPollSeconds
         case stalePullRequestDays, notificationsEnabled
@@ -63,6 +65,7 @@ public struct DeskConfig: Codable, Sendable, Equatable {
         let d = DeskConfig()
         repoRoots = try c.decodeIfPresent([String].self, forKey: .repoRoots) ?? d.repoRoots
         githubOrg = try c.decodeIfPresent(String.self, forKey: .githubOrg) ?? d.githubOrg
+        reviewTeam = try c.decodeIfPresent(String.self, forKey: .reviewTeam) ?? d.reviewTeam
         trackedRepos = try c.decodeIfPresent([String].self, forKey: .trackedRepos) ?? d.trackedRepos
         ghPath = try c.decodeIfPresent(String.self, forKey: .ghPath) ?? d.ghPath
         botLogins = try c.decodeIfPresent([String].self, forKey: .botLogins) ?? d.botLogins

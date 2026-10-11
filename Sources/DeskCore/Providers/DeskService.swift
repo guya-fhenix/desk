@@ -5,6 +5,8 @@ public enum DeskError: Error, CustomStringConvertible, Sendable {
     case jiraNotConfigured
     case claudeNotFound
     case sessionNotStarted(String)
+    case sessionStillRunning(String)
+    case sessionNotResumed(String)
 
     public var description: String {
         switch self {
@@ -12,6 +14,8 @@ public enum DeskError: Error, CustomStringConvertible, Sendable {
         case .jiraNotConfigured: return "Jira: set the site, email, and API token in Settings."
         case .claudeNotFound: return "claude CLI not found. Install it or set the path in Settings."
         case .sessionNotStarted(let output): return "claude --bg printed no session id: \(output.prefix(200))"
+        case .sessionStillRunning(let id): return "session \(id) did not stop, so nothing was sent to it"
+        case .sessionNotResumed(let output): return "the session was not resumed under its own id: \(output.prefix(200))"
         }
     }
 }
@@ -153,6 +157,85 @@ public actor DeskService {
             .session, values,
             when: ["worktree": worktree != nil, "unresolved": pr.unresolvedThreads > 0, "conflict": pr.mergeState == .dirty]
         )
+    }
+
+    // MARK: Flows
+
+    /// Sends an idle background session its next instruction, keeping its id and its conversation. A session that
+    /// has finished its turn is still alive, and resuming a live one starts a copy instead, so it is stopped first
+    /// and resumed only once `claude agents` no longer lists it running. Callers send only to a session that is
+    /// `done`: stopping one that is working or asking something would cut it off.
+    public func send(_ prompt: String, to job: ClaudeJob, cwd: String) async throws {
+        guard let claude = config.resolvedClaudePath else { throw DeskError.claudeNotFound }
+        guard let sessionId = job.sessionId else { throw DeskError.sessionNotResumed("no session id recorded for \(job.id) yet") }
+        // Its exit status is not the test: a session that is not running may refuse the stop. Not running is the test.
+        _ = try await Shell.run(claude, ["stop", job.id], timeout: 30)
+        guard await waitUntilStopped(job.id, claude: claude) else { throw DeskError.sessionStillRunning(job.id) }
+        let output = try await Shell.output(claude, ["--bg", "--resume", sessionId, prompt], cwd: cwd, timeout: 120)
+        guard let id = ClaudeJobs.startedID(in: output), id == job.id else {
+            // A copy would run the instruction beside the real session; it goes before anything else happens.
+            if let copy = ClaudeJobs.startedID(in: output) {
+                _ = try? await Shell.run(claude, ["stop", copy], timeout: 30)
+                _ = try? await Shell.run(claude, ["rm", copy], timeout: 30)
+            }
+            throw DeskError.sessionNotResumed(output)
+        }
+    }
+
+    private func waitUntilStopped(_ id: String, claude: String) async -> Bool {
+        for _ in 0..<30 {
+            guard let output = try? await Shell.output(claude, ["agents", "--json"], timeout: 30) else { return false }
+            let running = ((try? JSONSerialization.jsonObject(with: Data(output.utf8))) as? [[String: Any]] ?? [])
+                .contains { $0["id"] as? String == id && $0["pid"] != nil }
+            if !running { return true }
+            try? await Task.sleep(for: .milliseconds(500))
+        }
+        return false
+    }
+
+    /// Where the session writes the result of instruction `step`: its own scratch folder, which it may always
+    /// write to, and which goes when the session is deleted.
+    public static func resultFile(jobId: String, step: Int, home: String = ClaudeJobs.home) -> String {
+        "\(home)/jobs/\(jobId)/tmp/desk-step-\(step).json"
+    }
+
+    public static func result(jobId: String, step: Int) -> Data? {
+        FileManager.default.contents(atPath: resultFile(jobId: jobId, step: step))
+    }
+
+    /// The directory to resume a session from: the one whose Claude Code project folder holds its transcript. A
+    /// session that entered a worktree keeps its conversation under that worktree, not where it started.
+    public static func resumeDirectory(sessionId: String, candidates: [String], home: String = ClaudeJobs.home) -> String? {
+        candidates.first { dir in
+            let folder = dir.replacing(/[^A-Za-z0-9-]/, with: "-")
+            return FileManager.default.fileExists(atPath: "\(home)/projects/\(folder)/\(sessionId).jsonl")
+        }
+    }
+
+    /// The text of one flow instruction for this PR. `worktree` is where its branch is checked out, if anywhere.
+    public static func flowPrompt(
+        _ prompt: FlowPrompt, pr: PullRequest, worktree: String?, resultFile: String, config: DeskConfig = DeskConfig()
+    ) -> String {
+        let values = [
+            "repo": pr.repo, "number": String(pr.number), "title": pr.title, "url": pr.url, "baseRef": pr.baseRef,
+            "headRef": pr.headRef, "worktree": worktree ?? "", "resultFile": resultFile,
+        ]
+        let id: PromptID
+        switch prompt {
+        case .selfReview: id = .selfReview
+        case .proposeFixes, .applyFixes, .fixConflict, .fixChecks: id = .selfReview
+        }
+        return config.prompt(id, values, when: ["worktree": worktree != nil])
+    }
+
+    public func markReady(_ pr: PullRequest) async throws {
+        guard let github else { throw DeskError.ghNotFound }
+        try await github.markReady(repo: pr.repo, number: pr.number)
+    }
+
+    public func requestTeamReview(_ pr: PullRequest) async throws {
+        guard let github else { throw DeskError.ghNotFound }
+        try await github.requestTeamReview(repo: pr.repo, number: pr.number, team: config.reviewTeam)
     }
 
     public func refreshJira(referencedKeys: [String]) async throws -> [Ticket] {

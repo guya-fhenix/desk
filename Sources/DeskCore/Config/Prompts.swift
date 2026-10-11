@@ -4,7 +4,7 @@ import Foundation
 /// takes as `{name}`, and wraps what only belongs on some tickets or PRs in `{#name}…{/name}`, with an
 /// optional `{else}` for the text that goes in when the condition does not hold.
 public enum PromptID: String, CaseIterable, Sendable, Identifiable {
-    case ticketPlan, session, review, reviewSystem, reviewReformat
+    case ticketPlan, session, selfReview, review, reviewSystem, reviewReformat
 
     public var id: String { rawValue }
 
@@ -12,6 +12,7 @@ public enum PromptID: String, CaseIterable, Sendable, Identifiable {
         switch self {
         case .ticketPlan: "Start a ticket"
         case .session: "PR session"
+        case .selfReview: "Flow › Self-review"
         case .review: "Review"
         case .reviewSystem: "Review › System prompt"
         case .reviewReformat: "Review › Reformat pass"
@@ -23,6 +24,7 @@ public enum PromptID: String, CaseIterable, Sendable, Identifiable {
         switch self {
         case .ticketPlan: "Sent with `claude --bg` when you press Start on a ticket."
         case .session: "Sent with `claude --bg` when you start a background session on a PR."
+        case .selfReview: "Sent to the PR's session when you approve its draft. It must start with /goal, and the session must write the JSON described here to {resultFile}: that file is how the app knows it has finished."
         case .review: "Sent with `claude -p` when you press Review. The app reads the answer as the JSON described here, so keep its field names."
         case .reviewSystem: "Sent as `--append-system-prompt` on every review run."
         case .reviewReformat: "Sent with `claude -p` only when a review answer does not parse; that answer follows on stdin. Keep the JSON shape."
@@ -43,6 +45,8 @@ public enum PromptID: String, CaseIterable, Sendable, Identifiable {
             ]
         case .session:
             return pr + [("headRef", "the PR branch"), ("worktree", "the worktree path"), ("threads", "\"3 review threads are\"")]
+        case .selfReview:
+            return pr + [("headRef", "the PR branch"), ("worktree", "the worktree path"), ("resultFile", "where the session writes its summary")]
         case .review:
             return pr + [("author", "the PR author"), ("headSha", "the PR head commit"), ("repos", "one line per other clone")]
         case .reviewSystem, .reviewReformat:
@@ -59,6 +63,7 @@ public enum PromptID: String, CaseIterable, Sendable, Identifiable {
                 ("worktree", "the branch is checked out in a worktree"), ("unresolved", "the PR has unresolved threads"),
                 ("conflict", "the PR conflicts with its base branch"),
             ]
+        case .selfReview: [("worktree", "the branch is checked out in a worktree")]
         case .review: [("otherRepos", "there are other clones under the repo roots")]
         case .reviewSystem, .reviewReformat: []
         }
@@ -108,6 +113,29 @@ public enum PromptID: String, CaseIterable, Sendable, Identifiable {
 
             {#conflict}It conflicts with {baseRef}. Work out which files conflict and propose how to resolve each \
             one, but leave the branch as it is until I say so.{/conflict}
+            """
+        // The whole text is the goal's condition, and a multi-paragraph one holds: the session works until the
+        // evaluator agrees it is met. The result file comes last because writing it is the last thing to do, and it
+        // is what the app waits for — the session reports `done` between rounds as well.
+        case .selfReview:
+            """
+            /goal Review and fix pull request {url} ({repo}#{number}, "{title}") until a review comes back with no \
+            High or Medium finding, or three reviews have run, and the summary file below is written.
+
+            {#worktree}Its branch {headRef} is checked out in the worktree at {worktree}. Work only there \
+            (EnterWorktree with that path if you are not in it already).{else}Its branch is {headRef}; work on that \
+            branch.{/worktree}
+
+            Each round: run the fhenix-workflow:reviewing-code skill on the pull request, fix every High and Medium \
+            finding it reports, and the Low ones whose fix is a line or two. Commit the round's fixes with a message \
+            that says what the review found, and push. Keep the pull request a draft.
+
+            When you stop, write this JSON to {resultFile} and nothing else:
+            {"rounds": 2, "clean": true, "findings": [{"severity": "high", "file": "src/a.rs", "line": 42, \
+            "problem": "what was wrong, in one plain sentence", "fix": "what you changed, in one plain sentence, or \
+            why you left it", "round": 1, "fixed": true}]}
+            `clean` says whether the last review found no High or Medium. List every High and Medium finding from \
+            every round, and the Low ones you fixed.
             """
         // Other clones are read at the branch the app just fetched and never at their checkout, so the review
         // sees current code and not someone's half-done branch; the list comes before the answer format, or it

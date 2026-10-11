@@ -56,8 +56,9 @@ public enum GitHubWriteError: Error, CustomStringConvertible, Sendable {
     }
 }
 
-/// The app's only write to GitHub: Claude's comments into your pending review. It lives in its own file so
-/// that fact stays auditable in one place — everything in `GitHubProvider.swift` reads.
+/// Every write the app makes to GitHub lives in this file, so they stay auditable in one place — everything in
+/// `GitHubProvider.swift` reads. Two kinds: Claude's comments into your pending review on someone else's PR,
+/// here, and the flow's moves on your own PRs, at the end.
 ///
 /// A pending review is visible to you alone and notifies nobody. Nothing here submits one, approves,
 /// requests changes or comments in public: you finish the review on GitHub.
@@ -151,6 +152,20 @@ extension GitHubProvider {
             throw GitHubWriteError.unreadable(String(decoding: data, as: UTF8.self))
         }
         return payload
+    }
+}
+
+/// The flow's moves on your own PRs, each one the result of a press of yours.
+extension GitHubProvider {
+    public func markReady(repo: String, number: Int) async throws {
+        try await Shell.output(ghPath, ["pr", "ready", String(number), "--repo", repo])
+    }
+
+    /// Asks a team of the org that owns the repo to review. Asking again after a team member has reviewed puts the
+    /// team back on the PR.
+    public func requestTeamReview(repo: String, number: Int, team: String) async throws {
+        let owner = repo.split(separator: "/").first.map(String.init) ?? repo
+        try await Shell.output(ghPath, ["pr", "edit", String(number), "--repo", repo, "--add-reviewer", "\(owner)/\(team)"])
     }
 }
 

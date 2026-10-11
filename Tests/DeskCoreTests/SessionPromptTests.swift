@@ -107,3 +107,29 @@ import Testing
         #expect(!DeskService.ticketPrompt(for: ticket, note: "").contains("What I want"))
     }
 }
+
+/// What a flow's session is sent, and where from.
+@Suite struct FlowPromptTests {
+    @Test func theSelfReviewIsAGoalThatEndsInTheResultFile() {
+        let pr = Fixtures.pr(number: 11, head: "worktree-pro-1", draft: true)
+        let text = DeskService.flowPrompt(.selfReview, pr: pr, worktree: "/r/cofhe/.claude/worktrees/pro-1", resultFile: "/j/tmp/desk-step-1.json")
+        #expect(text.hasPrefix("/goal "))
+        #expect(text.contains("fhenix-workflow:reviewing-code"))
+        #expect(text.contains("worktree at /r/cofhe/.claude/worktrees/pro-1"))
+        #expect(text.contains("write this JSON to /j/tmp/desk-step-1.json"))
+        #expect(text.contains(#"{"rounds": 2, "clean": true"#))
+        #expect(!DeskService.flowPrompt(.selfReview, pr: pr, worktree: nil, resultFile: "/f").contains("worktree at"))
+    }
+
+    /// A session that entered a worktree keeps its transcript under that worktree's project folder.
+    @Test func aSessionIsResumedFromTheFolderThatHoldsItsTranscript() throws {
+        let home = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: home) }
+        let folder = home.appendingPathComponent("projects/-r-cofhe--claude-worktrees-pro-1")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try Data().write(to: folder.appendingPathComponent("abc.jsonl"))
+        let candidates = ["/r/cofhe/.claude/worktrees/other", "/r/cofhe/.claude/worktrees/pro-1", "/r/cofhe"]
+        #expect(DeskService.resumeDirectory(sessionId: "abc", candidates: candidates, home: home.path) == "/r/cofhe/.claude/worktrees/pro-1")
+        #expect(DeskService.resumeDirectory(sessionId: "zzz", candidates: candidates, home: home.path) == nil)
+    }
+}

@@ -24,6 +24,61 @@ public enum FlowStage: String, Codable, Sendable, CaseIterable {
     public var waitsOnYou: Bool { [.draft, .fixesToCheck, .fixesProposed, .approved].contains(self) }
 }
 
+/// One instruction the app sends a flow's session. Each ends with the session writing a result file, which is
+/// how the app knows it has finished: a session reports `done` between the rounds of a `/goal` too.
+public enum FlowPrompt: String, Codable, Sendable {
+    case selfReview, proposeFixes, applyFixes, fixConflict, fixChecks
+
+    public var title: String {
+        switch self {
+        case .selfReview: return "Self-review"
+        case .proposeFixes: return "Proposing fixes"
+        case .applyFixes: return "Applying fixes"
+        case .fixConflict: return "Fixing the conflict"
+        case .fixChecks: return "Fixing CI"
+        }
+    }
+
+    /// Sent without a press of yours, so it also waits for the session to have sat idle a while.
+    public var isAutomatic: Bool { [.proposeFixes, .fixConflict, .fixChecks].contains(self) }
+}
+
+/// One finding of the self-review, as the session reports it.
+public struct Finding: Codable, Sendable, Hashable {
+    public var severity: String
+    public var file: String
+    public var line: Int?
+    public var problem: String
+    /// What the session changed, or why it left it.
+    public var fix: String
+    public var round: Int?
+    public var fixed: Bool?
+
+    public init(severity: String, file: String, line: Int? = nil, problem: String, fix: String, round: Int? = nil, fixed: Bool? = nil) {
+        self.severity = severity
+        self.file = file
+        self.line = line
+        self.problem = problem
+        self.fix = fix
+        self.round = round
+        self.fixed = fixed
+    }
+}
+
+/// The self-review's result file.
+public struct SelfReview: Codable, Sendable, Hashable {
+    public var rounds: Int?
+    /// Whether the last review found no High or Medium.
+    public var clean: Bool?
+    public var findings: [Finding]
+
+    public init(rounds: Int? = nil, clean: Bool? = nil, findings: [Finding] = []) {
+        self.rounds = rounds
+        self.clean = clean
+        self.findings = findings
+    }
+}
+
 /// One background session carried from a ticket to its merge. Saved in `flows.json`: the stage is the one thing
 /// here that neither GitHub nor the session can tell the app again after it quits.
 public struct Flow: Codable, Sendable, Hashable, Identifiable {
@@ -37,35 +92,157 @@ public struct Flow: Codable, Sendable, Hashable, Identifiable {
     public var prURL: String?
     public var stage: FlowStage
     public var startedAt: Date
+    /// While on, the app sends the session nothing: you are driving it yourself.
+    public var paused = false
+    /// An instruction waiting for the session to be free.
+    public var pending: FlowPrompt?
+    /// The instruction the session is on, until its result file appears.
+    public var awaiting: FlowPrompt?
+    /// Numbers the result files, so a file from an earlier instruction is never read as this one's.
+    public var step = 0
+    /// When the awaited instruction went out.
+    public var sentAt: Date?
+    /// The PR head when self-review started: where its changes begin.
+    public var baseSha: String?
+    public var selfReview: SelfReview?
+    /// Reviews submitted after this start a round of proposed fixes.
+    public var reviewsSince: Date?
+    /// What last went wrong, shown until the next instruction goes out.
+    public var note: String?
 
-    public init(jobId: String, ticketKey: String?, repoRoot: String, prURL: String? = nil, stage: FlowStage = .working, startedAt: Date) {
+    public init(
+        jobId: String, ticketKey: String?, repoRoot: String, prURL: String? = nil, stage: FlowStage = .working,
+        startedAt: Date, reviewsSince: Date? = nil
+    ) {
         self.jobId = jobId
         self.ticketKey = ticketKey
         self.repoRoot = repoRoot
         self.prURL = prURL
         self.stage = stage
         self.startedAt = startedAt
+        self.reviewsSince = reviewsSince
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case jobId, ticketKey, repoRoot, prURL, stage, startedAt, paused, pending, awaiting, step, sentAt, baseSha, selfReview
+        case reviewsSince, note
+    }
+
+    /// Every field after the first few is optional on the way in, so a flows.json written before it existed loads.
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        jobId = try c.decode(String.self, forKey: .jobId)
+        ticketKey = try c.decodeIfPresent(String.self, forKey: .ticketKey)
+        repoRoot = try c.decode(String.self, forKey: .repoRoot)
+        prURL = try c.decodeIfPresent(String.self, forKey: .prURL)
+        stage = try c.decode(FlowStage.self, forKey: .stage)
+        startedAt = try c.decode(Date.self, forKey: .startedAt)
+        paused = try c.decodeIfPresent(Bool.self, forKey: .paused) ?? false
+        pending = try c.decodeIfPresent(FlowPrompt.self, forKey: .pending)
+        awaiting = try c.decodeIfPresent(FlowPrompt.self, forKey: .awaiting)
+        step = try c.decodeIfPresent(Int.self, forKey: .step) ?? 0
+        sentAt = try c.decodeIfPresent(Date.self, forKey: .sentAt)
+        baseSha = try c.decodeIfPresent(String.self, forKey: .baseSha)
+        selfReview = try c.decodeIfPresent(SelfReview.self, forKey: .selfReview)
+        reviewsSince = try c.decodeIfPresent(Date.self, forKey: .reviewsSince)
+        note = try c.decodeIfPresent(String.self, forKey: .note)
     }
 }
 
-/// Moves a flow along on what GitHub and the session say. Only the moves nobody has to press for happen here.
+/// What the polls said about one flow.
+public struct FlowInput: Sendable {
+    public var job: ClaudeJob?
+    public var mine: [PullRequest]
+    public var merged: [PullRequest]
+    public var ticketKeys: [String: [String]]
+    /// The awaited instruction's result file, once the session has written it.
+    public var result: Data?
+    public var now: Date
+
+    public init(
+        job: ClaudeJob?, mine: [PullRequest], merged: [PullRequest], ticketKeys: [String: [String]] = [:], result: Data? = nil,
+        now: Date = Date()
+    ) {
+        self.job = job
+        self.mine = mine
+        self.merged = merged
+        self.ticketKeys = ticketKeys
+        self.result = result
+        self.now = now
+    }
+}
+
+/// What the app has to do for a flow after it moved.
+public enum FlowEffect: Sendable, Equatable {
+    /// Stop the idle session and resume it with this instruction.
+    case send(FlowPrompt)
+}
+
+/// Moves a flow along on what GitHub and the session say. Only the moves nobody has to press for happen here;
+/// a press changes the flow first and lets this send what it queued.
 public enum FlowEngine {
-    public static func advance(
-        _ flow: Flow, job: ClaudeJob?, mine: [PullRequest], merged: [PullRequest], ticketKeys: [String: [String]]
-    ) -> Flow {
+    /// How long a session sits idle before an automatic instruction may interrupt it.
+    /// ponytail: one fixed wait for every session; a per-flow setting if 10 minutes turns out wrong.
+    public static let idleBeforeAutomatic: TimeInterval = 600
+
+    public static func advance(_ flow: Flow, _ input: FlowInput) -> (flow: Flow, effects: [FlowEffect]) {
         var flow = flow
-        if flow.prURL == nil, let job, let pr = openedPR(flow, job: job, mine: mine, ticketKeys: ticketKeys) {
+        if flow.prURL == nil, let job = input.job, let pr = openedPR(flow, job: job, mine: input.mine, ticketKeys: input.ticketKeys) {
             flow.prURL = pr.url
             flow.stage = pr.isDraft ? .draft : .inReview
+            if !pr.isDraft { flow.reviewsSince = input.now }
         }
-        guard let url = flow.prURL else { return flow }
-        if merged.contains(where: { $0.url == url }) {
+        guard let url = flow.prURL else { return (flow, []) }
+        if input.merged.contains(where: { $0.url == url }) {
             flow.stage = .merged
-        } else if flow.stage == .draft, mine.first(where: { $0.url == url })?.isDraft == false {
+            flow.pending = nil
+            flow.awaiting = nil
+            return (flow, [])
+        }
+        if flow.stage == .draft, input.mine.first(where: { $0.url == url })?.isDraft == false {
             // Marked ready by hand on GitHub: the draft stages are behind it.
             flow.stage = .inReview
+            flow.reviewsSince = input.now
         }
-        return flow
+        if let awaiting = flow.awaiting, let result = input.result {
+            finish(&flow, awaiting, result: result)
+        }
+        guard let pending = flow.pending, flow.awaiting == nil, !flow.paused, let job = input.job,
+              canSend(job, automatic: pending.isAutomatic, now: input.now)
+        else { return (flow, []) }
+        flow.pending = nil
+        flow.awaiting = pending
+        flow.step += 1
+        flow.sentAt = input.now
+        flow.note = nil
+        return (flow, [.send(pending)])
+    }
+
+    /// The session went quiet on the awaited instruction without writing its result: idle for two minutes after
+    /// the instruction went out. Between the rounds of a `/goal` it is idle for seconds, not minutes.
+    public static func isStalled(_ flow: Flow, job: ClaudeJob?, now: Date = Date()) -> Bool {
+        guard flow.awaiting != nil, let job, job.state == "done", let sentAt = flow.sentAt else { return false }
+        return job.updatedAt > sentAt && now.timeIntervalSince(job.updatedAt) > 120
+    }
+
+    /// The session rules: never while it works, never while it is asking you something, and an automatic
+    /// instruction only once it has sat idle a while, so it does not cut in right after you were talking to it.
+    public static func canSend(_ job: ClaudeJob, automatic: Bool, now: Date) -> Bool {
+        guard job.state == "done" else { return false }
+        return !automatic || now.timeIntervalSince(job.updatedAt) >= idleBeforeAutomatic
+    }
+
+    /// Takes in what the awaited instruction left behind. `result` nil is a result you chose to go on without.
+    public static func finish(_ flow: inout Flow, _ prompt: FlowPrompt, result: Data?) {
+        flow.awaiting = nil
+        switch prompt {
+        case .selfReview:
+            flow.selfReview = result.flatMap { try? JSON.decoder().decode(SelfReview.self, from: $0) }
+            if result != nil, flow.selfReview == nil { flow.note = "The self-review's summary did not read; the changes are still there to look at." }
+            flow.stage = .fixesToCheck
+        case .proposeFixes, .applyFixes, .fixConflict, .fixChecks:
+            break
+        }
     }
 
     /// The PR this session opened. Claude Code's link scan lists every PR a session touched, including ones it

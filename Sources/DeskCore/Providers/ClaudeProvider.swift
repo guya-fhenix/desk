@@ -18,14 +18,17 @@ public struct ClaudeJob: Sendable, Hashable, Identifiable {
     /// `owner/name#number` of every PR the session touched, from Claude Code's own scan of the transcript.
     public var prKeys: Set<String>
     public var updatedAt: Date
+    /// The full id `claude --resume` takes, which is how the app sends the session its next instruction.
+    public var sessionId: String?
 
-    public init(id: String, name: String, state: String, cwd: String, prKeys: Set<String>, updatedAt: Date) {
+    public init(id: String, name: String, state: String, cwd: String, prKeys: Set<String>, updatedAt: Date, sessionId: String? = nil) {
         self.id = id
         self.name = name
         self.state = state
         self.cwd = cwd
         self.prKeys = prKeys
         self.updatedAt = updatedAt
+        self.sessionId = sessionId
     }
 
     public var isRunning: Bool { state == "working" }
@@ -50,15 +53,18 @@ public enum ClaudeJobs {
             guard !keys.isEmpty || kept.contains(id) else { return nil }
             return ClaudeJob(
                 id: id, name: state.label(fallback: id), state: state.state ?? "unknown", cwd: state.cwd ?? "",
-                prKeys: keys, updatedAt: state.updatedAt ?? .distantPast
+                prKeys: keys, updatedAt: state.updatedAt ?? .distantPast, sessionId: state.sessionId
             )
         }
         .sorted { $0.updatedAt > $1.updatedAt }
     }
 
-    /// The short id `claude --bg` prints ("backgrounded · 1a2b3c4d"), out of ANSI-coloured output.
+    /// The short id `claude --bg` prints ("backgrounded · 1a2b3c4d"), out of ANSI-coloured output. Read off the
+    /// "backgrounded" line when there is one: a resume that started a copy names the original first.
     public static func startedID(in output: String) -> String? {
-        output.matches(of: /\b[0-9a-f]{8}\b/).first.map { String($0.output) }
+        let plain = output.replacing(/\u{1B}\[[0-9;]*m/, with: "")
+        let line = plain.split(separator: "\n").first { $0.contains("backgrounded") }.map(String.init) ?? plain
+        return line.matches(of: /\b[0-9a-f]{8}\b/).first.map { String($0.output) }
     }
 
     /// Every PR url in a piece of text, for the prompt a session was started from.
@@ -85,6 +91,7 @@ public enum ClaudeJobs {
         /// The prompt the session started from, for sessions Claude Code never named.
         var intent: String?
         var cwd: String?
+        var sessionId: String?
         var children: [Child]?
         var updatedAt: Date?
 

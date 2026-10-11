@@ -191,6 +191,9 @@ public struct DeskState: Sendable {
 
     public func job(id: String) -> ClaudeJob? { claudeJobs.first { $0.id == id } }
 
+    /// The open PR of yours this flow carries.
+    public func pullRequest(of flow: Flow) -> PullRequest? { flow.prURL.flatMap { url in mine.first { $0.url == url } } }
+
     /// The flow this PR is in, if any.
     public func flow(for pr: PullRequest) -> Flow? { flows.first { $0.prURL == pr.url } }
 

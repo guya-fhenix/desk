@@ -58,6 +58,14 @@ struct SettingsView: View {
                 TextField("gh path (empty = auto)", text: $draft.ghPath)
             }
             Section {
+                TextField("Review team", text: $draft.reviewTeam)
+            } header: {
+                Text("Flow")
+            } footer: {
+                Text("The team slug in the org, asked to review a PR once you approve its self-review, and again after each round of fixes.")
+                    .scaled(.caption).foregroundStyle(.secondary)
+            }
+            Section {
                 TextField("Repo roots (comma separated)", text: $repoRootsText)
             } header: {
                 Text("Local clones")

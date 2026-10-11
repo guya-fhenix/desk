@@ -99,5 +99,7 @@ import Testing
         let output = "backgrounded · \u{1B}[36mc020ac7f\u{1B}[39m\n  claude attach c020ac7f    open in this terminal\n"
         #expect(ClaudeJobs.startedID(in: output) == "c020ac7f")
         #expect(ClaudeJobs.startedID(in: "nothing here") == nil)
+        let copy = "note: session fd883a8f is already running in the background, so this started a copy as 664b5899.\nbackgrounded · 664b5899\n"
+        #expect(ClaudeJobs.startedID(in: copy) == "664b5899")
     }
 }

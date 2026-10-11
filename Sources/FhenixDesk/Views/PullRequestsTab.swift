@@ -104,20 +104,6 @@ private struct StackedTitle: View {
     }
 }
 
-/// The PR's stage in the app's flow, or a dash for a PR no flow carries.
-private struct FlowStageCell: View {
-    var pr: PullRequest
-    var model: AppModel
-
-    var body: some View {
-        if let flow = model.state.flow(for: pr) {
-            StageChip(stage: flow.stage).fixedSize()
-        } else {
-            Text("–").foregroundStyle(.secondary).help("Not started from a ticket")
-        }
-    }
-}
-
 /// Your own tick on a row. GitHub never sees it, and it does not survive the app quitting.
 private struct CheckMark: View {
     var url: String
@@ -219,12 +205,7 @@ private struct PullRequestInspector: View {
                     ForEach(children) { stackLine("Under it", $0) }
                 }
             }
-            if let flow = model.state.flow(for: pr) {
-                Section("Flow") {
-                    LabeledContent("Stage") { StageChip(stage: flow.stage) }
-                    if let key = flow.ticketKey { LabeledContent("Started from", value: key) }
-                }
-            }
+            if let flow = model.state.flow(for: pr) { FlowSection(flow: flow, pr: pr, model: model) }
             Section("Jira") { jira }
             Section("Background session") { sessions }
         }
@@ -291,7 +272,14 @@ private struct PullRequestInspector: View {
         }
         ForEach(jobs) { job in
             LabeledContent {
-                Button("Attach") { model.attach(job, for: pr) }.controlSize(.small)
+                HStack(spacing: 6) {
+                    if model.state.flow(for: pr) == nil {
+                        Button("Use for flow") { model.joinFlow(job, pr) }
+                            .help("Carry this PR through the flow from its current stage, with this session")
+                    }
+                    Button("Attach") { model.attach(job, for: pr) }
+                }
+                .controlSize(.small)
             } label: {
                 HStack(spacing: 6) {
                     StatusDot(color: job.isRunning ? .green : .secondary)
