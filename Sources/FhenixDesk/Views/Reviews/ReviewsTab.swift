@@ -7,10 +7,11 @@ struct ReviewsTab: View {
     @Environment(AppModel.self) private var model
     @State private var sortOrder: [KeyPathComparator<PullRequest>] = []
     @AppStorage("sort.reviewQueue") private var storedSort = ""
-    @State private var scope: ReviewScope = .all
+    // The filters are remembered, not view state: the screen is rebuilt every time you come back to it,
+    // and a filter that quietly resets shows a different queue than the one you left.
+    @AppStorage("reviews.scope") private var scope: ReviewScope = .all
     /// Off by default, so the whole queue shows; on, only the PRs opened in the last `days` days.
-    @State private var limited = false
-    /// Remembered, so turning the limit on brings back the number you last used.
+    @AppStorage("reviews.limited") private var limited = false
     @AppStorage("reviews.days") private var days = 14
     @State private var selection: String?
 
