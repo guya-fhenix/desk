@@ -288,7 +288,7 @@ public enum FlowEngine {
         if let awaiting = flow.awaiting, let result = input.result {
             effects += finish(&flow, awaiting, result: result, pr: pr)
         }
-        if let pr, flow.pending == nil, flow.awaiting == nil { review(&flow, pr, input) }
+        if let pr, flow.pending == nil, flow.awaiting == nil { effects += review(&flow, pr, input) }
         if let pr, flow.pending == nil, flow.awaiting == nil { autoFix(&flow, pr) }
         guard let pending = flow.pending, flow.awaiting == nil, !flow.paused, let job = input.job,
               canSend(job, automatic: pending.isAutomatic, now: input.now)
@@ -303,9 +303,14 @@ public enum FlowEngine {
 
     /// While the PR is out for review: an approval with nothing left open moves it to Approved, and a teammate's
     /// new review asks the session for proposed fixes. Your own reviews and the bots' start nothing.
-    private static func review(_ flow: inout Flow, _ pr: PullRequest, _ input: FlowInput) {
-        if flow.stage == .approved, pr.reviewDecision != .approved { flow.stage = .inReview }
-        guard flow.stage == .inReview else { return }
+    ///
+    /// An approval that goes away with no new review behind it was dismissed by a push — an automatic fix's, say —
+    /// so the review team is asked again. One that a teammate's change request replaced goes the way of any other
+    /// review: proposed fixes first, and the team asked again once they are in.
+    private static func review(_ flow: inout Flow, _ pr: PullRequest, _ input: FlowInput) -> [FlowEffect] {
+        let lostApproval = flow.stage == .approved && pr.reviewDecision != .approved
+        if lostApproval { flow.stage = .inReview }
+        guard flow.stage == .inReview else { return [] }
         let since = flow.reviewsSince ?? .distantPast
         let fresh = pr.reviews.filter { review in
             review.submittedAt > since && review.author != input.login && !input.bots.contains(review.author)
@@ -316,7 +321,10 @@ public enum FlowEngine {
             flow.stage = .approved
         } else if !fresh.isEmpty {
             flow.pending = .proposeFixes
+        } else if lostApproval {
+            return [.requestTeam]
         }
+        return []
     }
 
     /// The session went quiet on the awaited instruction without writing its result: idle for two minutes after

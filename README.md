@@ -103,7 +103,7 @@ PR details panel, and the same session carries it all the way:
 | Approved | you press Merge, always a squash |
 
 A conflict with the base (rebased while a draft, merged in after) and red CI are fixed without asking, once per
-PR head. The review team is a setting (GitHub → Flow, `protocol-team` by default). Settings → Repos, the PR
+PR head; a push that dismisses an approval sends the PR back to the review team. The review team is a setting (GitHub → Flow, `protocol-team` by default). Settings → Repos, the PR
 details panel and the ticket's repo menu say whether a repo's sessions can run `reviewing-code` at all — it
 ships in `fhenix-workflow` 0.5.0 — and Approve on a draft stays off where they cannot.
 

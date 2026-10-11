@@ -158,6 +158,33 @@ import Testing
         #expect(run(approved, pr([], decision: .changesRequested, threads: 0)).stage == .inReview)
     }
 
+    /// A push that dismisses the approval — an automatic fix's — sends the PR back to the review team. A teammate's
+    /// change request that replaces it gets proposed fixes first instead.
+    @Test func anApprovalLostToAPushAsksTheTeamAgain() {
+        var approved = flow(stage: .approved, pr: 11)
+        approved.reviewsSince = Fixtures.hours(5)
+        func run(_ reviews: [Review], decision: ReviewDecision) -> (flow: Flow, effects: [FlowEffect]) {
+            let pr = Fixtures.pr(number: 11, head: "worktree-pro-1", created: Fixtures.hours(3), review: decision, reviews: reviews)
+            return FlowEngine.advance(approved, FlowInput(job: job([11], state: "working"), mine: [pr], merged: [], login: "me"))
+        }
+        let handled = Fixtures.review("APPROVED", at: Fixtures.hours(5), by: "haim")
+
+        let dismissed = run([handled], decision: .reviewRequired)
+        #expect(dismissed.flow.stage == .inReview && dismissed.effects == [.requestTeam])
+
+        let replaced = run([handled, Fixtures.review("CHANGES_REQUESTED", at: Fixtures.hours(6), by: "roee")], decision: .changesRequested)
+        #expect(replaced.flow.stage == .inReview && replaced.flow.pending == .proposeFixes && replaced.effects.isEmpty)
+
+        // Still approved: nothing to do.
+        #expect(run([handled], decision: .approved).effects.isEmpty)
+        // Back in review already, a later poll asks nobody again.
+        #expect(FlowEngine.advance(dismissed.flow, FlowInput(
+            job: job([11], state: "working"),
+            mine: [Fixtures.pr(number: 11, head: "worktree-pro-1", created: Fixtures.hours(3), review: .reviewRequired, reviews: [handled])],
+            merged: [], login: "me"
+        )).effects.isEmpty)
+    }
+
     @Test func proposalsWaitForYouAndAnEmptyAnswerGoesBackToReview() {
         let pr = Fixtures.pr(number: 11, head: "worktree-pro-1", created: Fixtures.hours(3))
         var proposing = flow(stage: .inReview, pr: 11)
