@@ -45,6 +45,16 @@ import Testing
         #expect(state.claudeJobs(for: Fixtures.pr(number: 5, head: "b")).isEmpty)
     }
 
+    /// A flow's session is kept before it has touched any PR, so its ticket can show it.
+    @Test func scanKeepsTheSessionsItIsAskedToEvenWithoutAPullRequest() throws {
+        let home = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: home) }
+        try job(home, id: "dddddddd", body: #"{"state": "working", "intent": "Plan PRO-9 — a thing", "cwd": "/r/cofhe"}"#)
+        try job(home, id: "eeeeeeee", body: #"{"state": "done", "intent": "unrelated", "cwd": "/r/cofhe"}"#)
+        #expect(ClaudeJobs.scan(home: home.path).isEmpty)
+        #expect(ClaudeJobs.scan(home: home.path, keeping: ["dddddddd"]).map(\.id) == ["dddddddd"])
+    }
+
     @Test func scanSurvivesAMissingOrUnreadableJobsDirectory() {
         #expect(ClaudeJobs.scan(home: "/nope/not/here").isEmpty)
     }

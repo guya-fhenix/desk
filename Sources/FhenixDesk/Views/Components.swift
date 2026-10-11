@@ -31,6 +31,15 @@ struct ReviewSkillMark: View {
     }
 }
 
+/// A flow's stage. Orange when it waits on your press, so the column reads as a to-do list.
+struct StageChip: View {
+    var stage: FlowStage
+
+    var body: some View {
+        Chip(text: stage.title, color: stage.waitsOnYou ? .orange : stage == .merged ? .purple : .blue)
+    }
+}
+
 struct StatusDot: View {
     var color: Color
 

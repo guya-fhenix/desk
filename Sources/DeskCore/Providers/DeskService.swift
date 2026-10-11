@@ -19,6 +19,7 @@ public enum DeskError: Error, CustomStringConvertible, Sendable {
 /// Owns the providers and the on-disk caches. The app and the doctor share it.
 public actor DeskService {
     public static let configFile = "config.json"
+    public static let flowsFile = "flows.json"
 
     private var config: DeskConfig
     private let support: AppSupport
@@ -83,8 +84,9 @@ public actor DeskService {
         await git.scan(roots: config.expandedRepoRoots, slugs: config.trackedRepoSlugs)
     }
 
-    /// Claude Code's background sessions. Small local files, read with the git scan.
-    public func claudeJobs() -> [ClaudeJob] { ClaudeJobs.scan() }
+    /// Claude Code's background sessions, plus the flows' own whatever they mention. Small local files, read
+    /// with the git scan.
+    public func claudeJobs(keeping ids: Set<String> = []) -> [ClaudeJob] { ClaudeJobs.scan(keeping: ids) }
 
     /// Whether each clone's sessions can run the team review skill, by repo root. A few small files per repo.
     public func reviewSkills(repos: [RepoRef]) -> [String: ReviewSkill] {

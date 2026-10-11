@@ -37,8 +37,9 @@ public enum ClaudeJobs {
     public static let home = ("~/.claude" as NSString).expandingTildeInPath
 
     /// Background sessions that mention a pull request, newest first. Sessions that mention none are
-    /// dropped: nothing on a PR screen could show them.
-    public static func scan(home: String = ClaudeJobs.home) -> [ClaudeJob] {
+    /// dropped — nothing on a PR screen could show them — unless `keeping` names them: a flow's session is
+    /// shown on its ticket before it has opened anything.
+    public static func scan(home: String = ClaudeJobs.home, keeping kept: Set<String> = []) -> [ClaudeJob] {
         let root = URL(fileURLWithPath: home).appendingPathComponent("jobs")
         guard let ids = try? FileManager.default.contentsOfDirectory(atPath: root.path) else { return [] }
         let decoder = JSON.decoder()
@@ -46,7 +47,7 @@ public enum ClaudeJobs {
             let file = root.appendingPathComponent(id).appendingPathComponent("state.json")
             guard let data = try? Data(contentsOf: file), let state = try? decoder.decode(JobState.self, from: data) else { return nil }
             let keys = state.prKeys
-            guard !keys.isEmpty else { return nil }
+            guard !keys.isEmpty || kept.contains(id) else { return nil }
             return ClaudeJob(
                 id: id, name: state.label(fallback: id), state: state.state ?? "unknown", cwd: state.cwd ?? "",
                 prKeys: keys, updatedAt: state.updatedAt ?? .distantPast

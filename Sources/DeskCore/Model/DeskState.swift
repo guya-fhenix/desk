@@ -46,6 +46,8 @@ public struct DeskState: Sendable {
     /// Claude Code's background sessions that mention a PR. Local files, so they ride the git poll
     /// rather than being a polled `Source` of their own.
     public var claudeJobs: [ClaudeJob] = []
+    /// Sessions carried from a ticket to the merge, saved in `flows.json`.
+    public var flows: [Flow] = []
     /// Whether each clone's sessions can run the team review skill, by repo root. Read with the git poll.
     public var reviewSkills: [String: ReviewSkill] = [:]
     public var errors: [Source: String] = [:]
@@ -186,6 +188,14 @@ public struct DeskState: Sendable {
         guard let key = ClaudeJobs.prKey(pr.url) else { return [] }
         return claudeJobs.filter { $0.prKeys.contains(key) }
     }
+
+    public func job(id: String) -> ClaudeJob? { claudeJobs.first { $0.id == id } }
+
+    /// The flow this PR is in, if any.
+    public func flow(for pr: PullRequest) -> Flow? { flows.first { $0.prURL == pr.url } }
+
+    /// The flows started from this ticket, oldest first.
+    public func flows(forTicket key: String) -> [Flow] { flows.filter { $0.ticketKey == key } }
 
     public func rebaseReason(_ pr: PullRequest) -> RebaseReason? {
         let openHeads = Linker.openHeadsByRepo(github?.allOpen ?? [])[pr.repoName] ?? []

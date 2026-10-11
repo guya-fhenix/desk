@@ -10,7 +10,7 @@ public enum PromptID: String, CaseIterable, Sendable, Identifiable {
 
     public var title: String {
         switch self {
-        case .ticketPlan: "Plan a ticket"
+        case .ticketPlan: "Start a ticket"
         case .session: "PR session"
         case .review: "Review"
         case .reviewSystem: "Review › System prompt"
@@ -21,7 +21,7 @@ public enum PromptID: String, CaseIterable, Sendable, Identifiable {
     /// When the text is sent, for the line under its editor.
     public var usage: String {
         switch self {
-        case .ticketPlan: "Sent with `claude --bg` when you press Plan on a ticket."
+        case .ticketPlan: "Sent with `claude --bg` when you press Start on a ticket."
         case .session: "Sent with `claude --bg` when you start a background session on a PR."
         case .review: "Sent with `claude -p` when you press Review. The app reads the answer as the JSON described here, so keep its field names."
         case .reviewSystem: "Sent as `--append-system-prompt` on every review run."
@@ -66,6 +66,8 @@ public enum PromptID: String, CaseIterable, Sendable, Identifiable {
 
     public var defaultText: String {
         switch self {
+        // The plan waits for you; what follows it is what the app's flow needs: a draft, because nothing leaves
+        // draft until you approve it, and the key in the branch and title, which is how the ticket finds its PR.
         case .ticketPlan:
             """
             Plan {key} — {summary}
@@ -81,6 +83,10 @@ public enum PromptID: String, CaseIterable, Sendable, Identifiable {
 
             Work out how to do this in this repository: what it touches, in what order, and what is \
             unclear enough to ask about first. Write the plan and wait — do not change anything yet.
+
+            Once I approve the plan, build it in a worktree of its own (EnterWorktree, named after {key}) so the \
+            branch carries the ticket key, and put {key} in the pull request title too. Open the pull request as a \
+            draft — always a draft, never ready for review — then stop and wait: Fhenix Desk takes it from there.
             """
         // The session starts in the repository's checkout, so it is sent into the branch's worktree before
         // anything else, or it reads the wrong checkout — or makes a worktree of its own off the default

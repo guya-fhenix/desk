@@ -58,6 +58,7 @@ final class AppModel {
         state = DeskState(config: config)
         service = DeskService(config: config, support: support)
         notifier = Notifier(support: support)
+        state.flows = Self.loadFlows(support: support)
         Task { await self.start() }
     }
 
@@ -117,7 +118,7 @@ final class AppModel {
             case .git:
                 let scan = await service.refreshGit()
                 state.gitScan = scan
-                state.claudeJobs = await service.claudeJobs()
+                state.claudeJobs = await service.claudeJobs(keeping: Set(state.flows.map(\.jobId)))
                 state.reviewSkills = await service.reviewSkills(repos: scan.repos)
                 state.errors[.git] = scan.errors.isEmpty ? nil : scan.errors.joined(separator: "\n")
                 for error in scan.errors { Self.log.error("git: \(error, privacy: .public)") }
@@ -137,6 +138,7 @@ final class AppModel {
         }
         await mergeReviews()
         state.recompute()
+        advanceFlows()
         syncTickets()
         notifier.deliver(state.nudges, post: config.notificationsEnabled && allSourcesReported)
         onUrgentCountChange?(urgentCount)
@@ -297,7 +299,13 @@ final class AppModel {
         Task {
             defer { planningTickets.remove(key) }
             do {
-                _ = try await service.startTicketSession(ticket: ticket, repoRoot: repo.root, note: note)
+                let id = try await service.startTicketSession(ticket: ticket, repoRoot: repo.root, note: note)
+                state.flows.append(Flow(jobId: id, ticketKey: key, repoRoot: repo.root, startedAt: Date()))
+                saveFlows()
+                // Held until the next scan reads the same session off disk.
+                state.claudeJobs.insert(
+                    ClaudeJob(id: id, name: key, state: "working", cwd: repo.root, prKeys: [], updatedAt: Date()), at: 0
+                )
                 sessionErrors[key] = nil
             } catch {
                 sessionErrors[key] = "\(error)"
@@ -360,23 +368,63 @@ final class AppModel {
     /// Opens a background Claude session in Terminal. A background session is a daemon rather than a
     /// shell, so `claude attach` is the only way into one — and it works whether it is still running or
     /// has already finished.
-    func attach(_ job: ClaudeJob, for pr: PullRequest) {
+    func attach(_ job: ClaudeJob, for pr: PullRequest) { attach(jobId: job.id, errorKey: pr.url) }
+
+    /// `errorKey` is the PR url or ticket key whose button pressed it, which is where a failure is shown.
+    func attach(jobId: String, errorKey: String) {
         let claude = config.resolvedClaudePath ?? "claude"
         let script = """
             tell application "Terminal"
                 activate
-                do script "'\(claude)' attach \(job.id)"
+                do script "'\(claude)' attach \(jobId)"
             end tell
             """
         Task {
             // Driving Terminal needs the user's permission the first time, and a refusal is a button
             // that does nothing: it has to be said out loud.
             if let error = await Self.osascript(script) {
-                sessionErrors[pr.url] = "Could not open Terminal: \(error)"
-                Self.log.error("attach \(job.id, privacy: .public): \(error, privacy: .public)")
+                sessionErrors[errorKey] = "Could not open Terminal: \(error)"
+                Self.log.error("attach \(jobId, privacy: .public): \(error, privacy: .public)")
             } else {
-                sessionErrors[pr.url] = nil
+                sessionErrors[errorKey] = nil
             }
+        }
+    }
+
+    // MARK: Flows
+
+    /// Moves every flow along on what the last polls said, and saves only when something moved. Not before
+    /// GitHub has answered: without it no PR can be found, and a merge cannot be told from a poll that failed.
+    private func advanceFlows() {
+        guard let github = state.github else { return }
+        let moved = state.flows.map { flow in
+            FlowEngine.advance(
+                flow, job: state.job(id: flow.jobId), mine: github.mine, merged: github.mergedRecent, ticketKeys: state.ticketKeys
+            )
+        }
+        guard moved != state.flows else { return }
+        state.flows = moved
+        saveFlows()
+    }
+
+    private func saveFlows() {
+        do {
+            try support.save(state.flows, to: DeskService.flowsFile)
+        } catch {
+            Self.log.error("flows: \(String(describing: error), privacy: .public)")
+        }
+    }
+
+    /// A file that does not decode is moved aside rather than read as empty, or the next save would overwrite
+    /// every stage in it.
+    private static func loadFlows(support: AppSupport) -> [Flow] {
+        do {
+            return try support.load([Flow].self, from: DeskService.flowsFile) ?? []
+        } catch {
+            log.error("flows.json unreadable, moved aside: \(String(describing: error), privacy: .public)")
+            let file = support.url(DeskService.flowsFile)
+            try? FileManager.default.moveItem(at: file, to: file.appendingPathExtension("bad"))
+            return []
         }
     }
 

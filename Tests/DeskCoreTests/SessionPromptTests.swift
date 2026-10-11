@@ -76,13 +76,14 @@ import Testing
         #expect(prompt.contains("The ticket says:"))
         #expect(prompt.contains("44+ days ago"))
         #expect(prompt.contains("do not change anything yet"))
+        #expect(prompt.contains("Open the pull request as a draft"))
     }
 
     /// A ticket with no description says so by omission rather than with an empty heading.
     @Test func anEmptyDescriptionIsLeftOut() {
         let prompt = DeskService.ticketPrompt(for: Fixtures.ticket("PRO-578"))
         #expect(!prompt.contains("The ticket says:"))
-        #expect(prompt.components(separatedBy: "\n\n").count == 2)
+        #expect(prompt.components(separatedBy: "\n\n").count == 3)
     }
 
     /// What you typed on the way in, sitting between the ticket and the instruction.

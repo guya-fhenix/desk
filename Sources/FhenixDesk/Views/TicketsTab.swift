@@ -194,6 +194,15 @@ private struct TicketInspector: View {
                     HStack { Spacer(); DriftBadge(drift: drift, model: model) }
                 }
             }
+            let flows = model.state.flows(forTicket: ticket.key)
+            if !flows.isEmpty {
+                Section("Sessions") {
+                    ForEach(flows) { flow in FlowRow(flow: flow, model: model) }
+                    if let error = model.sessionErrors[ticket.key] {
+                        Text(error).scaled(.caption).foregroundStyle(.red).textSelection(.enabled)
+                    }
+                }
+            }
             Section("Pull requests") {
                 let prs = model.state.pullRequests(forTicket: ticket.key)
                 if prs.isEmpty { Text("None open.").foregroundStyle(.secondary) }
@@ -221,11 +230,11 @@ private struct TicketInspector: View {
         if model.planningTickets.contains(ticket.key) {
             ProgressView().controlSize(.mini)
         } else if !repos.isEmpty {
-            Menu("Plan in…") {
+            Menu("Start in…") {
                 ForEach(repos, id: \.root) { repo in RepoMenuItem(repo: repo, model: model) { plan(ticket, repo) } }
             }
             .fixedSize()
-            .help(model.sessionErrors[ticket.key] ?? "Plan \(ticket.key) in a background Claude session")
+            .help(model.sessionErrors[ticket.key] ?? "Start \(ticket.key) in a background Claude session")
         }
     }
 
@@ -250,7 +259,7 @@ private struct PlanButton: View {
     var body: some View {
         let repos = (model.state.gitScan?.repos ?? []).sorted { $0.name < $1.name }
         if model.planningTickets.contains(ticket.key) {
-            ProgressView().controlSize(.mini).help("Starting a session to plan \(ticket.key)")
+            ProgressView().controlSize(.mini).help("Starting a session on \(ticket.key)")
         } else if !repos.isEmpty {
             Menu {
                 ForEach(repos, id: \.root) { repo in
@@ -270,7 +279,31 @@ private struct PlanButton: View {
     private var help: String {
         let status = model.config.jiraInProgressStatus
         let move = status.isEmpty ? "" : ", and move it to “\(status)”"
-        return "Plan \(ticket.key) in a background Claude session\(move)"
+        return "Start \(ticket.key) in a background Claude session\(move)"
+    }
+}
+
+/// One session started from this ticket: where its flow stands, the PR once it has one, and the way in.
+private struct FlowRow: View {
+    var flow: Flow
+    var model: AppModel
+
+    var body: some View {
+        let job = model.state.job(id: flow.jobId)
+        let pr = model.state.mine.first { $0.url == flow.prURL }
+        LabeledContent {
+            Button("Attach") { model.attach(jobId: flow.jobId, errorKey: flow.ticketKey ?? flow.jobId) }.controlSize(.small)
+        } label: {
+            HStack(spacing: 6) {
+                StageChip(stage: flow.stage).fixedSize()
+                if let pr {
+                    Button { model.open(pr.url) } label: { Text("\(pr.repoName)#\(pr.number)") }.buttonStyle(.link)
+                } else {
+                    Text(URL(fileURLWithPath: flow.repoRoot).lastPathComponent)
+                }
+                if let job { Text(job.state).scaled(.caption).foregroundStyle(.secondary) }
+            }
+        }
     }
 }
 
@@ -327,7 +360,7 @@ private struct PlanSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Plan \(request.ticket.key) in \(request.repo.name)").scaled(.headline)
+            Text("Start \(request.ticket.key) in \(request.repo.name)").scaled(.headline)
             Text(request.ticket.summary).scaled(.callout).foregroundStyle(.secondary).lineLimit(2)
             if let skill = model.state.reviewSkills[request.repo.root], !skill.isReady {
                 Label(skill.text, systemImage: "exclamationmark.triangle.fill").scaled(.caption).foregroundStyle(.orange)
@@ -350,7 +383,7 @@ private struct PlanSheet: View {
                 Spacer()
                 Button("Cancel", role: .cancel) { dismiss() }
                     .keyboardShortcut(.cancelAction)
-                Button("Plan") {
+                Button("Start") {
                     model.planTicket(request.ticket, in: request.repo, note: note)
                     dismiss()
                 }

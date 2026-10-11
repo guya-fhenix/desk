@@ -32,6 +32,7 @@ struct PullRequestsTab: View {
             // Grouped only because a group has one sort type, so no sortable column can sit among these.
             Group {
                 TableColumn("Agent") { (row: StackedPullRequest) in ClaudeSessionButton(pr: row.pullRequest, model: model) }.width(44)
+                TableColumn("Stage") { (row: StackedPullRequest) in FlowStageCell(pr: row.pullRequest, model: model) }.width(min: 80, ideal: 100)
                 TableColumn("Status") { (row: StackedPullRequest) in PullRequestStatus(pr: row.pullRequest) }.width(min: 150, ideal: 170)
             }
             TableColumn("Threads", value: \.pullRequest.unresolvedThreads) { row in UnresolvedThreads(count: row.pullRequest.unresolvedThreads) }.width(70)
@@ -99,6 +100,20 @@ private struct StackedTitle: View {
                         .help("Base branch has no open PR")
                 }
             }
+        }
+    }
+}
+
+/// The PR's stage in the app's flow, or a dash for a PR no flow carries.
+private struct FlowStageCell: View {
+    var pr: PullRequest
+    var model: AppModel
+
+    var body: some View {
+        if let flow = model.state.flow(for: pr) {
+            StageChip(stage: flow.stage).fixedSize()
+        } else {
+            Text("–").foregroundStyle(.secondary).help("Not started from a ticket")
         }
     }
 }
@@ -202,6 +217,12 @@ private struct PullRequestInspector: View {
                 Section("Stack") {
                     if let parent { stackLine("On", parent) }
                     ForEach(children) { stackLine("Under it", $0) }
+                }
+            }
+            if let flow = model.state.flow(for: pr) {
+                Section("Flow") {
+                    LabeledContent("Stage") { StageChip(stage: flow.stage) }
+                    if let key = flow.ticketKey { LabeledContent("Started from", value: key) }
                 }
             }
             Section("Jira") { jira }
