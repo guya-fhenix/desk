@@ -390,17 +390,13 @@ extension SidebarItem where Trailing == EmptyView {
     }
 }
 
-/// Pinned under the sidebar, where the reference app shows its API health: whether every source answered,
-/// what is running, and one dot per source.
+/// Pinned under the sidebar: what is running, and one dot per source, which says on its own whether each
+/// answered.
 struct SidebarStatus: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
-            HStack(spacing: 6) {
-                StatusDot(color: health.color)
-                Text(health.text).scaled(.caption.weight(.semibold))
-            }
             if let running {
                 HStack(spacing: 6) {
                     ProgressView().controlSize(.mini)
@@ -410,13 +406,6 @@ struct SidebarStatus: View {
             SourceDots()
         }
         .padding(.horizontal, 10)
-    }
-
-    private var health: (text: String, color: Color) {
-        let failed = Source.allCases.filter { model.state.errors[$0] != nil }
-        if !failed.isEmpty { return ("\(failed.map(\.title).joined(separator: ", ")) failed", .red) }
-        if Source.allCases.contains(where: { model.state.lastRefresh[$0] == nil }) { return ("Starting up", .gray) }
-        return ("All sources healthy", .green)
     }
 
     private var running: String? {
