@@ -85,14 +85,15 @@ struct SettingsView: View {
         HStack(spacing: 0) {
             SidebarColumn {
                 Button { model.showingSettings = false } label: {
-                    HStack(spacing: 10) {
+                    HStack(spacing: 9) {
                         Image(systemName: "chevron.left").foregroundStyle(.secondary).frame(width: 16)
                         Text("Back to Desk").foregroundStyle(.secondary)
                         Spacer()
                         KeyCap(key: "Esc")
                     }
+                    .scaled(.callout)
                     .padding(.horizontal, 10)
-                    .padding(.vertical, 7)
+                    .padding(.vertical, 6)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)

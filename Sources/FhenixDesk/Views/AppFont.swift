@@ -18,6 +18,8 @@ struct AppTextStyle: Equatable {
     var weight: Font.Weight = .regular
     var design: Font.Design = .default
 
+    /// Keys, and the sidebar's counts and status: the smallest text in the app.
+    static let footnote = AppTextStyle(size: 9)
     static let caption2 = AppTextStyle(size: 10, weight: .medium)
     static let caption = AppTextStyle(size: 10)
     static let subheadline = AppTextStyle(size: 11)

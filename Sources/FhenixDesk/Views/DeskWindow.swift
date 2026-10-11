@@ -77,7 +77,7 @@ struct DeskWindow: View {
                     let count = badge(for: item)
                     if count > 0 {
                         Text("\(count)")
-                            .scaled(.caption).monospacedDigit().foregroundStyle(.secondary)
+                            .scaled(.footnote).monospacedDigit().foregroundStyle(.secondary)
                             .padding(.horizontal, 6).padding(.vertical, 1)
                             .background(Theme.raised, in: RoundedRectangle(cornerRadius: 4))
                     }
@@ -122,7 +122,7 @@ struct SourceDots: View {
             ForEach(Source.allCases, id: \.self) { source in
                 HStack(spacing: 3) {
                     StatusDot(color: model.state.errors[source] == nil ? (model.state.lastRefresh[source] == nil ? .gray : .green) : .red)
-                    Text(source.title).scaled(.caption2).foregroundStyle(.secondary)
+                    Text(source.title).scaled(.footnote).foregroundStyle(.secondary)
                 }
                 .help(model.state.errors[source] ?? "Updated \(Format.age(model.state.lastRefresh[source])) ago")
             }

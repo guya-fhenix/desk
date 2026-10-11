@@ -25,10 +25,10 @@ struct KeyCap: View {
 
     var body: some View {
         Text(key)
-            .scaled(.caption.monospaced())
+            .scaled(.footnote.monospaced())
             .foregroundStyle(.secondary)
-            .padding(.horizontal, 5)
-            .frame(minWidth: 18, minHeight: 18)
+            .padding(.horizontal, 4)
+            .frame(minWidth: 16, minHeight: 16)
             .background(Theme.raised, in: RoundedRectangle(cornerRadius: 4))
             .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(Theme.line))
     }
@@ -354,7 +354,7 @@ struct SidebarHeading: View {
     var title: String
 
     var body: some View {
-        Text(title).scaled(.callout).foregroundStyle(.secondary).padding(.horizontal, 10).padding(.top, 8).padding(.bottom, 6)
+        Text(title).scaled(.caption).foregroundStyle(.secondary).padding(.horizontal, 10).padding(.top, 8).padding(.bottom, 6)
     }
 }
 
@@ -368,14 +368,15 @@ struct SidebarItem<Trailing: View>: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 10) {
+            HStack(spacing: 9) {
                 Image(systemName: icon).foregroundStyle(.secondary).frame(width: 16)
                 Text(title).foregroundStyle(selected ? .primary : .secondary)
                 Spacer(minLength: 4)
                 trailing
             }
+            .scaled(.callout)
             .padding(.horizontal, 10)
-            .padding(.vertical, 7)
+            .padding(.vertical, 6)
             .background(selected ? Theme.selected : Color.clear, in: RoundedRectangle(cornerRadius: 6))
             .contentShape(RoundedRectangle(cornerRadius: 6))
         }
@@ -398,12 +399,12 @@ struct SidebarStatus: View {
         VStack(alignment: .leading, spacing: 5) {
             HStack(spacing: 6) {
                 StatusDot(color: health.color)
-                Text(health.text).scaled(.caption.weight(.semibold))
+                Text(health.text).scaled(.footnote.weight(.semibold))
             }
             if let running {
                 HStack(spacing: 6) {
                     ProgressView().controlSize(.mini)
-                    Text(running).scaled(.caption.monospaced()).foregroundStyle(.secondary)
+                    Text(running).scaled(.footnote.monospaced()).foregroundStyle(.secondary)
                 }
             }
             SourceDots()
