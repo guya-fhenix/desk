@@ -127,13 +127,16 @@ struct RefreshControl: View {
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
-        .help(helpText)
+        .help(model.syncHelp)
     }
+}
 
-    private var helpText: String {
-        let errors = Source.allCases.compactMap { source in model.state.errors[source].map { "\(source.title): \($0)" } }
+extension AppModel {
+    /// The sync controls' tooltip: each failed source with its error, or what pressing does.
+    var syncHelp: String {
+        let errors = Source.allCases.compactMap { source in state.errors[source].map { "\(source.title): \($0)" } }
         if !errors.isEmpty { return errors.joined(separator: "\n") }
-        return model.refreshing.isEmpty ? "Refresh all" : "Refreshing…"
+        return refreshing.isEmpty ? "Sync GitHub, Git and Jira now" : "Syncing…"
     }
 }
 

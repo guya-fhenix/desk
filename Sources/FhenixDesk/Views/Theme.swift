@@ -470,16 +470,18 @@ struct SidebarStatus: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            RefreshControl()
-            if let running {
-                HStack(spacing: 6) {
-                    ProgressView().controlSize(.mini)
-                    Text(running).scaled(.caption.monospaced()).foregroundStyle(.secondary)
+            SyncRow()
+            VStack(alignment: .leading, spacing: 8) {
+                if let running {
+                    HStack(spacing: 6) {
+                        ProgressView().controlSize(.mini)
+                        Text(running).scaled(.caption.monospaced()).foregroundStyle(.secondary)
+                    }
                 }
+                SourceDots()
             }
-            SourceDots()
+            .padding(.horizontal, 10)
         }
-        .padding(.horizontal, 10)
     }
 
     private var running: String? {
@@ -489,6 +491,34 @@ struct SidebarStatus: View {
         if reviews > 0 { parts.append("\(reviews) \(reviews == 1 ? "review" : "reviews")") }
         if sessions > 0 { parts.append("\(sessions) \(sessions == 1 ? "session" : "sessions")") }
         return parts.isEmpty ? nil : parts.joined(separator: " · ") + " running"
+    }
+}
+
+/// The sidebar's sync row, as wide as the items above it: whether every source is synced, and the arrow that syncs
+/// them all now, turning while any of them loads. A press anywhere on the row syncs.
+struct SyncRow: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        let syncing = !model.refreshing.isEmpty
+        let failed = !model.state.errors.isEmpty
+        Button { model.refreshAll() } label: {
+            HStack(spacing: 9) {
+                Circle().fill(failed ? Color.orange : .green).frame(width: 7, height: 7).frame(width: 16)
+                Text(syncing ? "Syncing…" : failed ? "Sync failed" : "Synced").foregroundStyle(.secondary)
+                Spacer(minLength: 4)
+                Image(systemName: "arrow.clockwise")
+                    .foregroundStyle(.secondary)
+                    .symbolEffect(.rotate, options: .repeat(.continuous), isActive: syncing)
+            }
+            .scaled(.body)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(Theme.raised, in: RoundedRectangle(cornerRadius: 6))
+            .contentShape(RoundedRectangle(cornerRadius: 6))
+        }
+        .buttonStyle(.plain)
+        .help(model.syncHelp)
     }
 }
 
