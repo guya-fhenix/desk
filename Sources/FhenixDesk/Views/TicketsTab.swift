@@ -108,7 +108,7 @@ private struct TicketRow: View {
             StatusDot(color: TicketColor.of(ticket.category))
             VStack(alignment: .leading, spacing: 5) {
                 Text(ticket.summary).lineLimit(1)
-                MetaLine(parts: [Text(ticket.key)] + [ticket.priority.map { Text($0) }].compactMap { $0 }
+                MetaLine(parts: [Text(ticket.key)] + [ticket.priority.map(PriorityMark.text)].compactMap { $0 }
                     + (linked > 0 ? [Text("\(linked) open \(linked == 1 ? "PR" : "PRs")")] : []))
             }
             Spacer(minLength: 8)
@@ -117,6 +117,24 @@ private struct TicketRow: View {
             }
             PlanButton(ticket: ticket, model: model, onPick: plan)
         }
+    }
+}
+
+/// A priority with Jira's mark before it, as Jira draws its standard five: red chevrons up for Highest and High,
+/// an orange equals sign for Medium, blue chevrons down for Low and Lowest. A name outside those reads bare.
+enum PriorityMark {
+    static func text(_ name: String) -> Text {
+        let mark: (symbol: String, color: Color)?
+        switch name.lowercased() {
+        case "highest": mark = ("chevron.up.2", .red)
+        case "high": mark = ("chevron.up", .red)
+        case "medium": mark = ("equal", .orange)
+        case "low": mark = ("chevron.down", .blue)
+        case "lowest": mark = ("chevron.down.2", .blue)
+        default: mark = nil
+        }
+        guard let mark else { return Text(name) }
+        return Text(Image(systemName: mark.symbol)).foregroundStyle(mark.color).bold() + Text(" \(name)")
     }
 }
 
@@ -148,7 +166,7 @@ private struct TicketInspector: View {
                 LabeledContent("Status") {
                     HStack(spacing: 6) { StatusDot(color: TicketColor.of(ticket.category)); Text(ticket.status) }
                 }
-                if let priority = ticket.priority { LabeledContent("Priority", value: priority) }
+                if let priority = ticket.priority { LabeledContent("Priority") { PriorityMark.text(priority) } }
                 HStack {
                     Button("Open in Jira") { model.open(ticket.url) }
                     planMenu
