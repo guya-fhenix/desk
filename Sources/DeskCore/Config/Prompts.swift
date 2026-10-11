@@ -140,13 +140,24 @@ public enum PromptID: String, CaseIterable, Sendable, Identifiable {
                   "line": 42,
                   "lineText": "        let mut n = 0;",
                   "severity": "blocker" | "major" | "minor" | "nit" | "question",
-                  "body": "What is wrong, why it matters, and a suggested fix when there is an obvious one. Three \
-            sentences at most. State the problem and the reason; do not write step-by-step instructions, do not \
-            restate the code, and do not rewrite the change for the author. Markdown is allowed, and a \
-            ```suggestion block is welcome when the fix fits on the line."
+                  "body": "Two or three short sentences in plain words, the way you would say it to the author \
+            sitting next to you: what goes wrong, when it happens, and what to do about it. Markdown is allowed, \
+            and a ```suggestion block is welcome when the fix fits on the line."
                 }
               ]
             }
+
+            How to write each comment — like a teammate talking to the author, not like a linter or a spec:
+            - Say what actually goes wrong, with a concrete case: "if the list is empty, this crashes on the first \
+            item" rather than "missing bounds check".
+            - Use everyday words. Skip jargon and acronyms (TOCTOU, idempotent, invariant, UB…); when a technical \
+            word really is the clearest one, add a few words saying what it means here.
+            - Name a function or variable only when that is the quickest way to point at it. The comment already \
+            sits on the line, so do not restate the code, quote signatures or paste stack traces.
+            - Say what to do about it in one plain sentence. Do not write step-by-step instructions or rewrite the \
+            change for the author.
+            - Be direct and friendly: no hedging ("it might be worth considering…"), no lecturing, no padding.
+            - A `question` is a real question you would ask out loud: "Is this meant to skip archived repos?"
 
             Rules for comments:
             - `path` is exactly the path as it appears after `+++ b/` in the diff, without the `b/`.
