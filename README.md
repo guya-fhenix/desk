@@ -19,7 +19,7 @@ swift run FhenixDesk --review <pr-url>   # review one PR headlessly into your dr
 Jira goes through the Atlassian CLI: run `acli jira auth login --web` once, then Settings (⌘,) → Jira →
 Recheck. Desk stores no Jira token.
 
-The window opens on Today: every nudge (CI failed, changes requested, needs rebase, ready to merge, review
+The window opens on Up Next: every nudge (CI failed, changes requested, needs rebase, ready to merge, review
 waiting, Claude reviewed, quiet PRs) and every ticket the app could not move to where its PRs say, each
 with the button that deals with it. Pull Requests and Jira show a details panel on the right for the selected row, and Settings (⌘,) open inside the same window. Search (⌘K) finds any open PR by `repo#number`, title or branch, and any screen by name: ↩ opens it on its screen here, ⌘↩ on GitHub.
 
@@ -62,7 +62,7 @@ marked ready, `Done` once they have all merged and one of them landed on the rep
 ticket that has fallen behind is moved there on its own (`acli jira workitem transition`) once every
 source has answered, and the board shows a chip naming the status while the move is in flight. Each
 ticket and status is tried once per launch: a move Jira refuses turns the chip red with the reason and
-lists the ticket on Today, and a ticket you move back by hand stays where you put it. The Pull Requests
+lists the ticket on Up Next, and a ticket you move back by hand stays where you put it. The Pull Requests
 table shows the same disagreement as an orange arrow beside the ticket key.
 
 It never moves a ticket backwards and never touches one assigned to somebody else. A PR merged into the

@@ -38,7 +38,7 @@ final class AppModel {
     var startingSessions: Set<String> = []
     /// Flows with an instruction going out or a GitHub write in flight, by job id.
     var busyFlows: Set<String> = []
-    /// Set to have the Pull Requests screen select this PR; the screen clears it. Today uses it to open a PR's
+    /// Set to have the Pull Requests screen select this PR; the screen clears it. Up Next uses it to open a PR's
     /// details panel.
     var selectPullRequest: String?
     /// Why the session button last failed, per PR url or ticket key. It is the button's own tooltip: a press that

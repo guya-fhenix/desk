@@ -3,7 +3,7 @@ import SwiftUI
 
 /// The landing screen: every nudge and every ticket the app could not move, grouped by what you do about
 /// it, each with the press that deals with it. The other screens hold the detail; this one says what next.
-struct TodayTab: View {
+struct UpNextTab: View {
     @Environment(AppModel.self) private var model
 
     /// In the order they are worth your attention.
@@ -39,7 +39,7 @@ struct TodayTab: View {
         // Only the moves that failed: the rest the app makes on its own, and they need nothing from you.
         let drifts = model.state.ticketDrifts.filter { model.ticketMoveErrors[$0.ticket.key] != nil }
         Screen {
-            PageHeader(title: "Today", subtitle: Date.now.formatted(.dateTime.weekday(.wide).day().month(.wide))) {
+            PageHeader(title: "Up Next") {
                 HeaderControls()
             }
         } content: {

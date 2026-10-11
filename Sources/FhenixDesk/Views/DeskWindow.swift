@@ -6,14 +6,14 @@ struct DeskWindow: View {
     static let id = "desk"
 
     enum Tab: String, CaseIterable, Identifiable {
-        case today, pullRequests, reviews, tickets
+        case upNext, pullRequests, reviews, tickets
 
         /// The row tag must be the same type as the selection binding, or clicks never select.
         var id: Tab { self }
 
         var title: String {
             switch self {
-            case .today: return "Today"
+            case .upNext: return "Up Next"
             case .pullRequests: return "Pull Requests"
             case .reviews: return "Reviews"
             case .tickets: return "Jira"
@@ -22,7 +22,7 @@ struct DeskWindow: View {
 
         var icon: String {
             switch self {
-            case .today: return "tray"
+            case .upNext: return "tray"
             case .pullRequests: return "arrow.triangle.pull"
             case .reviews: return "bubble.left.and.text.bubble.right"
             case .tickets: return SidebarIcon.jira
@@ -31,7 +31,7 @@ struct DeskWindow: View {
     }
 
     @Environment(AppModel.self) private var model
-    @State private var tab: Tab = Tab(rawValue: ProcessInfo.processInfo.environment["FHENIX_DESK_OPEN_WINDOW"] ?? "") ?? .today
+    @State private var tab: Tab = Tab(rawValue: ProcessInfo.processInfo.environment["FHENIX_DESK_OPEN_WINDOW"] ?? "") ?? .upNext
 
     var body: some View {
         Group {
@@ -102,18 +102,18 @@ struct DeskWindow: View {
 
     @ViewBuilder private var screen: some View {
         switch tab {
-        case .today: TodayTab()
+        case .upNext: UpNextTab()
         case .pullRequests: PullRequestsTab()
         case .reviews: ReviewsTab()
         case .tickets: TicketsTab()
         }
     }
 
-    /// The badge is what waits for you on that screen, so the sidebar is the whole to-do list. Today counts
+    /// The badge is what waits for you on that screen, so the sidebar is the whole to-do list. Up Next counts
     /// only what is urgent — the same number the menu bar icon shows — or it would repeat the other three.
     private func badge(for tab: Tab) -> Int {
         switch tab {
-        case .today: return model.urgentCount
+        case .upNext: return model.urgentCount
         case .tickets: return model.state.openTickets.count
         case .pullRequests: return model.state.waiting(on: .pullRequests)
         case .reviews: return model.state.waiting(on: .reviews)

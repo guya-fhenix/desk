@@ -3,7 +3,7 @@ import DeskCore
 import SwiftUI
 
 /// The secondary-click panel: how much is waiting, the few things that most need you, and the ways out.
-/// Anything longer than the top of Today belongs in the window.
+/// Anything longer than the top of Up Next belongs in the window.
 struct MenuPanelView: View {
     @Environment(AppModel.self) private var model
 
@@ -47,7 +47,7 @@ struct MenuPanelView: View {
         .frame(maxWidth: .infinity)
     }
 
-    /// The head of Today, already sorted most urgent first. Each opens on GitHub, as its notification does —
+    /// The head of Up Next, already sorted most urgent first. Each opens on GitHub, as its notification does —
     /// a finished review straight at its draft.
     private var topNudges: some View {
         let nudges = model.state.nudges
@@ -68,8 +68,8 @@ struct MenuPanelView: View {
                 .buttonStyle(.plain)
             }
             if nudges.count > 4 {
-                Button("All \(nudges.count) in Today…") {
-                    model.pendingTab = .today
+                Button("All \(nudges.count) in Up Next…") {
+                    model.pendingTab = .upNext
                     AppDelegate.openDesk?()
                 }
                 .buttonStyle(.link)
