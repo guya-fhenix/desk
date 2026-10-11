@@ -32,6 +32,9 @@ final class AppModel {
     var startingSessions: Set<String> = []
     /// Flows with an instruction going out or a GitHub write in flight, by job id.
     var busyFlows: Set<String> = []
+    /// Set to have the Pull Requests screen select this PR; the screen clears it. Today uses it to open a PR's
+    /// details panel.
+    var selectPullRequest: String?
     /// Why the session button last failed, per PR url or ticket key. It is the button's own tooltip: a press that
     /// does nothing is the one thing this must not be.
     var sessionErrors: [String: String] = [:]
@@ -412,11 +415,25 @@ final class AppModel {
             effects += queued.map { (next, $0) }
             return next
         }
-        if moved != state.flows {
-            state.flows = moved
+        let live = Self.prune(moved, github: github, jobs: state.claudeJobs, scanned: state.gitScan != nil)
+        if live != state.flows {
+            state.flows = live
             saveFlows()
         }
         for (flow, effect) in effects { perform(effect, for: flow) }
+    }
+
+    /// A flow ends with its PR: it is kept while GitHub still lists the PR, open or merged, so the ticket shows how
+    /// it ended, and dropped once the PR is closed or has aged out of the merged list. A session that never opened
+    /// a PR is kept until the session itself is deleted — and for its first hour whatever the scan says, which may
+    /// not have read a session that has only just started.
+    private static func prune(_ flows: [Flow], github: GitHubSnapshot, jobs: [ClaudeJob], scanned: Bool, now: Date = Date()) -> [Flow] {
+        let known = Set((github.mine + github.mergedRecent).map(\.url))
+        let sessions = Set(jobs.map(\.id))
+        return flows.filter { flow in
+            if let url = flow.prURL { return known.contains(url) }
+            return !scanned || sessions.contains(flow.jobId) || now.timeIntervalSince(flow.startedAt) < 3_600
+        }
     }
 
     private func perform(_ effect: FlowEffect, for flow: Flow) {
@@ -480,7 +497,8 @@ final class AppModel {
     func approveDraft(_ flow: Flow) {
         guard let pr = state.pullRequest(of: flow), state.reviewSkill(for: pr)?.isReady == true else { return }
         updateFlow(flow.id) {
-            guard $0.stage == .draft else { return }
+            // Not over a fix already queued or running: it would be dropped, and its PR head never tried again.
+            guard $0.stage == .draft, $0.pending == nil, $0.awaiting == nil else { return }
             $0.stage = .selfReview
             // ponytail: the head as of the last poll; a push since then shows up in View changes too.
             $0.baseSha = pr.headSha
@@ -492,7 +510,7 @@ final class AppModel {
 
     /// Approve on the self-review's fixes: the PR leaves draft and the review team is asked.
     func approveFixes(_ flow: Flow) {
-        guard let pr = state.pullRequest(of: flow), !busyFlows.contains(flow.id) else { return }
+        guard flow.stage == .fixesToCheck, let pr = state.pullRequest(of: flow), !busyFlows.contains(flow.id) else { return }
         busyFlows.insert(flow.id)
         Task {
             defer { busyFlows.remove(flow.id) }
@@ -539,6 +557,22 @@ final class AppModel {
         }
         for effect in effects { perform(effect, for: flow) }
         advanceFlows()
+    }
+
+    /// Merge on an approved PR: always a squash. The merge itself moves the flow to Merged, on the next poll.
+    func merge(_ flow: Flow) {
+        guard flow.stage == .approved, let pr = state.pullRequest(of: flow), !busyFlows.contains(flow.id) else { return }
+        busyFlows.insert(flow.id)
+        Task {
+            defer { busyFlows.remove(flow.id) }
+            do {
+                try await service.squashMerge(pr)
+                updateFlow(flow.id) { $0.note = nil }
+            } catch {
+                updateFlow(flow.id) { $0.note = "Could not merge: \(error)" }
+            }
+            await refresh(.github)
+        }
     }
 
     /// Your call on one proposed fix: apply it or skip it.

@@ -110,7 +110,17 @@ struct FlowSection: View {
                     .buttonStyle(.borderedProminent)
                     .disabled(undecided > 0 || flow.paused)
             }
-        case .working, .selfReview, .applying, .approved, .merged:
+        case .approved:
+            Text(mergeHint).scaled(.caption).foregroundStyle(pr.mergeState == .dirty || pr.checks.isRed ? .orange : .secondary)
+            HStack {
+                Spacer()
+                if busy { ProgressView().controlSize(.mini) }
+                Button("Merge") { model.merge(flow) }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(busy || pr.mergeState == .dirty)
+                    .help("Squash-merges the PR into \(pr.baseRef)")
+            }
+        case .working, .selfReview, .applying, .merged:
             EmptyView()
         }
     }
@@ -161,6 +171,15 @@ private struct ProposalCard: View {
             }
         }
         .padding(.vertical, 2)
+    }
+}
+
+extension FlowSection {
+    fileprivate var mergeHint: String {
+        if pr.mergeState == .dirty { return "Approved, but it conflicts with \(pr.baseRef); the session fixes that first." }
+        if pr.checks.isRed { return "Approved, but CI failed; the session fixes that first, or GitHub refuses the merge." }
+        if pr.checks.isPending { return "Approved. CI is still running, so GitHub may refuse the merge until it passes." }
+        return "Approved. Merge squashes it into \(pr.baseRef)."
     }
 }
 

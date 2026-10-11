@@ -41,6 +41,11 @@ struct PullRequestsTab: View {
             TableColumn("Updated", value: \.pullRequest.updatedAt) { row in Text(Format.age(row.pullRequest.updatedAt)).monospacedDigit() }.width(56)
         }
         .remembersSort(Self.sort, order: $sortOrder, stored: $storedSort)
+        .onChange(of: model.selectPullRequest, initial: true) { _, url in
+            guard let url else { return }
+            selection = url
+            model.selectPullRequest = nil
+        }
         .searchable(text: $search, placement: .toolbar, prompt: "Repo, number or title")
         .navigationTitle("Pull Requests")
         .overlay {

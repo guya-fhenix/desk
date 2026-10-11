@@ -39,11 +39,11 @@ import Testing
         #expect(DeskService.sessionPrompt(for: pr).contains("1 review thread is still unresolved"))
     }
 
-    @Test func conflictsNameTheBaseAndAskToLeaveTheBranchAlone() {
+    @Test func conflictsNameTheBaseAndAreResolvedWithoutAsking() {
         let pr = Fixtures.pr(number: 4, head: "feat/x", base: "master", merge: .dirty)
         let prompt = DeskService.sessionPrompt(for: pr)
         #expect(prompt.contains("It conflicts with master"))
-        #expect(prompt.contains("leave the branch as it is"))
+        #expect(prompt.contains("Resolve that without asking me"))
     }
 
     /// Behind is not dirty: a PR that only needs a rebase has nothing to resolve, and saying otherwise
@@ -119,6 +119,15 @@ import Testing
         #expect(text.contains("write this JSON to /j/tmp/desk-step-1.json"))
         #expect(text.contains(#"{"rounds": 2, "clean": true"#))
         #expect(!DeskService.flowPrompt(.selfReview, pr: pr, worktree: nil, resultFile: "/f").contains("worktree at"))
+    }
+
+    /// A draft is rebased; once reviewers are on it the base is merged in, so their comments stay put.
+    @Test func aConflictIsRebasedWhileADraftAndMergedAfter() {
+        let draft = Fixtures.pr(number: 11, head: "h", merge: .dirty, draft: true)
+        let ready = Fixtures.pr(number: 11, head: "h", merge: .dirty)
+        #expect(DeskService.flowPrompt(.fixConflict, pr: draft, worktree: nil, resultFile: "/f").contains("--force-with-lease"))
+        let merging = DeskService.flowPrompt(.fixConflict, pr: ready, worktree: nil, resultFile: "/f")
+        #expect(merging.contains("merge origin/master into it rather than rebasing") && !merging.contains("--force-with-lease"))
     }
 
     /// A session that entered a worktree keeps its transcript under that worktree's project folder.

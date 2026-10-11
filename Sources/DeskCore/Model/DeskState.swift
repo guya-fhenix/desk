@@ -168,7 +168,8 @@ public struct DeskState: Sendable {
         ))
         nudges = NudgeEngine.nudges(NudgeInput(
             now: now, login: login, config: config, mine: mine, reviewRequests: reviewRequests,
-            openHeadsByRepo: Linker.openHeadsByRepo(openAll), defaultBranches: defaultBranches, readyReviews: readyReviews
+            openHeadsByRepo: Linker.openHeadsByRepo(openAll), defaultBranches: defaultBranches, readyReviews: readyReviews,
+            flows: flows, sessionStates: Dictionary(claudeJobs.map { ($0.id, $0.state) }, uniquingKeysWith: { first, _ in first })
         ))
     }
 

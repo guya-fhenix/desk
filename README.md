@@ -1,11 +1,13 @@
 # Fhenix Desk
 
-Menu bar app that tracks the Fhenix development cycle. It reads, you do not type — the exceptions are
-putting a Claude review into your draft review on a PR and starting a background session, which only
-ever happen when you press the button, and moving a Jira ticket that has fallen behind its PRs, which
-happens on its own.
+Menu bar app that tracks the Fhenix development cycle and carries your own work from a ticket to its merge.
+Everything it writes is either a press of yours — putting a Claude review into your draft review on a PR,
+starting a background session, and the flow's Approve, Apply and Merge — or one of the few moves it makes on
+its own: moving a Jira ticket that has fallen behind its PRs, and sending a flow's session the fix for a
+conflict, red CI, or a teammate's review.
 
-Sources: GitHub PRs (`gh`), local git worktrees, Claude Code sessions (`~/.claude`), Jira.
+Sources: GitHub PRs (`gh`), local git worktrees, Claude Code sessions (`~/.claude`), Jira. Its own state is
+`config.json` and `flows.json` under `~/Library/Application Support/Fhenix Desk`.
 
 ```sh
 make doctor   # print all data as text
@@ -82,10 +84,43 @@ out — in the worktree you already have on that branch, or in a new one under t
 gets that repo's plugins, settings and memory, and its prompt sends it into the branch's worktree. The
 session is seeded with the PR's url, which is what ties it to the PR until it has read the PR itself.
 
+## Flow
+
+Start on a ticket opens a background session in the repo you pick. It writes a plan and waits; once you approve
+the plan in the session, it builds in a worktree of its own and opens the PR as a draft. From then on the PR has
+a stage of the app's own — not Jira's, not GitHub's — kept in `flows.json`, shown in the Stage column and in the
+PR details panel, and the same session carries it all the way:
+
+| Stage | Moves on when |
+|---|---|
+| Working | the session opens its PR |
+| Draft | you press Approve |
+| Self-review | the session's `/goal` finishes: `fhenix-workflow:reviewing-code`, fix what it finds, until no High or Medium is left or three rounds have run |
+| Fixes to check | you press Approve, after its findings and View changes (GitHub's diff of exactly the loop's commits); the PR goes ready and the review team is asked |
+| In review | a teammate reviews: the session proposes fixes and changes nothing. An approval with nothing left open goes to Approved |
+| Fixes proposed | you press Apply or Skip on each comment, with a Resolve toggle on each thread |
+| Applying | the session pushes the fixes you approved and resolves only the threads marked so; still not approved, the team is asked again |
+| Approved | you press Merge, always a squash |
+
+A conflict with the base (rebased while a draft, merged in after) and red CI are fixed without asking, once per
+PR head. The review team is a setting (GitHub → Flow, `protocol-team` by default). Settings → Repos, the PR
+details panel and the ticket's repo menu say whether a repo's sessions can run `reviewing-code` at all — it
+ships in `fhenix-workflow` 0.5.0 — and Approve on a draft stays off where they cannot.
+
+The app talks to the session the only way a background session takes outside input: once it has finished its
+turn, it is stopped and resumed under the same id with the next instruction, so the conversation carries on.
+It never stops a session that is working — your press waits for it — and never sends anything to one that is
+asking you something; an automatic fix also waits until the session has been idle for 10 minutes, so it does
+not cut in right after you talked to it. Pause on a PR holds everything while you drive the session yourself.
+Each instruction ends with the session writing a small result file in its own scratch folder, which is how the
+app knows it has finished. A PR you did not start from a ticket joins the flow at its current stage with Start,
+or Use for flow on a session that already works on it.
+
 ## Prompts
 
-Every text the app sends Claude is editable in Settings → Prompts, one text each: the ticket plan, the PR
-session, the review, the review's system prompt and its reformat pass. `{name}` placeholders are filled
+Every text the app sends Claude is editable in Settings → Prompts, one text each: starting a ticket, the PR
+session, the flow's self-review, proposed fixes, applying them, a conflict and red CI, the review, the review's
+system prompt and its reformat pass. `{name}` placeholders are filled
 when the prompt is sent, and `{#name}…{/name}` wraps what only applies sometimes — a ticket description,
 unresolved threads, a conflict, other repos — with `{else}` for the other case. Only edits are stored, in
 `config.json`, so an untouched prompt follows the app's own text; Reset to default removes an edit.

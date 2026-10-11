@@ -137,6 +137,12 @@ private struct ProposalsFile: Decodable {
     var proposals: [Proposal]
 }
 
+/// What an automatic fix reports.
+private struct FixFile: Decodable {
+    var fixed: Bool?
+    var summary: String?
+}
+
 /// One background session carried from a ticket to its merge. Saved in `flows.json`: the stage is the one thing
 /// here that neither GitHub nor the session can tell the app again after it quits.
 public struct Flow: Codable, Sendable, Hashable, Identifiable {
@@ -167,6 +173,9 @@ public struct Flow: Codable, Sendable, Hashable, Identifiable {
     public var proposals: [Proposal] = []
     /// Reviews submitted after this start a round of proposed fixes.
     public var reviewsSince: Date?
+    /// The PR head each automatic fix was last tried on, by instruction: one try per head, so a fix that did not
+    /// take is left to you instead of being sent again on every poll.
+    public var autoFixes: [String: String] = [:]
     /// What last went wrong, shown until the next instruction goes out.
     public var note: String?
 
@@ -185,7 +194,7 @@ public struct Flow: Codable, Sendable, Hashable, Identifiable {
 
     private enum CodingKeys: String, CodingKey {
         case jobId, ticketKey, repoRoot, prURL, stage, startedAt, paused, pending, awaiting, step, sentAt, baseSha, selfReview
-        case proposals, reviewsSince, note
+        case proposals, reviewsSince, autoFixes, note
     }
 
     /// Every field after the first few is optional on the way in, so a flows.json written before it existed loads.
@@ -206,6 +215,7 @@ public struct Flow: Codable, Sendable, Hashable, Identifiable {
         selfReview = try c.decodeIfPresent(SelfReview.self, forKey: .selfReview)
         proposals = try c.decodeIfPresent([Proposal].self, forKey: .proposals) ?? []
         reviewsSince = try c.decodeIfPresent(Date.self, forKey: .reviewsSince)
+        autoFixes = try c.decodeIfPresent([String: String].self, forKey: .autoFixes) ?? [:]
         note = try c.decodeIfPresent(String.self, forKey: .note)
     }
 }
@@ -279,6 +289,7 @@ public enum FlowEngine {
             effects += finish(&flow, awaiting, result: result, pr: pr)
         }
         if let pr, flow.pending == nil, flow.awaiting == nil { review(&flow, pr, input) }
+        if let pr, flow.pending == nil, flow.awaiting == nil { autoFix(&flow, pr) }
         guard let pending = flow.pending, flow.awaiting == nil, !flow.paused, let job = input.job,
               canSend(job, automatic: pending.isAutomatic, now: input.now)
         else { return (flow, effects) }
@@ -322,6 +333,15 @@ public enum FlowEngine {
         return !automatic || now.timeIntervalSince(job.updatedAt) >= idleBeforeAutomatic
     }
 
+    /// A conflict with the base, then red CI, is fixed without asking — at any stage once the session has its PR.
+    private static func autoFix(_ flow: inout Flow, _ pr: PullRequest) {
+        guard flow.stage != .working, flow.stage != .merged else { return }
+        let fix: FlowPrompt? = pr.mergeState == .dirty ? .fixConflict : pr.checks.isRed ? .fixChecks : nil
+        guard let fix, flow.autoFixes[fix.rawValue] != pr.headSha else { return }
+        flow.autoFixes[fix.rawValue] = pr.headSha
+        flow.pending = fix
+    }
+
     /// Takes in what the awaited instruction left behind. `result` nil is a result you chose to go on without.
     public static func finish(_ flow: inout Flow, _ prompt: FlowPrompt, result: Data?, pr: PullRequest?) -> [FlowEffect] {
         flow.awaiting = nil
@@ -350,7 +370,10 @@ public enum FlowEngine {
                 return [.requestTeam]
             }
         case .fixConflict, .fixChecks:
-            break
+            let report = result.flatMap { try? JSON.decoder().decode(FixFile.self, from: $0) }
+            if report?.fixed == false {
+                flow.note = "\(prompt.title) did not work out: \(report?.summary ?? "the session gave no reason"). Attach to take it from here."
+            }
         }
         return []
     }

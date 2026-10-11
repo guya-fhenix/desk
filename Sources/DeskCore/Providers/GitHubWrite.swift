@@ -161,6 +161,11 @@ extension GitHubProvider {
         try await Shell.output(ghPath, ["pr", "ready", String(number), "--repo", repo])
     }
 
+    /// Always a squash: one commit per PR on the base branch.
+    public func squashMerge(repo: String, number: Int) async throws {
+        try await Shell.output(ghPath, ["pr", "merge", String(number), "--repo", repo, "--squash"])
+    }
+
     /// Asks a team of the org that owns the repo to review. Asking again after a team member has reviewed puts the
     /// team back on the PR.
     public func requestTeamReview(repo: String, number: Int, team: String) async throws {

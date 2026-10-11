@@ -227,14 +227,20 @@ public actor DeskService {
         case .selfReview: id = .selfReview
         case .proposeFixes: id = .proposeFixes
         case .applyFixes: id = .applyFixes
-        case .fixConflict, .fixChecks: id = .selfReview
+        case .fixConflict: id = .fixConflict
+        case .fixChecks: id = .fixChecks
         }
-        return config.prompt(id, values, when: ["worktree": worktree != nil])
+        return config.prompt(id, values, when: ["worktree": worktree != nil, "draft": pr.isDraft])
     }
 
     public func markReady(_ pr: PullRequest) async throws {
         guard let github else { throw DeskError.ghNotFound }
         try await github.markReady(repo: pr.repo, number: pr.number)
+    }
+
+    public func squashMerge(_ pr: PullRequest) async throws {
+        guard let github else { throw DeskError.ghNotFound }
+        try await github.squashMerge(repo: pr.repo, number: pr.number)
     }
 
     public func requestTeamReview(_ pr: PullRequest) async throws {

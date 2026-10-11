@@ -198,6 +198,42 @@ import Testing
         #expect(text == "1. a.rs:3: Check for empty input. (thread PRRT_1: resolve it)\n2. Rename the helper. (thread PRRT_3: leave it open)")
     }
 
+    /// A conflict, then red CI, is fixed without asking — once per PR head, so a fix that did not take is left to you.
+    @Test func conflictsAndRedChecksAreFixedOncePerHead() {
+        func run(_ flow: Flow, merge: MergeState = .blocked, checks: CheckState = .success, head: String = "sha11") -> Flow {
+            var pr = Fixtures.pr(number: 11, head: "worktree-pro-1", created: Fixtures.hours(3), checks: checks, merge: merge)
+            pr.headSha = head
+            return FlowEngine.advance(flow, FlowInput(job: job([11], state: "working"), mine: [pr], merged: [])).flow
+        }
+        let waiting = flow(stage: .inReview, pr: 11)
+
+        let conflict = run(waiting, merge: .dirty, checks: .failure)
+        #expect(conflict.pending == .fixConflict && conflict.autoFixes == ["fixConflict": "sha11"])
+        var tried = conflict
+        tried.pending = nil
+        #expect(run(tried, merge: .dirty).pending == nil)
+        #expect(run(tried, merge: .dirty, head: "sha12").pending == .fixConflict)
+
+        #expect(run(waiting, checks: .failure).pending == .fixChecks)
+        #expect(run(waiting, checks: .pending).pending == nil)
+        // Before the session has opened its PR there is nothing to fix.
+        let dirty = Fixtures.pr(number: 11, head: "worktree-pro-1", created: Fixtures.hours(3), merge: .dirty)
+        #expect(FlowEngine.advance(flow(stage: .working), FlowInput(job: job([], state: "working"), mine: [dirty], merged: [])).flow.pending == nil)
+    }
+
+    @Test func aFixThatDidNotWorkOutSaysWhy() {
+        var fixing = flow(stage: .inReview, pr: 11)
+        fixing.awaiting = .fixChecks
+        let pr = Fixtures.pr(number: 11, head: "worktree-pro-1", created: Fixtures.hours(3))
+        let failed = FlowEngine.advance(fixing, FlowInput(
+            job: job([11], state: "working"), mine: [pr], merged: [], result: Data(#"{"fixed": false, "summary": "the test needs a secret"}"#.utf8)
+        )).flow
+        #expect(failed.stage == .inReview && failed.awaiting == nil)
+        #expect(failed.note?.contains("the test needs a secret") == true)
+        let fixed = FlowEngine.advance(fixing, FlowInput(job: job([11], state: "working"), mine: [pr], merged: [], result: Data(#"{"fixed": true}"#.utf8))).flow
+        #expect(fixed.note == nil)
+    }
+
     @Test func aMergeEndsTheFlowWhateverStageItWasIn() {
         let merged = Fixtures.pr(number: 11, head: "worktree-pro-1", created: Fixtures.hours(3), merged: Fixtures.hours(9))
         #expect(FlowEngine.advance(flow(stage: .inReview, pr: 11), FlowInput(job: nil, mine: [], merged: [merged])).flow.stage == .merged)

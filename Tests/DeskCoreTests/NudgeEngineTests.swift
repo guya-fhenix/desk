@@ -16,6 +16,31 @@ import Testing
         )
     }
 
+    /// A flow's own nudges stand in for the PR ones it handles itself; a paused flow hands them back.
+    @Test func aFlowSaysWhatWaitsOnYouInsteadOfTheNudgesItHandles() {
+        let pr = Fixtures.pr(number: 3, head: "c", checks: .failure, review: .approved, merge: .clean)
+        var flow = Flow(jobId: "aaaaaaaa", ticketKey: "PRO-1", repoRoot: "/r/cofhe", prURL: pr.url, stage: .approved, startedAt: Fixtures.t0)
+        var withFlow = input(mine: [pr])
+        withFlow.flows = [flow]
+        #expect(NudgeEngine.nudges(withFlow).map(\.kind) == [.flowWaiting])
+        #expect(NudgeEngine.nudges(withFlow).first?.title == "cofhe#3 is approved: merge it")
+
+        withFlow.sessionStates = ["aaaaaaaa": "blocked"]
+        #expect(Set(NudgeEngine.nudges(withFlow).map(\.kind)) == [.flowWaiting, .sessionNeedsYou])
+
+        flow.paused = true
+        withFlow.flows = [flow]
+        withFlow.sessionStates = [:]
+        #expect(Set(NudgeEngine.nudges(withFlow).map(\.kind)) == [.flowWaiting, .ciFailed])
+
+        // Nothing to press while the session is on the stage's instruction.
+        flow.paused = false
+        flow.stage = .draft
+        flow.awaiting = .fixConflict
+        withFlow.flows = [flow]
+        #expect(NudgeEngine.nudges(withFlow).isEmpty)
+    }
+
     @Test func failedChecksAreUrgent() {
         let nudges = NudgeEngine.nudges(input(mine: [Fixtures.pr(number: 1, head: "a", checks: .failure)]))
         #expect(nudges.first?.kind == .ciFailed)

@@ -8,12 +8,13 @@ struct TodayTab: View {
 
     /// In the order they are worth your attention.
     enum Group: CaseIterable, Identifiable {
-        case fix, review, merge, sync, quiet
+        case waiting, fix, review, merge, sync, quiet
 
         var id: Self { self }
 
         var title: String {
             switch self {
+            case .waiting: return "Waiting on you"
             case .fix: return "Fix"
             case .review: return "Review"
             case .merge: return "Merge"
@@ -24,7 +25,8 @@ struct TodayTab: View {
 
         static func of(_ kind: NudgeKind) -> Group {
             switch kind {
-            case .ciFailed, .changesRequested, .needsRebase: return .fix
+            case .flowWaiting: return .waiting
+            case .ciFailed, .changesRequested, .needsRebase, .sessionNeedsYou: return .fix
             case .reviewRequested, .reviewReady: return .review
             case .readyToMerge: return .merge
             case .stalePullRequest: return .quiet
@@ -135,13 +137,44 @@ private struct NudgeRow: View {
                     if pr.pendingReview != nil {
                         Button("Open draft") { model.openDraft(pr) }
                     }
+                case .flowWaiting:
+                    flowActions(pr)
+                case .sessionNeedsYou:
+                    EmptyView()
                 default:
                     ClaudeSessionButton(pr: pr, model: model)
                 }
             }
+            if nudge.kind == .sessionNeedsYou, let jobId = nudge.jobId {
+                Button("Attach") { model.attach(jobId: jobId, errorKey: nudge.url ?? jobId) }
+            }
             Button("Open PR") { model.open(nudge.url) }.disabled(nudge.url == nil)
         }
         .controlSize(.small)
+    }
+}
+
+extension NudgeRow {
+    /// Approve and Merge right here; the stages that want reading first open the PR's details panel.
+    @ViewBuilder fileprivate func flowActions(_ pr: PullRequest) -> some View {
+        if let flow = model.state.flow(for: pr) {
+            switch flow.stage {
+            case .draft:
+                Button("Approve") { model.approveDraft(flow) }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(model.state.reviewSkill(for: pr)?.isReady != true || flow.paused)
+                    .help(model.state.reviewSkill(for: pr)?.text ?? "Start the self-review")
+            case .approved:
+                Button("Merge") { model.merge(flow) }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(model.busyFlows.contains(flow.id) || pr.mergeState == .dirty)
+            default:
+                Button("Show") {
+                    model.selectPullRequest = pr.url
+                    model.pendingTab = .pullRequests
+                }
+            }
+        }
     }
 }
 
