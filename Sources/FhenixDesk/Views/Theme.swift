@@ -354,7 +354,7 @@ struct SidebarHeading: View {
     var title: String
 
     var body: some View {
-        Text(title).scaled(.caption).foregroundStyle(.secondary).padding(.horizontal, 10).padding(.top, 8).padding(.bottom, 6)
+        Text(title).scaled(.subheadline).foregroundStyle(.secondary).padding(.horizontal, 10).padding(.top, 8).padding(.bottom, 6)
     }
 }
 
@@ -374,7 +374,7 @@ struct SidebarItem<Trailing: View>: View {
                 Spacer(minLength: 4)
                 trailing
             }
-            .scaled(.callout)
+            .scaled(.body)
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
             .background(selected ? Theme.selected : Color.clear, in: RoundedRectangle(cornerRadius: 6))
@@ -399,12 +399,12 @@ struct SidebarStatus: View {
         VStack(alignment: .leading, spacing: 5) {
             HStack(spacing: 6) {
                 StatusDot(color: health.color)
-                Text(health.text).scaled(.footnote.weight(.semibold))
+                Text(health.text).scaled(.caption.weight(.semibold))
             }
             if let running {
                 HStack(spacing: 6) {
                     ProgressView().controlSize(.mini)
-                    Text(running).scaled(.footnote.monospaced()).foregroundStyle(.secondary)
+                    Text(running).scaled(.caption.monospaced()).foregroundStyle(.secondary)
                 }
             }
             SourceDots()

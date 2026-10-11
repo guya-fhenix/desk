@@ -91,7 +91,7 @@ struct SettingsView: View {
                         Spacer()
                         KeyCap(key: "Esc")
                     }
-                    .scaled(.callout)
+                    .scaled(.body)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 6)
                     .contentShape(Rectangle())

@@ -11,14 +11,14 @@ import SwiftUI
 /// way it did.
 struct AppTextStyle: Equatable {
     /// The whole app's text, and the few widths and heights that hold text, at this multiple of macOS's own
-    /// sizes: the size the text-size control was left at when it was removed.
-    static let scale: CGFloat = 1.2
+    /// sizes: 14 pt body text, the reference app's size.
+    static let scale: CGFloat = 1.08
 
     var size: CGFloat
     var weight: Font.Weight = .regular
     var design: Font.Design = .default
 
-    /// Keys, and the sidebar's counts and status: the smallest text in the app.
+    /// Keys: the smallest text in the app.
     static let footnote = AppTextStyle(size: 9)
     static let caption2 = AppTextStyle(size: 10, weight: .medium)
     static let caption = AppTextStyle(size: 10)
