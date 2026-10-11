@@ -45,6 +45,8 @@ struct DeskWindow: View {
                 }
             }
         }
+        .blur(radius: model.showingFinder ? 3 : 0)
+        .overlay { if model.showingFinder { FinderView() } }
         .appFont()
         .preferredColorScheme(.dark)
         .background(Theme.background.ignoresSafeArea())
@@ -63,6 +65,12 @@ struct DeskWindow: View {
     private var sidebar: some View {
         SidebarColumn {
             SidebarHeading(title: "Workspace")
+            SidebarItem(title: "Find a PR", icon: "magnifyingglass", action: { model.showingFinder = true }) {
+                HStack(spacing: 3) {
+                    KeyCap(key: "⌘")
+                    KeyCap(key: "K")
+                }
+            }
             ForEach(Tab.allCases) { item in
                 SidebarItem(title: item.title, icon: item.icon, selected: tab == item, action: { tab = item }) {
                     let count = badge(for: item)

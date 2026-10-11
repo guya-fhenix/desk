@@ -44,18 +44,34 @@ struct ReviewsTab: View {
             if rows.isEmpty {
                 EmptyText(text: model.state.errors[.github] ?? emptyText).padding(.vertical, 20)
             }
-            ScrollView {
-                LazyVStack(spacing: 0) {
-                    ForEach(rows) { pr in
-                        // A double-click opens the review on GitHub, in the Files tab where a draft is finished.
-                        ListRow(selected: selection == pr.url, select: { selection = pr.url }, open: { model.openDraft(pr) }) {
-                            QueueRow(pr: pr, model: model, onMe: onMe.contains(pr.url))
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(spacing: 0) {
+                        ForEach(rows) { pr in
+                            // A double-click opens the review on GitHub, in the Files tab where a draft is finished.
+                            ListRow(selected: selection == pr.url, select: { selection = pr.url }, open: { model.openDraft(pr) }) {
+                                QueueRow(pr: pr, model: model, onMe: onMe.contains(pr.url))
+                            }
                         }
                     }
+                }
+                .onChange(of: selection, initial: true) { _, url in
+                    if let url { withAnimation { proxy.scrollTo(url, anchor: .center) } }
                 }
             }
         }
         .remembersSort(Self.sort, order: $sortOrder, stored: $storedSort)
+        // Find a PR lands here with a PR to select. One the filters hide is shown by widening them to the whole
+        // queue: a find that opens a screen without its PR on it would be no find at all.
+        .onChange(of: model.selectPullRequest, initial: true) { _, url in
+            guard let url else { return }
+            if !self.rows.contains(where: { $0.url == url }) {
+                scope = .all
+                limited = false
+            }
+            selection = url
+            model.selectPullRequest = nil
+        }
     }
 
     private var emptyText: String {

@@ -11,6 +11,17 @@ import Testing
         return state
     }
 
+    /// Find a PR and the PR list's search: every word has to appear in repo#number, title or branch.
+    @Test func aSearchFindsAPullRequestByNumberTitleOrBranch() {
+        let pr = Fixtures.pr(number: 1082, title: "[CHORE] Test CI: skip, cache scope", head: "chore/test-ci-speedup")
+        for search in ["#1082", "1082", "cofhe#10", "COFHE", "cache scope", "ci-speedup", "chore ci", ""] {
+            #expect(pr.matches(search: search), "\(search)")
+        }
+        for search in ["#1083", "cache flow", "teecryptor"] {
+            #expect(!pr.matches(search: search), "\(search)")
+        }
+    }
+
     @Test func reviewWorktreesAreKeptApartFromWorkingOnes() {
         var state = state
         let main = Fixtures.worktree(path: "/r/cofhe", branch: "master", isMain: true)

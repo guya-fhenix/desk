@@ -31,6 +31,13 @@ struct FhenixDeskApp: App {
                 }
                 .keyboardShortcut(",", modifiers: .command)
             }
+            CommandMenu("Go") {
+                Button("Find a PR…") {
+                    model.showingFinder.toggle()
+                    AppDelegate.openDesk?()
+                }
+                .keyboardShortcut("k", modifiers: .command)
+            }
         }
     }
 }

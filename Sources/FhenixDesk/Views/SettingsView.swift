@@ -96,7 +96,8 @@ struct SettingsView: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .keyboardShortcut(.cancelAction)
+                // Esc closes Find a PR first when it is open over Settings.
+                .keyboardShortcut(model.showingFinder ? nil : .cancelAction)
                 .padding(.bottom, 10)
                 SidebarHeading(title: "Settings")
                 ForEach(SettingsPane.allCases) { pane in

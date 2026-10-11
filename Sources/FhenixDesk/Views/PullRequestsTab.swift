@@ -38,13 +38,19 @@ struct PullRequestsTab: View {
             if model.state.mine.isEmpty {
                 EmptyText(text: model.state.errors[.github] ?? "No open PRs.").padding(.vertical, 20)
             }
-            ScrollView {
-                LazyVStack(spacing: 0) {
-                    ForEach(rows, id: \.pullRequest.url) { row in
-                        PullRequestRow(row: row, model: model, selected: selection == row.pullRequest.url) {
-                            selection = row.pullRequest.url
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(spacing: 0) {
+                        ForEach(rows, id: \.pullRequest.url) { row in
+                            PullRequestRow(row: row, model: model, selected: selection == row.pullRequest.url) {
+                                selection = row.pullRequest.url
+                            }
                         }
                     }
+                }
+                // Find a PR lands here with the row selected; it may be far down the list.
+                .onChange(of: selection, initial: true) { _, url in
+                    if let url { withAnimation { proxy.scrollTo(url, anchor: .center) } }
                 }
             }
         }
@@ -68,11 +74,10 @@ struct PullRequestsTab: View {
     /// root does not: the arrow still says it is stacked, and the inspector names the parent.
     private var rows: [StackedPullRequest] {
         let all = model.state.stackedMine(order: sortOrder)
-        let needle = search.trimmingCharacters(in: .whitespaces).lowercased()
-        guard !needle.isEmpty else { return all }
+        guard !search.trimmingCharacters(in: .whitespaces).isEmpty else { return all }
         return all.filter { row in
             let pr = row.pullRequest
-            return "\(pr.repoName)#\(pr.number) \(pr.title) \(pr.headRef)".lowercased().contains(needle)
+            return pr.matches(search: search)
         }
     }
 }

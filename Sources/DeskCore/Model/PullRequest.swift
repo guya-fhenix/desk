@@ -159,6 +159,13 @@ public struct PullRequest: Codable, Sendable, Hashable, Identifiable {
     public var repoName: String { repo.split(separator: "/").last.map(String.init) ?? repo }
     public var size: Int { additions + deletions }
 
+    /// Whether every word of a search appears in the PR's `repo#number`, title or branch, ignoring case — so
+    /// "#1082", "1082", "cofhe#10" and "slim head" all find the PR they name.
+    public func matches(search: String) -> Bool {
+        let haystack = "\(repoName)#\(number) \(title) \(headRef)".lowercased()
+        return search.lowercased().split(whereSeparator: \.isWhitespace).allSatisfy { haystack.contains($0) }
+    }
+
     /// Bot accounts, and PRs a workflow opens under a human token (detected by title).
     public func isAutomated(_ automation: Automation) -> Bool {
         author.hasSuffix("[bot]") || automation.logins.contains(author) || automation.titlePrefixes.contains { title.hasPrefix($0) }

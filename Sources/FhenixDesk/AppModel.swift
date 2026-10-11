@@ -22,6 +22,8 @@ final class AppModel {
     var pendingTab: DeskWindow.Tab?
     /// True while the Desk window shows Settings in place of the workspace.
     var showingSettings = false
+    /// True while Find a PR (⌘K) is open over the window.
+    var showingFinder = false
     /// What Settings is editing, kept here so leaving Settings and coming back keeps what you had typed.
     let settings = SettingsDraft()
     /// PR urls with a review running from this side, for spinners and disabled buttons.
