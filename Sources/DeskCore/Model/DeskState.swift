@@ -46,6 +46,8 @@ public struct DeskState: Sendable {
     /// Claude Code's background sessions that mention a PR. Local files, so they ride the git poll
     /// rather than being a polled `Source` of their own.
     public var claudeJobs: [ClaudeJob] = []
+    /// Whether each clone's sessions can run the team review skill, by repo root. Read with the git poll.
+    public var reviewSkills: [String: ReviewSkill] = [:]
     public var errors: [Source: String] = [:]
     /// The last review failure. Reviews are not a polled source, so they do not belong in `errors`.
     public var reviewError: String?
@@ -197,6 +199,15 @@ public struct DeskState: Sendable {
     }
 
     public func reviewRun(for pr: PullRequest) -> ReviewRun? { reviewRuns[pr.url] }
+
+    /// Whether a session on this PR's clone can run the team review skill; nil without a clone.
+    public func reviewSkill(for pr: PullRequest) -> ReviewSkill? { localRepo(for: pr).flatMap { reviewSkills[$0.root] } }
+
+    /// The same, for a tracked `owner/name`.
+    public func reviewSkill(forSlug slug: String) -> ReviewSkill? {
+        let repo = gitScan?.repos.first { GitParsing.repoSlug(fromRemote: $0.remote) == slug.lowercased() }
+        return repo.flatMap { reviewSkills[$0.root] }
+    }
 
     /// Why this PR wants a review run on it, or nil when it does not.
     public func reviewNeed(for pr: PullRequest) -> ReviewNeed? { reviewNeeds[pr.url] }

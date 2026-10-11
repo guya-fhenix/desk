@@ -115,6 +115,9 @@ struct SettingsView: View {
                     HStack(spacing: 6) {
                         Text(repo.name)
                         if repo.isArchived { Chip(text: "archived", color: .secondary) }
+                        if draft.trackedRepoSlugs.contains(repo.slug), let skill = model.state.reviewSkill(forSlug: repo.slug) {
+                            ReviewSkillMark(skill: skill)
+                        }
                         Spacer()
                         Text(Format.age(repo.pushedAt)).scaled(.caption).monospacedDigit().foregroundStyle(.secondary)
                     }

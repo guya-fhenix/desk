@@ -49,6 +49,42 @@ import Testing
         #expect(ClaudeJobs.scan(home: "/nope/not/here").isEmpty)
     }
 
+    @Test func reviewSkillFollowsClaudeCodesSettingsOrderAndTheInstalledVersion() throws {
+        let base = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: base) }
+        let (home, repo) = (base.appendingPathComponent("home").path, base.appendingPathComponent("repo").path)
+        func write(_ path: String, _ text: String) throws {
+            try FileManager.default.createDirectory(atPath: (path as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
+            try text.write(toFile: path, atomically: true, encoding: .utf8)
+        }
+        func skill() -> ReviewSkill.State { ClaudePlugins.reviewSkill(repoRoot: repo, home: home).state }
+
+        #expect(skill() == .notEnabled)
+        try write("\(repo)/.claude/settings.json", #"{"enabledPlugins": {"fhenix-workflow@fhenix": true}}"#)
+        #expect(skill() == .notInstalled)
+
+        let old = "\(home)/plugins/cache/fhenix/fhenix-workflow/0.4.2"
+        let new = "\(home)/plugins/cache/fhenix/fhenix-workflow/0.5.0"
+        try write("\(new)/skills/reviewing-code/SKILL.md", "---\nname: reviewing-code\n---\n")
+        // Another repo's install of the new version does not count for this one.
+        try write("\(home)/plugins/installed_plugins.json", """
+            {"version": 2, "plugins": {"fhenix-workflow@fhenix": [
+              {"scope": "project", "projectPath": "\(repo)", "installPath": "\(old)", "version": "0.4.2"},
+              {"scope": "project", "projectPath": "/elsewhere", "installPath": "\(new)", "version": "0.5.0"}]}}
+            """)
+        #expect(ClaudePlugins.reviewSkill(repoRoot: repo, home: home) == ReviewSkill(state: .noSkill, version: "0.4.2"))
+
+        try write("\(home)/plugins/installed_plugins.json", """
+            {"version": 2, "plugins": {"fhenix-workflow@fhenix": [
+              {"scope": "project", "projectPath": "\(repo)/", "installPath": "\(new)", "version": "0.5.0"}]}}
+            """)
+        #expect(ClaudePlugins.reviewSkill(repoRoot: repo, home: home) == ReviewSkill(state: .ready, version: "0.5.0"))
+
+        // Local settings outrank the shared ones, the way they do in Claude Code.
+        try write("\(repo)/.claude/settings.local.json", #"{"enabledPlugins": {"fhenix-workflow@fhenix": false}}"#)
+        #expect(skill() == .notEnabled)
+    }
+
     @Test func startedIDIsReadOutOfTheColouredLine() {
         let output = "backgrounded · \u{1B}[36mc020ac7f\u{1B}[39m\n  claude attach c020ac7f    open in this terminal\n"
         #expect(ClaudeJobs.startedID(in: output) == "c020ac7f")

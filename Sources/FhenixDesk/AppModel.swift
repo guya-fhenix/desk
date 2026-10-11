@@ -118,6 +118,7 @@ final class AppModel {
                 let scan = await service.refreshGit()
                 state.gitScan = scan
                 state.claudeJobs = await service.claudeJobs()
+                state.reviewSkills = await service.reviewSkills(repos: scan.repos)
                 state.errors[.git] = scan.errors.isEmpty ? nil : scan.errors.joined(separator: "\n")
                 for error in scan.errors { Self.log.error("git: \(error, privacy: .public)") }
             case .jira:

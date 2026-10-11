@@ -86,6 +86,11 @@ public actor DeskService {
     /// Claude Code's background sessions. Small local files, read with the git scan.
     public func claudeJobs() -> [ClaudeJob] { ClaudeJobs.scan() }
 
+    /// Whether each clone's sessions can run the team review skill, by repo root. A few small files per repo.
+    public func reviewSkills(repos: [RepoRef]) -> [String: ReviewSkill] {
+        Dictionary(repos.map { ($0.root, ClaudePlugins.reviewSkill(repoRoot: $0.root)) }, uniquingKeysWith: { first, _ in first })
+    }
+
     /// Starts a background Claude session on the PR's branch and returns it. `worktree` is a checkout the
     /// user already has on that branch; without one the branch gets a worktree of its own. The session
     /// starts in the repository's own checkout whatever the branch's checkout is: that is the directory

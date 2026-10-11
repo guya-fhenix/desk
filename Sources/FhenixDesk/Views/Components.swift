@@ -15,6 +15,22 @@ struct Chip: View {
     }
 }
 
+/// Whether a repo's sessions can run the team review skill: a green seal, or an orange warning that says why
+/// not. `showsText` spells it out where there is room for it.
+struct ReviewSkillMark: View {
+    var skill: ReviewSkill
+    var showsText = false
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Image(systemName: skill.isReady ? "checkmark.seal.fill" : "exclamationmark.triangle.fill")
+                .foregroundStyle(skill.isReady ? Color.green : .orange)
+            if showsText { Text(skill.text).scaled(.caption).foregroundStyle(.secondary) }
+        }
+        .help(skill.text)
+    }
+}
+
 struct StatusDot: View {
     var color: Color
 

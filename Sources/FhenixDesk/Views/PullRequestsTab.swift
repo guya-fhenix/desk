@@ -256,6 +256,9 @@ private struct PullRequestInspector: View {
 
     @ViewBuilder private var sessions: some View {
         let jobs = model.state.claudeJobs(for: pr)
+        if let skill = model.state.reviewSkill(for: pr) {
+            LabeledContent("Review skill") { ReviewSkillMark(skill: skill, showsText: true) }
+        }
         if jobs.isEmpty {
             Text("No background session mentions this PR.").foregroundStyle(.secondary)
             HStack {

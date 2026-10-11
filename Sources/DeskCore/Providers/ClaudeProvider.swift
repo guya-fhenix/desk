@@ -102,3 +102,76 @@ public enum ClaudeJobs {
         }
     }
 }
+
+/// Whether a repository's sessions can run the team review skill: `fhenix-workflow` enabled for the repo and
+/// installed at a version that ships `reviewing-code`. The self-review stage calls that skill by name, so a
+/// repo without it has nothing for that stage to run.
+public struct ReviewSkill: Sendable, Hashable {
+    public enum State: Sendable, Hashable { case ready, noSkill, notInstalled, notEnabled }
+
+    public var state: State
+    /// The installed plugin version, when there is one.
+    public var version: String?
+
+    public init(state: State, version: String? = nil) {
+        self.state = state
+        self.version = version
+    }
+
+    public var isReady: Bool { state == .ready }
+
+    public var text: String {
+        let plugin = ClaudePlugins.plugin
+        switch state {
+        case .ready: return "\(ClaudePlugins.skill) ready · \(plugin) \(version ?? "")"
+        case .noSkill: return "\(plugin) \(version ?? "") has no \(ClaudePlugins.skill) — update the plugin"
+        case .notInstalled: return "\(plugin) is enabled here but not installed"
+        case .notEnabled: return "\(plugin) is not enabled in this repo"
+        }
+    }
+}
+
+/// Reads the plugin files Claude Code reads, never the plugins themselves.
+public enum ClaudePlugins {
+    public static let plugin = "fhenix-workflow"
+    public static let skill = "reviewing-code"
+
+    /// `enabledPlugins` decides first, in Claude Code's own order — the repo's local settings, then its shared
+    /// settings, then the user's, and the first that names the plugin wins. Then the install record for this
+    /// repo, or for the user, says which version is there and whether it carries the skill.
+    public static func reviewSkill(repoRoot: String, home: String = ClaudeJobs.home) -> ReviewSkill {
+        let files = ["\(repoRoot)/.claude/settings.local.json", "\(repoRoot)/.claude/settings.json", "\(home)/settings.json"]
+        guard let enabled = files.lazy.compactMap(enabledEntry(in:)).first, enabled.on else {
+            return ReviewSkill(state: .notEnabled)
+        }
+        guard let install = install(of: enabled.name, repoRoot: repoRoot, home: home) else {
+            return ReviewSkill(state: .notInstalled)
+        }
+        let skillFile = "\(install.path)/skills/\(skill)/SKILL.md"
+        return ReviewSkill(state: FileManager.default.fileExists(atPath: skillFile) ? .ready : .noSkill, version: install.version)
+    }
+
+    /// `fhenix-workflow@<marketplace>` and whether this file turns it on, or nil when the file does not name it.
+    private static func enabledEntry(in path: String) -> (name: String, on: Bool)? {
+        guard let plugins = object(at: path)?["enabledPlugins"] as? [String: Any],
+              let entry = plugins.first(where: { $0.key.hasPrefix(plugin + "@") })
+        else { return nil }
+        return (entry.key, entry.value as? Bool ?? false)
+    }
+
+    /// The install for this repo, or failing that the user-wide one.
+    private static func install(of name: String, repoRoot: String, home: String) -> (path: String, version: String?)? {
+        let records = (object(at: "\(home)/plugins/installed_plugins.json")?["plugins"] as? [String: Any])?[name] as? [[String: Any]] ?? []
+        let root = URL(fileURLWithPath: repoRoot).standardizedFileURL.path
+        let mine = records.first { ($0["projectPath"] as? String).map { URL(fileURLWithPath: $0).standardizedFileURL.path } == root }
+        guard let record = mine ?? records.first(where: { $0["scope"] as? String == "user" }),
+              let path = record["installPath"] as? String
+        else { return nil }
+        return (path, record["version"] as? String)
+    }
+
+    private static func object(at path: String) -> [String: Any]? {
+        guard let data = FileManager.default.contents(atPath: path) else { return nil }
+        return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+    }
+}

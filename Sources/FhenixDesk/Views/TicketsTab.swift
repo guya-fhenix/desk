@@ -222,7 +222,7 @@ private struct TicketInspector: View {
             ProgressView().controlSize(.mini)
         } else if !repos.isEmpty {
             Menu("Plan in…") {
-                ForEach(repos, id: \.root) { repo in Button(repo.name) { plan(ticket, repo) } }
+                ForEach(repos, id: \.root) { repo in RepoMenuItem(repo: repo, model: model) { plan(ticket, repo) } }
             }
             .fixedSize()
             .help(model.sessionErrors[ticket.key] ?? "Plan \(ticket.key) in a background Claude session")
@@ -254,7 +254,7 @@ private struct PlanButton: View {
         } else if !repos.isEmpty {
             Menu {
                 ForEach(repos, id: \.root) { repo in
-                    Button(repo.name) { onPick(repo) }
+                    RepoMenuItem(repo: repo, model: model) { onPick(repo) }
                 }
             } label: {
                 // The hollow terminal the Pull Requests screen uses for "no session yet, pressing starts
@@ -272,6 +272,38 @@ private struct PlanButton: View {
         let move = status.isEmpty ? "" : ", and move it to “\(status)”"
         return "Plan \(ticket.key) in a background Claude session\(move)"
     }
+}
+
+/// A repo in the menus that start a session. One whose sessions cannot run the team review skill says why on a
+/// second line, in the menu's subtitle style, behind an orange warning: the session would start, but its
+/// self-review would have no skill to call.
+private struct RepoMenuItem: View {
+    var repo: RepoRef
+    var model: AppModel
+    var action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            if let skill = model.state.reviewSkills[repo.root], !skill.isReady {
+                Label {
+                    Text(repo.name)
+                    Text(skill.text)
+                } icon: {
+                    Image(nsImage: Self.warning)
+                }
+            } else {
+                Text(repo.name)
+            }
+        }
+    }
+
+    /// Menus draw symbols as templates, in the text colour; a palette image that is not a template keeps its orange.
+    private static let warning: NSImage = {
+        let symbol = NSImage(systemSymbolName: "exclamationmark.triangle.fill", accessibilityDescription: "Warning")
+        let image = symbol?.withSymbolConfiguration(.init(paletteColors: [.systemOrange])) ?? NSImage()
+        image.isTemplate = false
+        return image
+    }()
 }
 
 /// A plan asked for but not yet started: the repository is chosen, the note is not yet written.
@@ -297,6 +329,9 @@ private struct PlanSheet: View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Plan \(request.ticket.key) in \(request.repo.name)").scaled(.headline)
             Text(request.ticket.summary).scaled(.callout).foregroundStyle(.secondary).lineLimit(2)
+            if let skill = model.state.reviewSkills[request.repo.root], !skill.isReady {
+                Label(skill.text, systemImage: "exclamationmark.triangle.fill").scaled(.caption).foregroundStyle(.orange)
+            }
             Text("Anything you want from the plan? The ticket and its description are sent either way.")
                 .scaled(.caption)
                 .foregroundStyle(.secondary)
