@@ -495,7 +495,7 @@ struct SidebarStatus: View {
 }
 
 /// The sidebar's sync row, as wide as the items above it: whether every source is synced, and the arrow that syncs
-/// them all now, turning while any of them loads. A press anywhere on the row syncs.
+/// them all now, which gives way to a spinner while any of them loads. A press anywhere on the row syncs.
 struct SyncRow: View {
     @Environment(AppModel.self) private var model
 
@@ -507,9 +507,11 @@ struct SyncRow: View {
                 Circle().fill(failed ? Color.orange : .green).frame(width: 7, height: 7).frame(width: 16)
                 Text(syncing ? "Syncing…" : failed ? "Sync failed" : "Synced").foregroundStyle(.secondary)
                 Spacer(minLength: 4)
-                Image(systemName: "arrow.clockwise")
-                    .foregroundStyle(.secondary)
-                    .symbolEffect(.rotate, options: .repeat(.continuous), isActive: syncing)
+                if syncing {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Image(systemName: "arrow.clockwise").foregroundStyle(.secondary)
+                }
             }
             .scaled(.body)
             .padding(.horizontal, 10)
