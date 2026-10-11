@@ -32,6 +32,9 @@ struct DeskWindow: View {
 
     @Environment(AppModel.self) private var model
     @State private var tab: Tab = Tab(rawValue: ProcessInfo.processInfo.environment["FHENIX_DESK_OPEN_WINDOW"] ?? "") ?? .upNext
+    // The Reviews screen's day filter, so its badge counts what that screen lists.
+    @AppStorage("reviews.limited") private var reviewsLimited = false
+    @AppStorage("reviews.days") private var reviewsDays = 14
 
     var body: some View {
         Group {
@@ -111,12 +114,13 @@ struct DeskWindow: View {
 
     /// The badge is what waits for you on that screen, so the sidebar is the whole to-do list. Up Next counts
     /// only what is urgent — the same number the menu bar icon shows — or it would repeat the other three.
+    /// Reviews counts the whole queue inside the day filter, whether or not GitHub put the PR on you.
     private func badge(for tab: Tab) -> Int {
         switch tab {
         case .upNext: return model.urgentCount
         case .tickets: return model.state.openTickets.count
         case .pullRequests: return model.state.waiting(on: .pullRequests)
-        case .reviews: return model.state.waiting(on: .reviews)
+        case .reviews: return model.state.reviewQueue(.all, days: reviewsLimited ? max(reviewsDays, 1) : nil).count
         }
     }
 }
