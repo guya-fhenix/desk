@@ -12,9 +12,9 @@ struct MenuPanelView: View {
             header
             HStack(spacing: 0) {
                 counter("Pull requests", model.state.waiting(on: .pullRequests))
-                Divider().frame(height: 34 * model.textScale)
+                Divider().frame(height: 34 * AppTextStyle.scale)
                 counter("Reviews", model.state.waiting(on: .reviews))
-                Divider().frame(height: 34 * model.textScale)
+                Divider().frame(height: 34 * AppTextStyle.scale)
                 counter("Tickets", model.state.openTickets.count)
             }
             if !model.state.nudges.isEmpty { topNudges }
@@ -22,8 +22,8 @@ struct MenuPanelView: View {
         }
         .padding(12)
         // Widened with the text, or a larger setting would wrap the three counters into each other.
-        .frame(width: 320 * model.textScale)
-        .textScale(model.textScale)
+        .frame(width: 320 * AppTextStyle.scale)
+        .appFont()
         .preferredColorScheme(.dark)
     }
 

@@ -46,14 +46,6 @@ final class AppModel {
     /// memory only, and dropped once the PR leaves your open list.
     var checkedPullRequests: Set<String> = []
 
-    /// Browser-style zoom for the Desk window, remembered across launches. Not in `DeskConfig`: it is a
-    /// comfort setting for this screen, not something the doctor or a provider should ever read.
-    var textScale: Double = UserDefaults.standard.object(forKey: AppModel.textScaleKey) as? Double ?? 1 {
-        didSet { UserDefaults.standard.set(textScale, forKey: AppModel.textScaleKey) }
-    }
-    private static let textScaleKey = "textScale"
-    static let textScaleRange = 0.8...2.0
-
     private let support = AppSupport()
     private let service: DeskService
     private let notifier: Notifier
@@ -282,17 +274,6 @@ final class AppModel {
             }
             await refresh(.jira)
         }
-    }
-
-    /// One press of the − or + button. Clamped, so the buttons disable themselves at either end rather
-    /// than letting the window zoom into uselessness.
-    func zoomText(_ steps: Int) {
-        let range = Self.textScaleRange
-        textScale = min(max((textScale + Double(steps) * 0.1).rounded(toPlaces: 2), range.lowerBound), range.upperBound)
-    }
-
-    var canZoomText: (smaller: Bool, larger: Bool) {
-        (textScale > Self.textScaleRange.lowerBound, textScale < Self.textScaleRange.upperBound)
     }
 
     /// Starts a background Claude session to plan a ticket, then moves the ticket to in progress so a
@@ -665,13 +646,4 @@ final class AppModel {
         }.value
     }
 
-}
-
-private extension Double {
-    /// Keeps the stored scale free of the drift ten additions of 0.1 would otherwise leave behind, which
-    /// is what would stop the clamp comparisons landing exactly on the ends.
-    func rounded(toPlaces places: Int) -> Double {
-        let factor = pow(10.0, Double(places))
-        return (self * factor).rounded() / factor
-    }
 }

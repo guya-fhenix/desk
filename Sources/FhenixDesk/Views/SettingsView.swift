@@ -293,8 +293,7 @@ private struct GeneralSettings: View {
                 BoxedStepper(value: $draft.config.stalePullRequestDays, range: 1...30, step: 1, text: "\(draft.config.stalePullRequestDays) days")
             }
         }
-        FieldGroup(title: "Appearance and alerts", note: "Text size applies at once, like the control in every screen's header.") {
-            Field(label: "Text size") { TextSizeControl() }
+        FieldGroup(title: "Alerts") {
             Field(label: "macOS notifications") {
                 Toggle("Notify me", isOn: $draft.config.notificationsEnabled).toggleStyle(.switch).controlSize(.small)
             }

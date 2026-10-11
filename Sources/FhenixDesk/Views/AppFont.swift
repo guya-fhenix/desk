@@ -1,15 +1,19 @@
 import SwiftUI
 
-/// One of the app's text styles, held as a point size rather than a `Font` so the text-size control can
-/// multiply it.
+/// One of the app's text styles, held as a point size rather than a `Font` so every size can be set at
+/// `scale` times the system's.
 ///
-/// SwiftUI's semantic fonts cannot be scaled here. `Font.caption` carries no size to read back and
+/// SwiftUI's semantic fonts cannot be scaled. `Font.caption` carries no size to read back and
 /// multiply, and macOS has no Dynamic Type to do it for us — `dynamicTypeSize` renders identically at
 /// every setting, accessibility sizes included, measured. So the styles are restated with the sizes
 /// `NSFont.preferredFont(forTextStyle:)` reports on macOS, and every call site asks for one of these
 /// instead of a `Font`. The chaining mirrors `Font`'s, so `.caption.weight(.semibold)` still reads the
 /// way it did.
 struct AppTextStyle: Equatable {
+    /// The whole app's text, and the few widths and heights that hold text, at this multiple of macOS's own
+    /// sizes: the size the text-size control was left at when it was removed.
+    static let scale: CGFloat = 1.2
+
     var size: CGFloat
     var weight: Font.Weight = .regular
     var design: Font.Design = .default
@@ -39,38 +43,14 @@ struct AppTextStyle: Equatable {
         return copy
     }
 
-    func font(scale: Double) -> Font { .system(size: size * scale, weight: weight, design: design) }
-}
-
-private struct TextScaleKey: EnvironmentKey {
-    static let defaultValue: Double = 1
-}
-
-extension EnvironmentValues {
-    /// What the toolbar's − and + buttons are set to. Read by `scaled(_:)` and by the handful of fixed
-    /// heights and widths that have to grow with the text sitting in them.
-    var textScale: Double {
-        get { self[TextScaleKey.self] }
-        set { self[TextScaleKey.self] = newValue }
-    }
+    var font: Font { .system(size: size * Self.scale, weight: weight, design: design) }
 }
 
 extension View {
-    /// The app's text, at the size the user asked for. Stands in for `.font(...)` everywhere, because
-    /// `.font(.caption)` is a size nobody can change afterwards.
-    func scaled(_ style: AppTextStyle) -> some View { modifier(ScaledFont(style: style)) }
+    /// The app's text, in one of its styles. Stands in for `.font(...)` everywhere, because `.font(.caption)`
+    /// is macOS's size, not the app's.
+    func scaled(_ style: AppTextStyle) -> some View { font(style.font) }
 
-    /// Scales everything below: the styles `scaled(_:)` applies, and the default font that unstyled text,
-    /// button titles and table cells fall back on.
-    func textScale(_ scale: Double) -> some View {
-        environment(\.textScale, scale)
-            .environment(\.font, AppTextStyle.body.font(scale: scale))
-    }
-}
-
-private struct ScaledFont: ViewModifier {
-    @Environment(\.textScale) private var scale
-    var style: AppTextStyle
-
-    func body(content: Content) -> some View { content.font(style.font(scale: scale)) }
+    /// The default font that unstyled text, button titles and fields fall back on.
+    func appFont() -> some View { environment(\.font, AppTextStyle.body.font) }
 }

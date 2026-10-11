@@ -137,38 +137,6 @@ struct RefreshControl: View {
     }
 }
 
-/// Sits beside the refresh button and zooms the window. macOS offers no system text size, so this is the
-/// app's own — and it is remembered across launches.
-struct TextSizeControl: View {
-    @Environment(AppModel.self) private var model
-
-    var body: some View {
-        HStack(spacing: 2) {
-            step("minus", -1, "Smaller text", enabled: model.canZoomText.smaller)
-            Text(percent)
-                .scaled(.caption).monospacedDigit()
-                .foregroundStyle(model.textScale == 1 ? .tertiary : .secondary)
-                .frame(width: 38)
-                .help("Text size")
-            step("plus", 1, "Larger text", enabled: model.canZoomText.larger)
-        }
-        .padding(.horizontal, 4)
-        .padding(.vertical, 2)
-        .background(Theme.raised, in: Capsule())
-        .buttonStyle(.plain)
-    }
-
-    private var percent: String { "\(Int((model.textScale * 100).rounded()))%" }
-
-    private func step(_ icon: String, _ steps: Int, _ label: String, enabled: Bool) -> some View {
-        Button { model.zoomText(steps) } label: {
-            Image(systemName: icon).frame(width: 18, height: 18)
-        }
-        .disabled(!enabled)
-        .help("\(label) (\(percent))")
-    }
-}
-
 /// GitHub's diff stat: the size bucket, then additions in green and deletions in red.
 struct DiffStat: View {
     var pr: PullRequest

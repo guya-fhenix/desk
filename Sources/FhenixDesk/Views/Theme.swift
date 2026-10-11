@@ -58,14 +58,13 @@ struct Hairline: View {
     var body: some View { Rectangle().fill(Theme.line).frame(height: 1) }
 }
 
-/// The controls every screen's header carries on the right: text size, the details panel's switch when the
-/// screen has one, and the sync state, which is also the refresh button.
+/// The controls every screen's header carries on the right: the details panel's switch when the screen has
+/// one, and the sync state, which is also the refresh button.
 struct HeaderControls: View {
     var inspector: String?
 
     var body: some View {
         HStack(spacing: 8) {
-            TextSizeControl()
             if let inspector { InspectorToggle(key: inspector) }
             RefreshControl()
         }
@@ -204,7 +203,7 @@ struct MetaLine: View {
 /// A GitHub account's picture, or its initial while it loads or when there is none.
 struct Avatar: View {
     var login: String
-    @Environment(\.textScale) private var scale
+    private let scale = AppTextStyle.scale
 
     var body: some View {
         AsyncImage(url: URL(string: "https://github.com/\(login).png?size=64")) { image in

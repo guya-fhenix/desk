@@ -6,7 +6,7 @@ import SwiftUI
 /// where its description is read.
 struct TicketsTab: View {
     @Environment(AppModel.self) private var model
-    @Environment(\.textScale) private var scale: Double
+    private let scale = AppTextStyle.scale
     /// Remembered, so a trip to another screen does not drop you back on the sprint.
     @AppStorage("tickets.placement") private var placement: TicketPlacement = .sprint
     /// By key, so a poll that replaces every ticket keeps the selection.

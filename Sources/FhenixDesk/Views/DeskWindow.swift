@@ -45,7 +45,7 @@ struct DeskWindow: View {
                 }
             }
         }
-        .textScale(model.textScale)
+        .appFont()
         .preferredColorScheme(.dark)
         .background(Theme.background.ignoresSafeArea())
         // A regular app while the window shows, so ⌘-Tab and the Dock can bring it back.

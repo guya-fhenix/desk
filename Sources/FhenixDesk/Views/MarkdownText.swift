@@ -5,7 +5,7 @@ import SwiftUI
 /// description, since that is what these read best next to: roomy lines, a clear gap between paragraphs,
 /// list items kept together, headings set off from what came before, and code on a tinted ground.
 struct MarkdownText: View {
-    @Environment(\.textScale) private var scale: Double
+    private let scale = AppTextStyle.scale
     let text: String
 
     private static let bodySize: CGFloat = 13
