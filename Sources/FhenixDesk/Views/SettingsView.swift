@@ -23,7 +23,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         case .general: return "slider.horizontal.3"
         case .github: return "chevron.left.forwardslash.chevron.right"
         case .repos: return "folder"
-        case .jira: return "ticket"
+        case .jira: return SidebarIcon.jira
         case .reviews: return "bubble.left.and.text.bubble.right"
         case .prompts: return "text.bubble"
         }

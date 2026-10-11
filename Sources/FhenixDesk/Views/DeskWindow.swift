@@ -25,7 +25,7 @@ struct DeskWindow: View {
             case .today: return "tray"
             case .pullRequests: return "arrow.triangle.pull"
             case .reviews: return "bubble.left.and.text.bubble.right"
-            case .tickets: return "ticket"
+            case .tickets: return SidebarIcon.jira
             }
         }
     }
