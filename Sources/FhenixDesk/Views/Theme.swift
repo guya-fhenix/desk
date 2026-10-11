@@ -301,20 +301,35 @@ struct SortMenu<Value>: View {
                 }
             }
         } label: {
-            HStack(spacing: 6) {
-                Text("Sort").foregroundStyle(.secondary)
-                Text(currentName?.capitalized ?? "Default")
-                if currentName != nil { Image(systemName: current?.order == .reverse ? "arrow.down" : "arrow.up").scaled(.caption) }
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(Theme.raised, in: RoundedRectangle(cornerRadius: 6))
-            .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Theme.line))
+            MenuBox(
+                title: "Sort", value: currentName?.capitalized ?? "Default",
+                icon: currentName == nil ? nil : current?.order == .reverse ? "arrow.down" : "arrow.up"
+            )
         }
         .menuStyle(.button)
         .buttonStyle(.plain)
         .menuIndicator(.hidden)
         .fixedSize()
+    }
+}
+
+/// The face of a filter or sort menu in a screen's header: what it sets, in grey, then its value, in a box.
+struct MenuBox: View {
+    var title: String
+    var value: String
+    var icon: String? = "chevron.down"
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Text(title).foregroundStyle(.secondary)
+            Text(value)
+            if let icon { Image(systemName: icon).scaled(.caption).foregroundStyle(.secondary) }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(Theme.raised, in: RoundedRectangle(cornerRadius: 6))
+        .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Theme.line))
+        .contentShape(RoundedRectangle(cornerRadius: 6))
     }
 }
 

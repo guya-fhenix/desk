@@ -100,21 +100,6 @@ struct ReviewsTab: View {
                 options: ReviewScope.allCases.map { .init(value: $0, title: $0.title, count: queue($0).count) },
                 selection: $scope
             )
-            Toggle(isOn: $limited) { Text(limited ? "Last" : "All time") }
-                .toggleStyle(.button)
-                .controlSize(.small)
-                .help(limited ? "Show every pull request, however old" : "Show only pull requests opened in the last few days")
-            if limited {
-                TextField("Days", value: $days, format: .number)
-                    .textFieldStyle(.roundedBorder)
-                    .multilineTextAlignment(.trailing)
-                    .frame(width: 44)
-                    .controlSize(.small)
-                Stepper("Days", value: $days, in: 1...365)
-                    .labelsHidden()
-                    .controlSize(.small)
-                Text(days == 1 ? "day" : "days").scaled(.caption).foregroundStyle(.secondary)
-            }
             if ready > 0 {
                 Chip(text: "\(ready) ready to run", color: .orange)
                     .help("Of the rows shown. Press Review on one to run it; nothing runs on its own.")
@@ -123,9 +108,54 @@ struct ReviewsTab: View {
             if !model.canStartReview {
                 Text("\(model.busyReviews.count) running").scaled(.caption).foregroundStyle(.secondary)
             }
+            DaysFilter(limited: $limited, days: $days)
             SortMenu(sort: Self.sort, order: $sortOrder)
         }
     }
+}
+
+/// How far back the queue reaches, drawn like the sort menu beside it: every PR, or only the ones opened in the
+/// last few days. The common spans are one pick; Other… takes any number of days.
+private struct DaysFilter: View {
+    @Binding var limited: Bool
+    @Binding var days: Int
+    @State private var choosing = false
+
+    private static let spans = [1, 3, 7, 14, 30]
+
+    var body: some View {
+        Menu {
+            Toggle("All time", isOn: Binding(get: { !limited }, set: { if $0 { limited = false } }))
+            Divider()
+            ForEach(Self.spans, id: \.self) { span in
+                Toggle(Self.title(span), isOn: Binding(get: { limited && days == span }, set: { if $0 { days = span; limited = true } }))
+            }
+            Divider()
+            Toggle("Other…", isOn: Binding(get: { limited && !Self.spans.contains(days) }, set: { _ in choosing = true }))
+        } label: {
+            MenuBox(title: "Opened", value: limited ? Self.title(max(days, 1)) : "All time")
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help("Show every pull request, or only the ones opened in the last few days")
+        .popover(isPresented: $choosing, arrowEdge: .bottom) {
+            HStack(spacing: 8) {
+                Text("Last")
+                TextField("Days", value: $days, format: .number)
+                    .textFieldStyle(.roundedBorder)
+                    .multilineTextAlignment(.trailing)
+                    .frame(width: 52)
+                Stepper("Days", value: $days, in: 1...365).labelsHidden()
+                Text(days == 1 ? "day" : "days").foregroundStyle(.secondary)
+            }
+            .padding(12)
+            .onAppear { limited = true }
+        }
+    }
+
+    private static func title(_ days: Int) -> String { days == 1 ? "Last day" : "Last \(days) days" }
 }
 
 /// One PR in the queue: the author's picture, where the review stands and the title, a monospaced line with
