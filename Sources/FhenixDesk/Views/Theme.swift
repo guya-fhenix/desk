@@ -478,7 +478,7 @@ struct SidebarColumn<Content: View>: View {
 
 /// A sidebar icon: an SF Symbol by name, or Jira's own mark for `jira`, in the same grey as the rest.
 struct SidebarIcon: View {
-    static let jira = "jira"
+    nonisolated static let jira = "jira"
     var name: String
 
     var body: some View {
