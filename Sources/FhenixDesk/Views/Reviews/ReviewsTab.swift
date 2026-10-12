@@ -229,11 +229,12 @@ private struct QueueReviewCell: View {
                 Chip(text: "no local clone", color: .secondary)
                     .help("Clone \(pr.repo) under a repo root to review it here")
             } else {
-                if let need {
-                    Chip(text: need.title, color: need == .failed ? .red : .orange)
-                        .help(model.state.reviewRun(for: pr)?.error ?? need.detail)
-                }
-                if need != .failed {
+                // Only a failed run gets a chip: the Review button already marks the rest, and a re-request
+                // has its own chip in the status.
+                if need == .failed {
+                    Chip(text: "run failed", color: .red)
+                        .help(model.state.reviewRun(for: pr)?.error ?? ReviewNeed.failed.detail)
+                } else {
                     ReviewStatusChip(status: model.state.reviewStatus(for: pr))
                 }
             }
