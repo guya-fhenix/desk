@@ -11,9 +11,10 @@ public enum ReviewNeed: String, Sendable, Hashable {
 
     public var title: String {
         switch self {
-        case .notReviewed: return "ready to review"
-        case .reRequested: return "review again"
-        case .failed: return "run failed"
+        // One name for this state across the app: the Reviews header, Up Next and the menu panel say the same.
+        case .notReviewed: return "Needs review"
+        case .reRequested: return "Review again"
+        case .failed: return "Run failed"
         }
     }
 

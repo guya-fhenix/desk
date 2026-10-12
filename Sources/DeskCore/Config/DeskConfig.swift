@@ -46,6 +46,8 @@ public struct DeskConfig: Codable, Sendable, Equatable {
     /// Prompt texts edited in Settings, by `PromptID`. Only edits are kept: a prompt you never touched
     /// follows the app's own text when that changes.
     public var prompts: [String: String] = [:]
+    /// Every text size in the app, as a multiple of macOS's own: Settings → General → Text size.
+    public var textScale: Double = 1.08
 
     public init() {}
 
@@ -55,7 +57,7 @@ public struct DeskConfig: Codable, Sendable, Equatable {
         case githubPollSeconds, gitPollSeconds, jiraPollSeconds
         case stalePullRequestDays, notificationsEnabled
         case claudePath, acliPath, reviewRoot, reviewModel, reviewEffort, reviewBudgetUSD, cleanupReviewsOnMerge
-        case reviewConcurrency, reviewTimeoutMinutes, prompts
+        case reviewConcurrency, reviewTimeoutMinutes, prompts, textScale
     }
 
     /// Every key is optional so a config.json written before a field existed still loads. Synthesized
@@ -89,6 +91,7 @@ public struct DeskConfig: Codable, Sendable, Equatable {
         reviewConcurrency = try c.decodeIfPresent(Int.self, forKey: .reviewConcurrency) ?? d.reviewConcurrency
         reviewTimeoutMinutes = try c.decodeIfPresent(Int.self, forKey: .reviewTimeoutMinutes) ?? d.reviewTimeoutMinutes
         prompts = try c.decodeIfPresent([String: String].self, forKey: .prompts) ?? d.prompts
+        textScale = try c.decodeIfPresent(Double.self, forKey: .textScale) ?? d.textScale
     }
 
     /// Lowercased `owner/name`, which is how remotes and search qualifiers are compared.

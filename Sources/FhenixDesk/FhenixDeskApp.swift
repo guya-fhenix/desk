@@ -16,9 +16,13 @@ struct FhenixDeskApp: App {
 
     var body: some Scene {
         Window("Fhenix Desk", id: DeskWindow.id) {
+            // Narrower than this, the sidebar, a list and the details panel stop fitting side by side, and Search's
+            // 640 pt box with them.
             DeskRoot(model: model, delegate: delegate)
+                .frame(minWidth: 960, minHeight: 560)
         }
         .defaultSize(width: 1180, height: 720)
+        .windowResizability(.contentMinSize)
         // The window's buttons sit on the sidebar and its title bar is gone; the background drags the window.
         .windowStyle(.hiddenTitleBar)
         .windowBackgroundDragBehavior(.enabled)
@@ -38,6 +42,26 @@ struct FhenixDeskApp: App {
                 }
                 .keyboardShortcut("k", modifiers: .command)
             }
+            // In the system View menu, so every screen and the presses that work on it have a key, listed in one place.
+            CommandGroup(before: .toolbar) {
+                ForEach(Array(DeskWindow.Tab.allCases.enumerated()), id: \.element) { index, tab in
+                    Button(tab.title) {
+                        model.pendingTab = tab
+                        AppDelegate.openDesk?()
+                    }
+                    .keyboardShortcut(KeyEquivalent(Character("\(index + 1)")), modifiers: .command)
+                }
+                Divider()
+                Button("Sync Now") { model.refreshAll() }
+                    .keyboardShortcut("r", modifiers: .command)
+                Button("Find") {
+                    if model.visibleSearchBoxes > 0 { model.searchFocusRequest += 1 } else { model.showingFinder = true }
+                }
+                .keyboardShortcut("f", modifiers: .command)
+                Button("Show/Hide Details") { model.inspectorToggleRequest += 1 }
+                    .keyboardShortcut("i", modifiers: [.command, .option])
+                Divider()
+            }
         }
     }
 }
@@ -50,7 +74,7 @@ private struct DeskRoot: View {
     var delegate: AppDelegate
 
     var body: some View {
-        DeskWindow()
+        TextScaleRoot { DeskWindow() }
             .environment(model)
             .task {
                 AppDelegate.openDesk = {
@@ -106,6 +130,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         item.button?.action = #selector(clicked)
         // Without this a button only reports the primary button, and the secondary one opens nothing.
         item.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
+        // The two clicks mean different things, which nothing else on the button says.
+        item.button?.toolTip = "Click: open Desk · Right-click: quick look"
         statusItem = item
         draw(count: model.urgentCount)
         model.onUrgentCountChange = { [weak self] count in self?.draw(count: count) }
@@ -143,9 +169,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // primary click with the panel open would close the panel and never open the window. Dismissing
         // it by hand leaves the button's clicks to the button.
         panel.behavior = .applicationDefined
-        // Dark like the Desk window, whatever the system is set to.
-        panel.appearance = NSAppearance(named: .darkAqua)
-        panel.contentViewController = NSHostingController(rootView: MenuPanelView().environment(model))
+        panel.contentViewController = NSHostingController(rootView: TextScaleRoot { MenuPanelView() }.environment(model))
         popover = panel
         return panel
     }

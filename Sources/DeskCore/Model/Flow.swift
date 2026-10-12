@@ -15,7 +15,8 @@ public enum FlowStage: String, Codable, Sendable, CaseIterable {
         case .inReview: return "In review"
         case .fixesProposed: return "Fixes proposed"
         case .applying: return "Applying"
-        case .approved: return "Approved"
+        // Not "Approved": that word is GitHub's review decision, shown in the same row.
+        case .approved: return "Ready to merge"
         case .merged: return "Merged"
         }
     }

@@ -9,7 +9,10 @@ import os
 final class AppModel {
     var state: DeskState
     var refreshing: Set<Source> = []
+    /// Why the last settings write failed, in a sentence that says what to do; nil once one succeeds.
     var configError: String?
+    /// The error itself, for the tooltip on that sentence.
+    var configErrorDetail: String?
     /// The Atlassian account acli is signed in as, or nil when nobody is.
     var jiraAccount: JiraAccount?
     /// The org's repositories, for the Settings picker. Fetched on demand: the list changes rarely and
@@ -24,6 +27,12 @@ final class AppModel {
     var showingSettings = false
     /// True while Search (⌘K) is open over the window.
     var showingFinder = false
+    /// Bumped by View → Find (⌘F); the search box on screen takes focus when it changes.
+    var searchFocusRequest = 0
+    /// How many search boxes are on screen. Find falls back to Search (⌘K) on a screen that has none.
+    var visibleSearchBoxes = 0
+    /// Bumped by View → Show/Hide Details (⌥⌘I); the window flips the details panel of the screen it shows.
+    var inspectorToggleRequest = 0
     /// What Settings is editing, kept here so leaving Settings and coming back keeps what you had typed.
     let settings = SettingsDraft()
     /// PR urls with a review running from this side, for spinners and disabled buttons.
@@ -44,10 +53,6 @@ final class AppModel {
     /// Why the session button last failed, per PR url or ticket key. It is the button's own tooltip: a press that
     /// does nothing is the one thing this must not be.
     var sessionErrors: [String: String] = [:]
-    /// PR urls you ticked on the Pull Requests screen. Your own marks, unrelated to draft or review state: kept in
-    /// memory only, and dropped once the PR leaves your open list.
-    var checkedPullRequests: Set<String> = []
-
     private let support = AppSupport()
     private let service: DeskService
     private let notifier: Notifier
@@ -63,6 +68,7 @@ final class AppModel {
         notifier = Notifier(support: support)
         state.flows = Self.loadFlows(support: support)
         Task { await self.start() }
+        Notifier.onShow = { [weak self] url in self?.show(url) }
     }
 
     var config: DeskConfig {
@@ -71,6 +77,13 @@ final class AppModel {
     }
 
     var urgentCount: Int { state.nudges.filter { $0.severity >= .warning }.count }
+
+    /// The tickets whose automatic move failed. The rest the app moves on its own, so only these need you.
+    var failedDrifts: [TicketDrift] { state.ticketDrifts.filter { ticketMoveErrors[$0.ticket.key] != nil } }
+
+    /// Every row Up Next lists. The sidebar badge and the menu panel show this same number, so no two places
+    /// disagree about how much is waiting there.
+    var upNextCount: Int { state.nudges.count + failedDrifts.count }
 
     /// Set by the menu bar item, which lives outside every SwiftUI scene and so cannot observe the
     /// model the way a view does.
@@ -114,7 +127,6 @@ final class AppModel {
             case .github:
                 let snapshot = try await service.refreshGitHub()
                 state.github = snapshot
-                checkedPullRequests.formIntersection(snapshot.mine.map(\.url))
                 await service.cleanupClosedReviews(
                     github: snapshot, reviewWorktrees: state.reviewWorktrees, repos: state.gitScan?.repos ?? []
                 )
@@ -173,8 +185,10 @@ final class AppModel {
         do {
             try support.save(config, to: DeskService.configFile)
             configError = nil
+            configErrorDetail = nil
         } catch {
-            configError = "\(error)"
+            configError = "Couldn't save settings: \(error.localizedDescription) Check that ~/Library/Application Support/Fhenix Desk is writable."
+            configErrorDetail = "\(error)"
         }
         Task {
             await service.update(config: config)
@@ -208,10 +222,29 @@ final class AppModel {
 
     /// Whether the Review button for this PR may be pressed now: a local clone to run in, nothing already
     /// running on it, and a free slot.
-    func canReview(_ pr: PullRequest) -> Bool {
-        guard state.localRepo(for: pr) != nil, !busyReviews.contains(pr.url) else { return false }
-        guard state.reviewRun(for: pr)?.phase.isBusy != true else { return false }
-        return canStartReview
+    func canReview(_ pr: PullRequest) -> Bool { reviewBlocker(pr) == nil }
+
+    /// Why Review is dead for this PR, in the words its button shows beside it; nil when it may be pressed.
+    func reviewBlocker(_ pr: PullRequest) -> String? {
+        if state.localRepo(for: pr) == nil { return "No local clone" }
+        if busyReviews.contains(pr.url) || state.reviewRun(for: pr)?.phase.isBusy == true { return "Reviewing…" }
+        if !canStartReview { return "\(busyReviews.count) reviews running" }
+        return nil
+    }
+
+    /// Why Merge is dead for this flow's PR; nil when it may be pressed.
+    func mergeBlocker(_ flow: Flow, _ pr: PullRequest) -> String? {
+        if busyFlows.contains(flow.id) { return "Merging…" }
+        if pr.mergeState == .dirty { return "Conflicts with \(pr.baseRef)" }
+        return nil
+    }
+
+    /// Why Approve is dead on a draft's flow; nil when it may be pressed.
+    func approveBlocker(_ flow: Flow, _ pr: PullRequest) -> String? {
+        if flow.paused { return "Paused" }
+        if flow.pending != nil || flow.awaiting != nil { return "Waiting on the session" }
+        if state.reviewSkill(for: pr)?.isReady != true { return "Review skill missing" }
+        return nil
     }
 
     private func run(_ pr: PullRequest, gitScan: GitScan) {
@@ -326,6 +359,23 @@ final class AppModel {
     func open(_ url: String?) {
         guard let url, let parsed = URL(string: url) else { return }
         NSWorkspace.shared.open(parsed)
+    }
+
+    /// Opens the window on the screen a PR lives on, its row selected — your own in Pull Requests, one in the queue in
+    /// Reviews — and GitHub for one on no screen here. A finished review's url points at its Files tab; the PR is the
+    /// part before it.
+    func show(_ url: String) {
+        let pr = url.hasSuffix("/files") ? String(url.dropLast("/files".count)) : url
+        if state.mine.contains(where: { $0.url == pr }) {
+            pendingTab = .pullRequests
+        } else if state.reviewQueue(.all).contains(where: { $0.url == pr }) {
+            pendingTab = .reviews
+        } else {
+            open(url)
+            return
+        }
+        selectPullRequest = pr
+        AppDelegate.openDesk?()
     }
 
     func reveal(_ path: String?) {

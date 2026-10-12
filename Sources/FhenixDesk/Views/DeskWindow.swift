@@ -20,6 +20,16 @@ struct DeskWindow: View {
             }
         }
 
+        /// The key its details panel remembers its flag under, on the screens that have one.
+        var inspectorKey: String? {
+            switch self {
+            case .pullRequests: return "pullRequests"
+            case .tickets: return "tickets"
+            case .reviews: return "reviews"
+            case .upNext: return nil
+            }
+        }
+
         var icon: String {
             switch self {
             case .upNext: return "tray"
@@ -35,16 +45,11 @@ struct DeskWindow: View {
     private var reviewDays = ReviewDays()
 
     var body: some View {
-        Group {
-            if model.showingSettings {
-                SettingsView()
-            } else {
-                HStack(spacing: 0) {
-                    sidebar
-                    Rectangle().fill(Theme.line).frame(width: 1).ignoresSafeArea()
-                    screen
-                }
-            }
+        // The sidebar stays while Settings is open, with Settings chosen in it, so you never lose your place.
+        HStack(spacing: 0) {
+            sidebar
+            Rectangle().fill(Theme.line).frame(width: 1).ignoresSafeArea()
+            if model.showingSettings { SettingsView() } else { screen }
         }
         .overlay(alignment: .top) {
             // Only the strip takes clicks; the spacer under it is not hit-testable, so the rest passes through.
@@ -58,7 +63,6 @@ struct DeskWindow: View {
         // image, and its text comes out soft.
         .overlay { if model.showingFinder { FinderView() } }
         .appFont()
-        .preferredColorScheme(.dark)
         .background(Theme.background.ignoresSafeArea())
         // A regular app while the window shows, so ⌘-Tab and the Dock can bring it back.
         .onAppear { NSApp.setActivationPolicy(.regular) }
@@ -70,11 +74,16 @@ struct DeskWindow: View {
             model.pendingTab = nil
         }
         .onDisappear { NSApp.setActivationPolicy(.accessory) }
+        // View → Show/Hide Details flips the remembered flag of the screen on show; its panel follows the flag.
+        .onChange(of: model.inspectorToggleRequest) {
+            guard !model.showingSettings, let key = tab.inspectorKey else { return }
+            let flag = "inspector.\(key)"
+            UserDefaults.standard.set(!(UserDefaults.standard.object(forKey: flag) as? Bool ?? true), forKey: flag)
+        }
     }
 
     private var sidebar: some View {
         SidebarColumn {
-            SidebarHeading(title: "Workspace")
             SidebarItem(title: "Search", icon: "magnifyingglass", action: { model.showingFinder = true }) {
                 HStack(spacing: 3) {
                     KeyCap(key: "⌘")
@@ -82,7 +91,10 @@ struct DeskWindow: View {
                 }
             }
             ForEach(Tab.allCases) { item in
-                SidebarItem(title: item.title, icon: item.icon, selected: tab == item, action: { tab = item }) {
+                SidebarItem(title: item.title, icon: item.icon, selected: !model.showingSettings && tab == item, action: {
+                    tab = item
+                    model.showingSettings = false
+                }) {
                     let count = badge(for: item)
                     if count > 0 {
                         Text("\(count)")
@@ -92,7 +104,7 @@ struct DeskWindow: View {
                     }
                 }
             }
-            SidebarItem(title: "Settings", icon: "gearshape", action: { model.showingSettings = true }) {
+            SidebarItem(title: "Settings", icon: "gearshape", selected: model.showingSettings, action: { model.showingSettings = true }) {
                 HStack(spacing: 3) {
                     KeyCap(key: "⌘")
                     KeyCap(key: ",")
@@ -110,12 +122,12 @@ struct DeskWindow: View {
         }
     }
 
-    /// The badge is what waits for you on that screen, so the sidebar is the whole to-do list. Up Next counts
-    /// only what is urgent — the same number the menu bar icon shows — or it would repeat the other three.
-    /// Reviews counts the whole queue inside the day filter, whether or not GitHub put the PR on you.
+    /// The badge is what waits for you on that screen, so the sidebar is the whole to-do list: Up Next counts the
+    /// rows it lists, Reviews the whole queue inside the day filter. The Up Next tiles and the menu panel show these
+    /// same numbers.
     private func badge(for tab: Tab) -> Int {
         switch tab {
-        case .upNext: return model.urgentCount
+        case .upNext: return model.upNextCount
         case .tickets: return model.state.openTickets.count
         case .pullRequests: return model.state.waiting(on: .pullRequests)
         case .reviews: return model.state.reviewQueue(.all, days: reviewDays.window).count
@@ -158,9 +170,14 @@ struct SourceDots: View {
             ForEach(Source.allCases, id: \.self) { source in
                 HStack(spacing: 3) {
                     StatusDot(color: model.state.errors[source] == nil ? (model.state.lastRefresh[source] == nil ? .gray : .green) : .red)
-                    Text(source.title).scaled(.caption).foregroundStyle(.secondary)
+                    // The word as well as the red dot: colour alone does not say failed.
+                    Text(model.state.errors[source] == nil ? source.title : "\(source.title) failed")
+                        .scaled(.caption).foregroundStyle(.secondary)
                 }
                 .help(model.state.errors[source] ?? "Updated \(Format.age(model.state.lastRefresh[source])) ago")
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(model.state.errors[source] != nil ? "\(source.title) failed"
+                    : model.state.lastRefresh[source] == nil ? "\(source.title) not synced yet" : "\(source.title) synced")
             }
         }
     }

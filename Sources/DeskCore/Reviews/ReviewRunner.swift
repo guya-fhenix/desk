@@ -56,7 +56,7 @@ public actor ReviewRunner {
 
     /// Prepares the worktree, runs one headless review, and posts what it found into your pending review
     /// on the PR. Always started by hand. Never throws: every failure becomes the run's error and a
-    /// `.failed` phase, which is what puts the row back into "ready to run".
+    /// `.failed` phase, which is what puts the row back into "needs review".
     @discardableResult
     public func review(_ pr: PullRequest, repos: [RepoRef]) async -> ReviewRun {
         if let current = runs[pr.url], current.phase.isBusy { return current }

@@ -12,6 +12,8 @@ struct ReviewsTab: View {
     @AppStorage("reviews.scope") private var scope: ReviewScope = .all
     private var reviewDays = ReviewDays()
     @State private var selection: String?
+    /// With Reduce Motion on, the list jumps to the selected row instead of sliding there.
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private static let sort = TableSort<PullRequest>(
         [
@@ -34,30 +36,63 @@ struct ReviewsTab: View {
         let rows = self.rows
         let onMe = self.onMe
         Screen {
-            PageHeader(title: "Reviews") { HeaderControls() }
+            PageHeader(title: "Reviews") { HeaderControls(inspector: "reviews") }
             header
         } content: {
             GroupHeader(title: "Review queue", count: rows.count)
-            if rows.isEmpty {
-                EmptyText(text: model.state.errors[.github] ?? emptyText).padding(.vertical, 20)
+            if rows.isEmpty, let error = model.state.errors[.github] {
+                EmptyState(
+                    icon: "exclamationmark.triangle", text: "Couldn't load the review queue from GitHub.", detail: error,
+                    actionTitle: "Retry", action: { Task { await model.refresh(.github) } }
+                )
+                .padding(.vertical, 20)
+            } else if rows.isEmpty {
+                // A day filter is the one thing on this screen that can hide what is there.
+                EmptyState(
+                    icon: "checkmark.circle", text: emptyText,
+                    actionTitle: reviewDays.limited ? "Show all time" : nil, action: { reviewDays.limited = false }
+                )
+                .padding(.vertical, 20)
+            } else {
+                StaleBanner(source: .github)
             }
             ScrollViewReader { proxy in
-                ScrollView {
-                    LazyVStack(spacing: 0) {
-                        ForEach(rows) { pr in
-                            // A double-click opens the review on GitHub, in the Files tab where a draft is finished.
-                            ListRow(selected: selection == pr.url, select: { selection = pr.url }, open: { model.openDraft(pr) }) {
-                                QueueRow(pr: pr, model: model, onMe: onMe.contains(pr.url))
-                            }
+                List(selection: $selection) {
+                    ForEach(rows, id: \.url) { pr in
+                        ListRow(selected: selection == pr.url) {
+                            QueueRow(pr: pr, model: model, onMe: onMe.contains(pr.url))
                         }
                     }
                 }
+                .deskList()
+                // Return or a double-click opens the review on GitHub, in the Files tab where a draft is finished.
+                .contextMenu(forSelectionType: String.self) { urls in
+                    if let pr = rows.first(where: { urls.contains($0.url) }) {
+                        PullRequestMenu(pr: pr, model: model)
+                        Divider()
+                        Button(model.state.reviewStatus(for: pr).draft == nil ? "Review" : "Review Again") { model.review(pr) }
+                            .disabled(!model.canReview(pr))
+                        Button("Reveal Worktree") {
+                            model.reveal(ReviewPlanner.worktreePath(reviewRoot: model.config.expandedReviewRoot, pr: pr))
+                        }
+                    }
+                } primaryAction: { urls in
+                    if let pr = rows.first(where: { urls.contains($0.url) }) { model.openDraft(pr) }
+                }
                 .onChange(of: selection, initial: true) { _, url in
-                    if let url { withAnimation { proxy.scrollTo(url, anchor: .center) } }
+                    if let url { withAnimation(reduceMotion ? nil : .default) { proxy.scrollTo(url, anchor: .center) } }
                 }
             }
         }
         .remembersSort(Self.sort, order: $sortOrder, stored: $storedSort)
+        .deskInspector("reviews") {
+            if let pr = rows.first(where: { $0.url == selection }) {
+                ReviewInspector(pr: pr, model: model, onMe: onMe.contains(pr.url))
+            } else {
+                EmptyState(text: "Select a pull request to review.").padding()
+                Spacer()
+            }
+        }
         // Search lands here with a PR to select. One the filters hide is shown by widening them to the whole
         // queue: a find that opens a screen without its PR on it would be no find at all.
         .onChange(of: model.selectPullRequest, initial: true) { _, url in
@@ -97,8 +132,9 @@ struct ReviewsTab: View {
                 options: ReviewScope.allCases.map { .init(value: $0, title: $0.title, count: queue($0).count) },
                 selection: $scope
             )
-            if ready > 0 {
-                Chip(text: "\(ready) ready to run", color: .orange)
+            // Only when it says something the row count beside the scopes does not.
+            if ready > 0, ready != rows.count {
+                Chip(text: "\(ready) need review", color: .orange)
                     .help("Of the rows shown. Press Review on one to run it; nothing runs on its own.")
             }
         } trailing: {
@@ -176,9 +212,11 @@ private struct QueueRow: View {
     var body: some View {
         HStack(alignment: .center, spacing: 12) {
             Avatar(login: pr.author)
+            // Two lines: what it is and where its review stands, then the facts. The rest is in the details panel.
             VStack(alignment: .leading, spacing: 5) {
                 HStack(spacing: 8) {
                     QueueTitle(pr: pr, model: model, onMe: onMe)
+                    QueueReviewCell(pr: pr, model: model).fixedSize()
                 }
                 HStack(spacing: 8) {
                     MetaLine(parts: [
@@ -188,11 +226,11 @@ private struct QueueRow: View {
                     ])
                     ChecksBadge(pr: pr)
                 }
-                QueueReviewCell(pr: pr, model: model)
             }
             Spacer(minLength: 8)
             QueueActions(pr: pr, model: model)
-            Text(Format.age(pr.createdAt)).monospacedDigit().foregroundStyle(.secondary).help("Waiting since it was opened")
+            Text(Format.age(pr.createdAt)).monospacedDigit().foregroundStyle(.secondary)
+                .help("Waiting since it was opened, \(Format.date(pr.createdAt))")
         }
     }
 }
@@ -207,10 +245,9 @@ private struct QueueTitle: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            if onMe { Chip(text: "on you", color: .orange) }
-            Button { model.open(pr.url) } label: { Text(pr.title).lineLimit(1) }
-                .buttonStyle(.plain)
-                .help("Open #\(pr.number) on GitHub" as String)
+            if onMe { Chip(text: "On you", color: .orange) }
+            // Plain text, so a click on it selects the row; Return or a double-click opens the review on GitHub.
+            Text(pr.title).lineLimit(1)
         }
     }
 }
@@ -224,21 +261,25 @@ private struct QueueReviewCell: View {
         HStack(spacing: 6) {
             if model.busyReviews.contains(pr.url), model.state.reviewRun(for: pr) == nil {
                 ProgressView().controlSize(.mini)
-                Text("starting").scaled(.caption2).foregroundStyle(.secondary)
+                Text("Starting").scaled(.caption2).foregroundStyle(.secondary)
             } else if model.state.localRepo(for: pr) == nil {
-                Chip(text: "no local clone", color: .secondary)
+                Chip(text: "No local clone", color: .secondary)
                     .help("Clone \(pr.repo) under a repo root to review it here")
             } else {
-                // Only a failed run gets a chip: the Review button already marks the rest, and a re-request
-                // has its own chip in the status.
+                // A readiness chip only for the exceptions, "Review again" and "Run failed": the Review button
+                // already marks the plain "needs review" rows.
                 if need == .failed {
-                    Chip(text: "run failed", color: .red)
+                    Chip(text: ReviewNeed.failed.title, color: .red)
                         .help(model.state.reviewRun(for: pr)?.error ?? ReviewNeed.failed.detail)
                 } else {
-                    ReviewStatusChip(status: model.state.reviewStatus(for: pr))
+                    if need == .reRequested {
+                        Chip(text: ReviewNeed.reRequested.title, color: .orange).help(ReviewNeed.reRequested.detail)
+                    }
+                    // Without its own "Re-requested" chip when "Review again" already says so.
+                    let status = model.state.reviewStatus(for: pr)
+                    ReviewStatusChip(status: need == .reRequested ? { var s = status; s.reRequested = false; return s }() : status)
                 }
             }
-            Spacer(minLength: 0)
         }
     }
 }
@@ -253,6 +294,7 @@ private struct QueueActions: View {
         HStack(spacing: 4) {
             ClaudeSessionButton(pr: pr, model: model)
             if need != nil {
+                DisabledReason(text: model.reviewBlocker(pr))
                 Button("Review") { model.review(pr) }
                     .controlSize(.small).buttonStyle(.borderedProminent)
                     .disabled(!model.canReview(pr))
@@ -264,29 +306,72 @@ private struct QueueActions: View {
                         ? "Your draft review, in the PR's Files tab: edit or drop comments, then pick the verdict and submit"
                         : "The PR's Files tab on GitHub")
             }
-            if reviewed || model.state.reviewRun(for: pr) != nil {
-                Menu {
-                    Button("Open on GitHub") { model.openDraft(pr) }
-                    Button("Review again") { model.review(pr) }.disabled(!model.canReview(pr))
-                    Button("Reveal worktree") { model.reveal(worktreePath) }
-                    Button("Remove worktree", role: .destructive) { model.removeReviewWorktree(pr) }
-                        .disabled(model.state.reviewRun(for: pr)?.phase.isBusy == true)
-                } label: {
-                    Image(systemName: "ellipsis.circle")
-                }
-                .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
-                .help("Review again adds only what your draft does not already have. Remove worktree deletes the review checkout when it is clean; the review on GitHub stays.")
-            }
         }
-    }
-
-    private var worktreePath: String {
-        ReviewPlanner.worktreePath(reviewRoot: model.config.expandedReviewRoot, pr: pr)
     }
 
     private var startHelp: String {
         if model.state.localRepo(for: pr) == nil { return "No local clone of \(pr.repo) to review in" }
         if !model.canStartReview { return "Already running \(model.busyReviews.count) reviews; wait for one to finish" }
         return "Run Claude on this PR and put its comments in your draft review on GitHub"
+    }
+}
+
+/// The selected PR in the queue: what it is, where your review of it stands, and every press on it — Review again and
+/// the review worktree's, which have no room on the row.
+private struct ReviewInspector: View {
+    var pr: PullRequest
+    var model: AppModel
+    var onMe: Bool
+
+    var body: some View {
+        let status = model.state.reviewStatus(for: pr)
+        let ran = status.draft != nil || model.state.reviewRun(for: pr) != nil
+        Panel {
+            PanelSection {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(verbatim: "#\(pr.number) \(pr.title)").scaled(.title3.weight(.semibold)).fixedSize(horizontal: false, vertical: true)
+                    Text("\(pr.repoName) · \(pr.author) · \(pr.headRef) → \(pr.baseRef)")
+                        .scaled(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+                }
+                HStack {
+                    Button("Open on GitHub") { model.openDraft(pr) }
+                    ClaudeSessionButton(pr: pr, model: model)
+                }
+                .controlSize(.small)
+            }
+            PanelSection("Status") {
+                LabeledContent("Checks") { HStack(spacing: 4) { ChecksBadge(pr: pr); Text(pr.checksText) } }
+                LabeledContent("Your review") { ReviewStatusChip(status: status) }
+                LabeledContent("Asked of you", value: onMe ? "Yes" : "No")
+                LabeledContent("Size") { DiffStat(pr: pr) }
+                LabeledContent("Waiting", value: "\(Format.age(pr.createdAt)), since \(Format.date(pr.createdAt))")
+            }
+            PanelSection("Review") {
+                if let error = model.state.reviewRun(for: pr)?.error {
+                    Text(error).scaled(.caption).foregroundStyle(.red).textSelection(.enabled)
+                }
+                HStack {
+                    DisabledReason(text: model.reviewBlocker(pr))
+                    Spacer()
+                    Button(ran ? "Review again" : "Review") { model.review(pr) }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(!model.canReview(pr))
+                        .help(ran ? "Adds only what your draft does not already have" : "Run Claude on this PR and put its comments in your draft review")
+                }
+                if ran {
+                    HStack {
+                        Button("Reveal worktree") { model.reveal(worktreePath) }
+                        Button("Remove worktree", role: .destructive) { model.removeReviewWorktree(pr) }
+                            .disabled(model.state.reviewRun(for: pr)?.phase.isBusy == true)
+                            .help("Deletes the review checkout when it is clean; the review on GitHub stays")
+                    }
+                    .controlSize(.small)
+                }
+            }
+        }
+    }
+
+    private var worktreePath: String {
+        ReviewPlanner.worktreePath(reviewRoot: model.config.expandedReviewRoot, pr: pr)
     }
 }

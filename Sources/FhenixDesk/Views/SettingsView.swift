@@ -1,5 +1,6 @@
 import DeskCore
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// The parts of Settings, each a page of its own in the Settings sidebar.
 enum SettingsPane: String, CaseIterable, Identifiable {
@@ -31,7 +32,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
 }
 
 /// What Settings is editing. It lives on the model rather than in the view, so going back to the Desk and
-/// returning keeps what you typed; Save writes it, Revert reloads it.
+/// returning keeps what you typed. Every change is written a moment after it is made.
 @MainActor
 @Observable
 final class SettingsDraft {
@@ -53,8 +54,8 @@ final class SettingsDraft {
         loaded = true
     }
 
-    /// What Save would write: the draft plus the fields edited as free text. Comparing this to the saved
-    /// config is what makes the buttons light up, so a round trip back to the original counts as no change.
+    /// What gets written: the draft plus the fields edited as free text. Comparing this to the saved config is
+    /// what says whether there is anything to write, so a round trip back to the original counts as no change.
     var pending: DeskConfig {
         var pending = config
         pending.repoRoots = Self.split(repoRootsText)
@@ -76,46 +77,59 @@ final class SettingsDraft {
     }
 }
 
-/// Settings, in the Desk window: its own sidebar with the way back, one page per part, and Save at the foot.
+/// Settings, in the Desk window beside the workspace sidebar: a column of its parts, and one page per part. A change
+/// takes effect on its own, the way macOS settings do — there is no Save to forget.
 struct SettingsView: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
         let draft = model.settings
         HStack(spacing: 0) {
-            SidebarColumn {
-                Button { model.showingSettings = false } label: {
-                    HStack(spacing: 9) {
-                        Image(systemName: "chevron.left").foregroundStyle(.secondary).frame(width: 16)
-                        Text("Back to Desk").foregroundStyle(.secondary)
-                        Spacer()
-                        KeyCap(key: "Esc")
-                    }
-                    .scaled(.body)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                // Esc closes Search first when it is open over Settings.
-                .keyboardShortcut(model.showingFinder ? nil : .cancelAction)
-                .padding(.bottom, 10)
+            VStack(alignment: .leading, spacing: 2) {
                 SidebarHeading(title: "Settings")
                 ForEach(SettingsPane.allCases) { pane in
                     SidebarItem(title: pane.title, icon: pane.icon, selected: draft.pane == pane) { draft.pane = pane }
                 }
+                Spacer()
+            }
+            .padding(.horizontal, Theme.Space.s)
+            .padding(.top, Theme.Space.xxl)
+            .frame(width: 168)
+            .frame(maxHeight: .infinity, alignment: .top)
+            .background(Theme.sidebar.ignoresSafeArea())
+            // Esc goes back to the screen you came from; it closes Search first when Search is open over Settings.
+            .background {
+                Button("Back") { model.showingSettings = false }
+                    .keyboardShortcut(model.showingFinder ? nil : .cancelAction)
+                    .opacity(0)
             }
             Rectangle().fill(Theme.line).frame(width: 1).ignoresSafeArea()
             VStack(spacing: 0) {
                 page(draft.pane)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                saveBar
-                KeyHints(hints: [(["⌘", "S"], "save"), (["Esc"], "back")])
+                if let error = model.configError {
+                    Hairline()
+                    Text(error).scaled(.caption).foregroundStyle(.red).lineLimit(2).textSelection(.enabled)
+                        .help(model.configErrorDetail ?? error)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, Theme.gutter)
+                        .padding(.vertical, 10)
+                }
             }
             .background(Theme.background)
         }
         .onAppear { if !draft.loaded { draft.load(model.config) } }
         .task { model.loadRepositories() }
+        // Written a moment after the last change rather than on every one: a path typed key by key would otherwise
+        // restart every source once per key.
+        .task(id: draft.pending) {
+            guard draft.isDirty(against: model.config) else { return }
+            try? await Task.sleep(for: .milliseconds(800))
+            guard !Task.isCancelled else { return }
+            save()
+        }
+        // Leaving inside that moment still keeps the change.
+        .onDisappear { if draft.isDirty(against: model.config) { save() } }
     }
 
     @ViewBuilder private func page(_ pane: SettingsPane) -> some View {
@@ -129,53 +143,10 @@ struct SettingsView: View {
         }
     }
 
-    /// Pinned under every page. Save and Revert stay dead until something actually differs from what is saved.
-    private var saveBar: some View {
-        let dirty = model.settings.isDirty(against: model.config)
-        return VStack(spacing: 0) {
-            Hairline()
-            HStack(spacing: 12) {
-                if let error = model.configError {
-                    Text(error).scaled(.caption).foregroundStyle(.red).lineLimit(1).textSelection(.enabled)
-                } else if dirty {
-                    Text("Unsaved changes").scaled(.caption).foregroundStyle(.secondary)
-                }
-                Spacer()
-                Button("Revert") { model.settings.load(model.config) }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(dirty ? .primary : .tertiary)
-                    .disabled(!dirty)
-                Button(action: save) {
-                    HStack(spacing: 8) {
-                        Text("Save changes")
-                        HStack(spacing: 3) {
-                            ForEach(["⌘", "S"], id: \.self) { key in
-                                Text(key)
-                                    .scaled(.caption.monospaced())
-                                    .frame(minWidth: 16, minHeight: 16)
-                                    .background(Color.white.opacity(0.18), in: RoundedRectangle(cornerRadius: 3))
-                            }
-                        }
-                    }
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 7)
-                    .background(Theme.accent, in: Capsule())
-                    .opacity(dirty ? 1 : 0.45)
-                }
-                .buttonStyle(.plain)
-                .keyboardShortcut("s", modifiers: .command)
-                .disabled(!dirty)
-            }
-            .padding(.horizontal, Theme.gutter)
-            .padding(.vertical, 12)
-        }
-    }
-
+    /// Writes what the draft would be, leaving the draft itself as typed: a prompt box cleared to start over must not
+    /// snap its default back in under the cursor.
     private func save() {
-        let draft = model.settings
-        draft.config = draft.pending
-        model.config = draft.config
+        model.config = model.settings.pending
         model.saveConfig()
     }
 }
@@ -223,14 +194,23 @@ private struct FieldGroup<Content: View>: View {
 /// One setting: its name above a boxed input.
 private struct Field<Input: View>: View {
     var label: String
+    /// How to fill it in, under the input: a placeholder says it only until the first key is typed.
+    var hint: String?
     @ViewBuilder var input: Input
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(label).scaled(.body.weight(.medium))
             input
+            if let hint { Text(hint).scaled(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }
         }
     }
+}
+
+/// A poll interval as people say it: seconds under a minute, minutes from there.
+private func interval(_ seconds: Int) -> String {
+    if seconds < 60 { return "\(seconds) s" }
+    return seconds % 60 == 0 ? "\(seconds / 60) min" : "\(seconds / 60) min \(seconds % 60) s"
 }
 
 /// The boxed look every input on these pages shares.
@@ -241,7 +221,7 @@ private struct InputBox: ViewModifier {
             .padding(.vertical, 8)
             .frame(maxWidth: 300, alignment: .leading)
             .background(Theme.background, in: RoundedRectangle(cornerRadius: 6))
-            .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color(white: 0.27)))
+            .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Theme.controlBorder))
     }
 }
 
@@ -259,6 +239,8 @@ private struct BoxedText: View {
 
 /// A number with − and + beside it, in a box.
 private struct BoxedStepper<Value: Strideable>: View where Value.Stride: SignedNumeric {
+    /// The field's name, which VoiceOver reads for the − and + buttons.
+    var label: String
     @Binding var value: Value
     var range: ClosedRange<Value>
     var step: Value.Stride
@@ -268,9 +250,122 @@ private struct BoxedStepper<Value: Strideable>: View where Value.Stride: SignedN
         HStack {
             Text(text).scaled(.callout.monospaced())
             Spacer()
-            Stepper("", value: $value, in: range, step: step).labelsHidden()
+            Stepper(label, value: $value, in: range, step: step).labelsHidden()
         }
         .modifier(InputBox())
+    }
+}
+
+/// A list kept as comma-separated text in the draft, edited one entry per line: each entry with its own remove button
+/// and its own problem, if it has one, so a typo in one cannot run into the next.
+private struct TokenField: View {
+    var placeholder: String
+    @Binding var text: String
+    /// Why an entry will not work, shown under the field; nil when it is fine.
+    var problem: (String) -> String? = { _ in nil }
+    @State private var entry = ""
+
+    private var tokens: [String] {
+        text.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(tokens, id: \.self) { token in
+                    HStack(spacing: 6) {
+                        Text(token).scaled(.callout.monospaced())
+                        if problem(token) != nil { Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange) }
+                        Spacer(minLength: 4)
+                        Button { set(tokens.filter { $0 != token }) } label: {
+                            Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Remove \(token)")
+                    }
+                }
+                TextField(placeholder, text: $entry)
+                    .textFieldStyle(.plain)
+                    .scaled(.callout.monospaced())
+                    .onSubmit {
+                        let new = entry.trimmingCharacters(in: .whitespaces)
+                        if !new.isEmpty, !tokens.contains(new) { set(tokens + [new]) }
+                        entry = ""
+                    }
+            }
+            .modifier(InputBox())
+            ForEach(tokens.compactMap(problem), id: \.self) { Text($0).scaled(.caption).foregroundStyle(.red) }
+        }
+    }
+
+    private func set(_ list: [String]) { text = list.joined(separator: ", ") }
+}
+
+/// A Jira status: typed, or picked from the statuses your tickets are in — the ones `acli jira` has shown the app,
+/// spelt the way Jira spells them. Not flagged for being none of those: no ticket of yours may sit in Done today. A
+/// stray space at either end is flagged, since Jira's names have none and the move would fail on it.
+private struct StatusField: View {
+    var placeholder: String
+    @Binding var text: String
+    var known: [String]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                BoxedText(placeholder: placeholder, text: $text)
+                if !known.isEmpty {
+                    Menu {
+                        ForEach(known, id: \.self) { status in Button(status) { text = status } }
+                    } label: {
+                        Image(systemName: "chevron.up.chevron.down")
+                    }
+                    .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+                    .help("Pick one of the statuses your tickets are in")
+                    .accessibilityLabel("Pick a status")
+                }
+            }
+            if text != text.trimmingCharacters(in: .whitespaces) {
+                Text("“\(text)” has a space at the start or end; Jira's status names do not.").scaled(.caption).foregroundStyle(.red)
+            }
+        }
+    }
+}
+
+/// One of a short list of values, or the default; a value typed into config.json by hand stays pickable.
+private struct ChoiceField: View {
+    var label: String
+    @Binding var value: String
+    var choices: [String]
+
+    var body: some View {
+        Picker(label, selection: $value) {
+            Text("Default").tag("")
+            ForEach(choices + (value.isEmpty || choices.contains(value) ? [] : [value]), id: \.self) { Text($0).tag($0) }
+        }
+        .labelsHidden()
+        .frame(maxWidth: 300, alignment: .leading)
+    }
+}
+
+/// The folders clones live under: picked in a folder dialog rather than typed, and flagged when one is gone.
+private struct RepoRootsField: View {
+    @Binding var text: String
+    @State private var picking = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            TokenField(placeholder: "~/Repos", text: $text) { root in
+                var isFolder: ObjCBool = false
+                let path = (root as NSString).expandingTildeInPath
+                return FileManager.default.fileExists(atPath: path, isDirectory: &isFolder) && isFolder.boolValue ? nil : "No folder at \(root)."
+            }
+            Button("Add folder…") { picking = true }.controlSize(.small)
+        }
+        .fileImporter(isPresented: $picking, allowedContentTypes: [.folder]) { result in
+            guard case .success(let url) = result else { return }
+            let path = (url.path as NSString).abbreviatingWithTildeInPath
+            text = text.isEmpty ? path : "\(text), \(path)"
+        }
     }
 }
 
@@ -280,19 +375,29 @@ private struct GeneralSettings: View {
     var body: some View {
         @Bindable var draft = model.settings
         FieldGroup(title: "Polling") {
-            Field(label: "GitHub, every") {
-                BoxedStepper(value: $draft.config.githubPollSeconds, range: 30...3_600, step: 30, text: "\(draft.config.githubPollSeconds) s")
+            Field(label: "GitHub poll interval") {
+                BoxedStepper(label: "GitHub poll interval", value: $draft.config.githubPollSeconds, range: 30...3_600, step: 30, text: interval(draft.config.githubPollSeconds))
             }
-            Field(label: "Git, every") {
-                BoxedStepper(value: $draft.config.gitPollSeconds, range: 15...3_600, step: 15, text: "\(draft.config.gitPollSeconds) s")
+            Field(label: "Git poll interval") {
+                BoxedStepper(label: "Git poll interval", value: $draft.config.gitPollSeconds, range: 15...3_600, step: 15, text: interval(draft.config.gitPollSeconds))
             }
-            Field(label: "Jira, every") {
-                BoxedStepper(value: $draft.config.jiraPollSeconds, range: 60...3_600, step: 60, text: "\(draft.config.jiraPollSeconds) s")
+            Field(label: "Jira poll interval") {
+                BoxedStepper(label: "Jira poll interval", value: $draft.config.jiraPollSeconds, range: 60...3_600, step: 60, text: interval(draft.config.jiraPollSeconds))
             }
         }
         FieldGroup(title: "Thresholds") {
             Field(label: "Stale PR after") {
-                BoxedStepper(value: $draft.config.stalePullRequestDays, range: 1...30, step: 1, text: "\(draft.config.stalePullRequestDays) days")
+                BoxedStepper(label: "Stale PR after", value: $draft.config.stalePullRequestDays, range: 1...30, step: 1, text: "\(draft.config.stalePullRequestDays) days")
+            }
+        }
+        FieldGroup(title: "Display") {
+            Field(label: "Text size", hint: "Every screen and the menu panel, at once.") {
+                Picker("Text size", selection: $draft.config.textScale) {
+                    ForEach(AppTextStyle.scales, id: \.value) { Text($0.name).tag($0.value) }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .fixedSize()
             }
         }
         FieldGroup(title: "Alerts") {
@@ -310,7 +415,7 @@ private struct GitHubSettings: View {
         @Bindable var draft = model.settings
         FieldGroup(title: "Account") {
             Field(label: "GitHub org") { BoxedText(placeholder: "FhenixProtocol", text: $draft.config.githubOrg) }
-            Field(label: "gh path") { BoxedText(placeholder: "empty = auto", text: $draft.config.ghPath) }
+            Field(label: "gh path", hint: "Leave empty to find gh on your PATH.") { BoxedText(placeholder: "Automatic", text: $draft.config.ghPath) }
         }
         FieldGroup(
             title: "Flow",
@@ -322,10 +427,14 @@ private struct GitHubSettings: View {
             title: "Local clones",
             note: "Where your clones live. Only used to run a review against a checked-out repo — the list of repos comes from GitHub."
         ) {
-            Field(label: "Repo roots") { BoxedText(placeholder: "comma separated", text: $draft.repoRootsText) }
+            Field(label: "Repo roots", hint: "One folder per line; type a path and press Return, or add one with the folder dialog.") {
+                RepoRootsField(text: $draft.repoRootsText)
+            }
         }
         FieldGroup(title: "Noise", note: "PRs by these authors stay out of the review queue.") {
-            Field(label: "Bot logins") { BoxedText(placeholder: "comma separated", text: $draft.botLoginsText) }
+            Field(label: "Bot logins", hint: "One GitHub login per line; type it and press Return.") {
+                TokenField(placeholder: "Add a login", text: $draft.botLoginsText)
+            }
         }
     }
 }
@@ -339,12 +448,20 @@ private struct JiraSettings: View {
             title: "Account",
             note: "Signing in is a browser flow owned by acli. It grants the CLI access to your Atlassian products; this app only ever runs `acli jira`."
         ) {
+            // Plain text, not input boxes: nothing here can be typed into.
             if let account = model.jiraAccount {
-                Field(label: "Site") { Text(account.site).scaled(.callout.monospaced()).modifier(InputBox()) }
-                Field(label: "Signed in as") { Text(account.email ?? "—").scaled(.callout.monospaced()).modifier(InputBox()) }
+                Field(label: "Site") { Text(account.site).scaled(.callout.monospaced()).foregroundStyle(.secondary).textSelection(.enabled) }
+                Field(label: "Signed in as") {
+                    Text(account.email ?? "—").scaled(.callout.monospaced()).foregroundStyle(.secondary).textSelection(.enabled)
+                }
             }
             VStack(alignment: .leading, spacing: 8) {
-                Text(accountText).scaled(.caption).foregroundStyle(model.jiraAccount == nil ? .red : .green)
+                // Green only on the one word that is good news; the note itself is just a note.
+                if model.jiraAccount != nil {
+                    Label("Signed in", systemImage: "checkmark.circle.fill").scaled(.caption)
+                        .foregroundStyle(.green)
+                }
+                Text(accountText).scaled(.caption).foregroundStyle(model.jiraAccount == nil ? .red : .secondary)
                     .fixedSize(horizontal: false, vertical: true)
                 Button("Recheck") { model.refreshJiraAccount() }.controlSize(.small)
             }
@@ -353,15 +470,28 @@ private struct JiraSettings: View {
             title: "Tickets",
             note: "Status names exactly as Jira spells them, emoji and all; empty turns that half off. Desk moves a ticket of yours on its own once its pull requests say it has fallen behind, never backwards."
         ) {
-            Field(label: "Project keys") { BoxedText(placeholder: "comma separated", text: $draft.projectKeysText) }
-            Field(label: "Status when planning starts") { BoxedText(placeholder: "In Progress", text: $draft.config.jiraInProgressStatus) }
-            Field(label: "Status while a PR is open for review") { BoxedText(placeholder: "👀 Review Ready", text: $draft.config.jiraReviewStatus) }
-            Field(label: "Status once every PR has merged") { BoxedText(placeholder: "Done", text: $draft.config.jiraDoneStatus) }
+            Field(label: "Project keys", hint: "One Jira project key per line, such as PRO; type it and press Return.") {
+                TokenField(placeholder: "Add a key", text: $draft.projectKeysText) { key in
+                    key.range(of: #"^[A-Za-z][A-Za-z0-9_]*$"#, options: .regularExpression) == nil ? "“\(key)” is not a Jira project key." : nil
+                }
+            }
+            Field(label: "Status when planning starts") {
+                StatusField(placeholder: "In Progress", text: $draft.config.jiraInProgressStatus, known: knownStatuses)
+            }
+            Field(label: "Status while a PR is open for review") {
+                StatusField(placeholder: "👀 Review Ready", text: $draft.config.jiraReviewStatus, known: knownStatuses)
+            }
+            Field(label: "Status once every PR has merged") {
+                StatusField(placeholder: "Done", text: $draft.config.jiraDoneStatus, known: knownStatuses)
+            }
         }
         FieldGroup(title: "Tool") {
-            Field(label: "acli path") { BoxedText(placeholder: "empty = auto", text: $draft.config.acliPath) }
+            Field(label: "acli path", hint: "Leave empty to find acli on your PATH.") { BoxedText(placeholder: "Automatic", text: $draft.config.acliPath) }
         }
     }
+
+    /// Every status your tickets are in, as acli reported them.
+    private var knownStatuses: [String] { Set(model.state.tickets.map(\.status)).sorted() }
 
     private var accountText: String {
         if model.jiraAccount != nil { return "The Atlassian CLI holds the credentials. Fhenix Desk stores no Jira token." }
@@ -377,31 +507,33 @@ private struct ReviewsSettings: View {
     var body: some View {
         @Bindable var draft = model.settings
         FieldGroup(title: "Claude") {
-            Field(label: "claude path") {
+            Field(label: "claude path", hint: "Leave empty to find claude on your PATH.") {
                 VStack(alignment: .leading, spacing: 4) {
-                    BoxedText(placeholder: "empty = auto", text: $draft.config.claudePath)
+                    BoxedText(placeholder: "Automatic", text: $draft.config.claudePath)
                     Text(draft.config.resolvedClaudePath.map { "Using \($0)" } ?? "claude not found. Install it or set the path.")
                         .scaled(.caption).foregroundStyle(draft.config.resolvedClaudePath == nil ? .red : .secondary)
                 }
             }
-            Field(label: "Model") { BoxedText(placeholder: "empty = default", text: $draft.config.reviewModel) }
-            Field(label: "Effort") { BoxedText(placeholder: "empty = default", text: $draft.config.reviewEffort) }
+            Field(label: "Model") { ChoiceField(label: "Model", value: $draft.config.reviewModel, choices: ["opus", "sonnet", "haiku"]) }
+            Field(label: "Effort") {
+                ChoiceField(label: "Effort", value: $draft.config.reviewEffort, choices: ["low", "medium", "high", "xhigh", "max"])
+            }
         }
         FieldGroup(title: "Limits") {
-            Field(label: "Reviews at once, at most") {
-                BoxedStepper(value: $draft.config.reviewConcurrency, range: 1...4, step: 1, text: "\(draft.config.reviewConcurrency)")
+            Field(label: "Parallel reviews") {
+                BoxedStepper(label: "Parallel reviews", value: $draft.config.reviewConcurrency, range: 1...4, step: 1, text: "\(draft.config.reviewConcurrency)")
             }
-            Field(label: "Give up on a review after") {
-                BoxedStepper(value: $draft.config.reviewTimeoutMinutes, range: 5...90, step: 5, text: "\(draft.config.reviewTimeoutMinutes) min")
+            Field(label: "Review time limit") {
+                BoxedStepper(label: "Review time limit", value: $draft.config.reviewTimeoutMinutes, range: 5...90, step: 5, text: "\(draft.config.reviewTimeoutMinutes) min")
             }
-            Field(label: "Spend per run, at most") {
-                BoxedStepper(value: $draft.config.reviewBudgetUSD, range: 1...100, step: 1, text: Format.usd(draft.config.reviewBudgetUSD))
+            Field(label: "Budget per run") {
+                BoxedStepper(label: "Budget per run", value: $draft.config.reviewBudgetUSD, range: 1...100, step: 1, text: Format.usd(draft.config.reviewBudgetUSD))
             }
         }
         FieldGroup(
             title: "Worktrees",
             note: """
-            Reviews never start on their own. The Reviews tab marks which PRs are ready to run and you press Review \
+            Reviews never start on their own. The Reviews tab marks which PRs need review and you press Review \
             on the ones you want. Each run is one `claude -p` in a detached worktree of the PR, with read-only tools, \
             and cannot reach GitHub. When it finishes, the app puts its comments into your pending review on the PR — \
             visible only to you — and you finish it on GitHub: edit or drop comments, pick the verdict, submit.
@@ -424,21 +556,22 @@ private struct ReposSettings: View {
         @Bindable var draft = model.settings
         VStack(alignment: .leading, spacing: 0) {
             PageHeader(title: "Repos") { EmptyView() }
+            // Untrack all sits with the count it empties, away from the harmless Reload.
             FilterBar {
                 SearchBox(prompt: "Filter", text: $draft.repoFilter)
                 Text("\(draft.config.trackedRepos.count) tracked of \(model.repositories.count)")
                     .scaled(.caption).foregroundStyle(.secondary).monospacedDigit()
-            } trailing: {
                 if !draft.config.trackedRepos.isEmpty {
-                    Button("Clear") { draft.config.trackedRepos = [] }.controlSize(.small)
+                    Button("Untrack all") { draft.config.trackedRepos = [] }.controlSize(.small)
                 }
+            } trailing: {
                 if model.loadingRepositories { ProgressView().controlSize(.small) }
                 Button("Reload") { model.loadRepositories(force: true) }.controlSize(.small)
             }
             if let error = model.repositoriesError {
-                EmptyText(text: error).padding(.vertical)
+                EmptyState(text: error).padding(.vertical)
             } else if model.repositories.isEmpty {
-                EmptyText(text: model.loadingRepositories ? "Asking GitHub…" : "No repositories found for \(draft.config.githubOrg).")
+                EmptyState(text: model.loadingRepositories ? "Asking GitHub…" : "No repositories found for \(draft.config.githubOrg).")
                     .padding(.vertical)
             } else if draft.config.trackedRepos.isEmpty {
                 Text("Nothing is tracked, so the app is watching nothing. Pick the repos you work in.")
@@ -452,9 +585,10 @@ private struct ReposSettings: View {
                             Toggle(isOn: binding(for: repo)) {
                                 HStack(spacing: 8) {
                                     Text(repo.name)
-                                    if repo.isArchived { Chip(text: "archived", color: .secondary) }
+                                    if repo.isArchived { Chip(text: "Archived", color: .secondary) }
                                     if draft.config.trackedRepoSlugs.contains(repo.slug), let skill = model.state.reviewSkill(forSlug: repo.slug) {
-                                        ReviewSkillMark(skill: skill)
+                                        // The reason in words: nine identical triangles said nothing without a hover.
+                                        ReviewSkillMark(skill: skill, showsText: true)
                                     }
                                     Spacer()
                                     Text(Format.age(repo.pushedAt)).scaled(.caption.monospaced()).foregroundStyle(.secondary)
@@ -514,8 +648,8 @@ private struct PromptsSettings: View {
                     }
                 }
                 .labelsHidden()
-                .frame(maxWidth: 320)
-                if edits[id.rawValue] != nil { Chip(text: "edited", color: .orange) }
+                .frame(maxWidth: 320, alignment: .leading)
+                if edits[id.rawValue] != nil { Chip(text: "Edited", color: .orange) }
             } trailing: {
                 Button("Reset to default") { draft.config.prompts[id.rawValue] = nil }
                     .controlSize(.small)
@@ -528,7 +662,7 @@ private struct PromptsSettings: View {
                 .scrollContentBackground(.hidden)
                 .padding(8)
                 .background(Theme.background, in: RoundedRectangle(cornerRadius: 6))
-                .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color(white: 0.27)))
+                .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Theme.controlBorder))
             VStack(alignment: .leading, spacing: 4) {
                 Text(LocalizedStringKey(id.usage))
                 if !id.placeholders.isEmpty {

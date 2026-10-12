@@ -23,30 +23,43 @@ struct TicketsTab: View {
         } content: {
             Hairline()
             if groups.isEmpty {
-                EmptyText(text: emptyText).padding(.vertical, 20)
+                emptyState.padding(.vertical, 20)
                 Spacer()
             } else {
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 0) {
-                        ForEach(groups) { group in
-                            GroupHeader(title: group.status, count: group.tickets.count)
-                            ForEach(group.tickets) { ticket in
-                                ListRow(selected: selection == ticket.key, select: { selection = ticket.key }) {
-                                    TicketRow(ticket: ticket, model: model) { plan(ticket, $0) }
-                                }
+                StaleBanner(source: .jira)
+                // Arrow keys move the selection; Return or a double-click opens the ticket in Jira.
+                List(selection: $selection) {
+                    ForEach(groups) { group in
+                        GroupHeader(title: group.status, count: group.tickets.count).plainListRow().selectionDisabled()
+                        ForEach(group.tickets) { ticket in
+                            ListRow(selected: selection == ticket.key) {
+                                TicketRow(ticket: ticket, model: model) { plan(ticket, $0) }
                             }
                         }
                     }
-                    .padding(.bottom, 20)
+                }
+                .deskList()
+                .contextMenu(forSelectionType: String.self) { keys in
+                    if let key = keys.first, let ticket = model.state.ticket(key) {
+                        Button("Open in Jira") { model.open(ticket.url) }
+                        Button("Copy Link") { Clipboard.copy(ticket.url) }
+                        Button("Copy Key") { Clipboard.copy(ticket.key) }
+                    }
+                } primaryAction: { keys in
+                    if let key = keys.first { model.open(model.state.ticket(key)?.url) }
                 }
             }
+        }
+        // The first ticket is selected when nothing is, so the details panel never opens on an empty column.
+        .task(id: groups.first?.tickets.first?.key) {
+            if selection == nil { selection = groups.first?.tickets.first?.key }
         }
         // Wider than the others: this one is for reading a description, tables and all.
         .deskInspector("tickets", width: 420) {
             if let key = selection, let ticket = model.state.ticket(key) {
                 TicketInspector(ticket: ticket, model: model, plan: plan)
             } else {
-                EmptyText(text: "Select a ticket to read it.").padding()
+                EmptyState(text: "Select a ticket to read it.").padding()
                 Spacer()
             }
         }
@@ -70,9 +83,20 @@ struct TicketsTab: View {
         }
     }
 
-    private var emptyText: String {
-        if !search.isEmpty { return "No match." }
-        return placement == .backlog ? "Nothing of yours in the backlog." : "Nothing of yours in the open sprint."
+    @ViewBuilder private var emptyState: some View {
+        if !search.isEmpty {
+            EmptyState(icon: "magnifyingglass", text: "No ticket matches “\(search)”.", actionTitle: "Clear search", action: { search = "" })
+        } else if let error = model.state.errors[.jira] {
+            EmptyState(
+                icon: "exclamationmark.triangle", text: "Couldn't load your tickets from Jira.", detail: error,
+                actionTitle: "Open Settings → Jira", action: { model.openSettings(.jira) }
+            )
+        } else {
+            EmptyState(
+                icon: "checkmark.circle",
+                text: placement == .backlog ? "Nothing of yours in the backlog." : "Nothing of yours in the open sprint."
+            )
+        }
     }
 
     /// The sprint/backlog switch, each side counted over what the search leaves, like the Reviews scopes.
@@ -86,9 +110,6 @@ struct TicketsTab: View {
                 selection: $placement
             )
         } trailing: {
-            if let error = model.state.errors[.jira] {
-                Text(error).scaled(.caption).foregroundStyle(.red).lineLimit(1).textSelection(.enabled).help(error)
-            }
             SearchBox(prompt: "Key or summary", text: $search)
         }
     }
@@ -108,7 +129,7 @@ private struct TicketRow: View {
             StatusDot(color: TicketColor.of(ticket.category))
             VStack(alignment: .leading, spacing: 5) {
                 Text(ticket.summary).lineLimit(1)
-                MetaLine(parts: [Text(ticket.key)] + [ticket.priority.map(PriorityMark.text)].compactMap { $0 }
+                MetaLine(parts: [Text(ticket.key), Text(ticket.status)] + [ticket.priority.map(PriorityMark.text)].compactMap { $0 }
                     + (linked > 0 ? [Text("\(linked) open \(linked == 1 ? "PR" : "PRs")")] : []))
             }
             Spacer(minLength: 8)
@@ -254,11 +275,17 @@ private struct PlanButton: View {
                 }
             } label: {
                 // The hollow terminal the Pull Requests screen uses for "no session yet, pressing starts
-                // one". It never fills here: a planning session is tied to nothing to fill it.
-                Image(systemName: "terminal")
-                    .foregroundStyle(model.sessionErrors[ticket.key] == nil ? Color.secondary : .red)
+                // one", with the words beside it. It never fills here: a planning session is tied to nothing.
+                Label {
+                    Text("Start in…")
+                } icon: {
+                    Image(systemName: "terminal")
+                        .foregroundStyle(model.sessionErrors[ticket.key] == nil ? Color.secondary : .red)
+                }
             }
             .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+            .controlSize(.small)
+            .labelStyle(.titleAndIcon)
             .help(model.sessionErrors[ticket.key] ?? help)
         }
     }
@@ -366,7 +393,7 @@ private struct PlanSheet: View {
                     ? "Starts a background session."
                     : "Starts a background session and moves the ticket to “\(model.config.jiraInProgressStatus)”.")
                     .scaled(.caption)
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(.secondary)
                 Spacer()
                 Button("Cancel", role: .cancel) { dismiss() }
                     .keyboardShortcut(.cancelAction)
@@ -382,7 +409,6 @@ private struct PlanSheet: View {
         .padding(16)
         .frame(width: 460)
         .background(Theme.background)
-        .preferredColorScheme(.dark)
         .onAppear { writing = true }
     }
 }

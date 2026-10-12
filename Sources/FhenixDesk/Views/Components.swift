@@ -9,8 +9,8 @@ struct Chip: View {
     var body: some View {
         Text(text)
             .scaled(.caption.weight(.medium))
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
+            .padding(.horizontal, Theme.Space.s)
+            .padding(.vertical, Theme.Space.xs / 2)
             .background(color.opacity(0.18), in: RoundedRectangle(cornerRadius: 4))
             .foregroundStyle(color)
     }
@@ -43,9 +43,25 @@ struct StageChip: View {
 
 struct StatusDot: View {
     var color: Color
+    /// What the dot says, for VoiceOver. Without one the dot is decoration and stays silent.
+    var meaning: String?
 
     var body: some View {
         Circle().fill(color).frame(width: 8, height: 8)
+            .accessibilityHidden(meaning == nil)
+            .accessibilityLabel(meaning ?? "")
+    }
+}
+
+extension PullRequest {
+    /// The checks in a word, for the details panels.
+    var checksText: String {
+        switch checks {
+        case .success: return "Passed"
+        case .failure, .error: return "Failed"
+        case .pending, .expected: return "Running"
+        case .none: return "No checks"
+        }
     }
 }
 
@@ -54,10 +70,10 @@ struct ChecksBadge: View {
 
     var body: some View {
         switch pr.checks {
-        case .success: Image(systemName: "checkmark.circle.fill").foregroundStyle(.green).help("Checks passed")
-        case .failure, .error: Image(systemName: "xmark.circle.fill").foregroundStyle(.red).help("Checks failed")
-        case .pending, .expected: Image(systemName: "clock.fill").foregroundStyle(.orange).help("Checks running")
-        case .none: Image(systemName: "minus.circle").foregroundStyle(.secondary).help("No checks")
+        case .success: Image(systemName: "checkmark.circle.fill").foregroundStyle(.green).help("Checks passed").accessibilityLabel("Checks passed")
+        case .failure, .error: Image(systemName: "xmark.circle.fill").foregroundStyle(.red).help("Checks failed").accessibilityLabel("Checks failed")
+        case .pending, .expected: Image(systemName: "clock.fill").foregroundStyle(.orange).help("Checks running").accessibilityLabel("Checks running")
+        case .none: Image(systemName: "minus.circle").foregroundStyle(.secondary).help("No checks").accessibilityLabel("No checks")
         }
     }
 }
@@ -71,8 +87,8 @@ struct ReviewBadge: View {
         } else {
             switch pr.reviewDecision {
             case .approved: Chip(text: "Approved", color: .green)
-            case .changesRequested: Chip(text: "Changes", color: .red)
-            case .reviewRequired: Chip(text: "Required", color: .orange)
+            case .changesRequested: Chip(text: "Changes requested", color: .red)
+            case .reviewRequired: Chip(text: "Review required", color: .orange)
             case .none: Chip(text: "Not required", color: .secondary)
             }
         }
@@ -99,9 +115,11 @@ struct SeverityDot: View {
 
     var body: some View {
         switch severity {
-        case .urgent: StatusDot(color: .red)
-        case .warning: StatusDot(color: .orange)
-        case .info: StatusDot(color: .blue)
+        // A shape as well as a colour, so urgent reads without telling red from orange.
+        case .urgent:
+            Image(systemName: "exclamationmark.circle.fill").scaled(.caption).foregroundStyle(.red).accessibilityLabel("Urgent")
+        case .warning: StatusDot(color: .orange, meaning: "Warning")
+        case .info: StatusDot(color: .blue, meaning: "Info")
         }
     }
 }
@@ -167,11 +185,118 @@ struct SectionTitle: View {
     }
 }
 
-struct EmptyText: View {
+/// The general pasteboard, for the Copy presses in menus and panels.
+enum Clipboard {
+    static func copy(_ text: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+    }
+}
+
+/// A Copy press that says it worked: its title reads "Copied" for a moment after.
+struct CopyButton: View {
+    var title: String
     var text: String
+    @State private var copied = false
 
     var body: some View {
-        Text(text).scaled(.callout).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
+        Button(copied ? "Copied" : title) {
+            Clipboard.copy(text)
+            copied = true
+        }
+        .task(id: copied) {
+            guard copied else { return }
+            try? await Task.sleep(for: .seconds(1.5))
+            copied = false
+        }
+    }
+}
+
+/// The right-click menu of a pull request row: the ways out to GitHub and the clipboard, and its session.
+struct PullRequestMenu: View {
+    var pr: PullRequest
+    var model: AppModel
+
+    var body: some View {
+        Button("Open on GitHub") { model.open(pr.url) }
+        Button("Copy Link") { Clipboard.copy(pr.url) }
+        Button("Copy Branch") { Clipboard.copy(pr.headRef) }
+        Divider()
+        if let job = model.state.claudeJobs(for: pr).first {
+            Button("Attach to Session") { model.attach(job, for: pr) }
+        } else {
+            Button("Start Session") { model.startSession(for: pr) }.disabled(model.state.localRepo(for: pr) == nil)
+        }
+    }
+}
+
+extension View {
+    /// Filled for the one press a screen leads with, bordered for the rest: six filled buttons are six focal points.
+    @ViewBuilder func primaryStyle(_ prominent: Bool) -> some View {
+        if prominent { buttonStyle(.borderedProminent) } else { buttonStyle(.bordered) }
+    }
+}
+
+/// Why the button beside it is dead, in words next to it rather than in a tooltip: a greyed-out press that does not
+/// say why reads as broken.
+struct DisabledReason: View {
+    var text: String?
+
+    var body: some View {
+        if let text { Text(text).scaled(.caption).foregroundStyle(.secondary).lineLimit(1) }
+    }
+}
+
+/// What a list shows when it has nothing to show: an icon, one sentence on why, and the one press that helps.
+struct EmptyState: View {
+    var icon: String?
+    var text: String
+    /// The raw reason, when there is one: selectable, and kept short.
+    var detail: String?
+    var actionTitle: String?
+    var action: (() -> Void)?
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            if let icon { Image(systemName: icon).foregroundStyle(.secondary) }
+            VStack(alignment: .leading, spacing: 4) {
+                Text(text).scaled(.callout).foregroundStyle(.secondary)
+                if let detail {
+                    Text(detail).scaled(.caption).foregroundStyle(.secondary).lineLimit(2).textSelection(.enabled).help(detail)
+                }
+                if let actionTitle, let action {
+                    Button(actionTitle, action: action).controlSize(.small).padding(.top, 4)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// Over a list whose last sync failed. The rows under it are the last good ones, so they stay; this says they are
+/// stale, why, and offers the retry.
+struct StaleBanner: View {
+    @Environment(AppModel.self) private var model
+    var source: Source
+
+    var body: some View {
+        if let error = model.state.errors[source] {
+            HStack(spacing: 8) {
+                Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                Text("Out of date: \(error)").scaled(.caption).lineLimit(1).truncationMode(.tail).help(error)
+                Spacer(minLength: 8)
+                Button("Retry") { Task { await model.refresh(source) } }.controlSize(.small)
+            }
+            .padding(.vertical, 6)
+        }
+    }
+}
+
+extension AppModel {
+    /// Opens Settings on one of its panes, for the empty states whose fix lives there.
+    func openSettings(_ pane: SettingsPane) {
+        settings.pane = pane
+        showingSettings = true
     }
 }
 
@@ -200,24 +325,24 @@ struct ReviewStatusChip: View {
             switch status.run?.phase {
             case .preparing:
                 ProgressView().controlSize(.mini)
-                Text("starting").scaled(.caption2).foregroundStyle(.secondary)
+                Text("Starting").scaled(.caption2).foregroundStyle(.secondary)
             case .running:
                 ProgressView().controlSize(.mini)
-                Text("reviewing").scaled(.caption2).foregroundStyle(.secondary)
+                Text("Reviewing").scaled(.caption2).foregroundStyle(.secondary)
             case .posting:
                 ProgressView().controlSize(.mini)
-                Text("posting draft").scaled(.caption2).foregroundStyle(.secondary)
+                Text("Posting draft").scaled(.caption2).foregroundStyle(.secondary)
             case .failed:
-                Chip(text: "failed", color: .red).help(status.run?.error ?? "")
+                Chip(text: "Failed", color: .red).help(status.run?.error ?? "")
             case .posted, nil:
                 github
             }
             if status.headMoved {
-                Chip(text: "new commits", color: .orange)
+                Chip(text: "New commits", color: .orange)
                     .help("The head moved since your draft's comments were written; GitHub marks the ones on changed lines outdated")
             }
             if status.reRequested {
-                Chip(text: "re-requested", color: .orange).help("Your review was requested again after you last submitted one")
+                Chip(text: "Re-requested", color: .orange).help("Your review was requested again after you last submitted one")
             }
         }
     }
@@ -225,13 +350,13 @@ struct ReviewStatusChip: View {
     @ViewBuilder private var github: some View {
         switch status.draft {
         case .pending(let comments, let claude):
-            Chip(text: "draft · \(comments)", color: .blue)
+            Chip(text: "Draft · \(comments)", color: .blue)
                 .help("Your pending review on GitHub: \(comments) \(comments == 1 ? "comment" : "comments"), \(claude) of them Claude's. Only you can see it.")
         case .submitted(let state):
             Chip(text: Self.submittedTitle(state), color: .green).help("Your latest review on GitHub")
         case nil:
             if status.run?.phase == .posted {
-                Chip(text: "no comments", color: .green).help(noCommentsHelp)
+                Chip(text: "No comments", color: .green).help(noCommentsHelp)
             }
         }
     }
@@ -243,10 +368,10 @@ struct ReviewStatusChip: View {
 
     private static func submittedTitle(_ state: String) -> String {
         switch state {
-        case "APPROVED": return "approved"
-        case "CHANGES_REQUESTED": return "changes requested"
-        case "DISMISSED": return "dismissed"
-        default: return "commented"
+        case "APPROVED": return "Approved"
+        case "CHANGES_REQUESTED": return "Changes requested"
+        case "DISMISSED": return "Dismissed"
+        default: return "Commented"
         }
     }
 }
@@ -270,19 +395,30 @@ struct ClaudeSessionButton: View {
                     Button("\(job.name) — \(job.state)") { model.attach(job, for: pr) }
                 }
             } label: {
-                icon("terminal.fill", newest.isRunning ? .green : .accentColor)
+                Label { Text("Attach") } icon: { icon("terminal.fill", newest.isRunning ? .green : .accentColor) }
             }
             .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+            .controlSize(.small)
+            .labelStyle(.titleAndIcon)
             .help(failure ?? "\(jobs.count) background sessions on this PR")
         } else if let job = jobs.first {
-            Button { model.attach(job, for: pr) } label: { icon("terminal.fill", job.isRunning ? .green : .accentColor) }
-                .buttonStyle(.borderless)
-                .help(failure ?? "Attach to “\(job.name)” (\(job.state)) in Terminal")
+            Button { model.attach(job, for: pr) } label: {
+                Label { Text("Attach") } icon: { icon("terminal.fill", job.isRunning ? .green : .accentColor) }
+            }
+            .buttonStyle(.borderless)
+            .controlSize(.small)
+            .labelStyle(.titleAndIcon)
+            .help(failure ?? "Attach to “\(job.name)” (\(job.state)) in Terminal")
         } else {
-            Button { model.startSession(for: pr) } label: { icon("terminal", .secondary) }
-                .buttonStyle(.borderless)
-                .disabled(model.state.localRepo(for: pr) == nil)
-                .help(failure ?? startHelp)
+            // Words, not only a hollow or filled terminal: which one it is was a tooltip's secret.
+            Button { model.startSession(for: pr) } label: {
+                Label { Text("Start session") } icon: { icon("terminal", .secondary) }
+            }
+            .buttonStyle(.borderless)
+            .controlSize(.small)
+            .labelStyle(.titleAndIcon)
+            .disabled(model.state.localRepo(for: pr) == nil)
+            .help(failure ?? startHelp)
         }
     }
 

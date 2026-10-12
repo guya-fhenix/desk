@@ -1,22 +1,53 @@
 import DeskCore
 import SwiftUI
 
-/// The app's look: a dark workspace — a sidebar a shade lighter than the content, hairlines instead of boxes,
-/// large page titles, pill tabs, and two-line rows whose second line is monospaced.
+/// The app's look: a workspace in the system's appearance — a sidebar a shade off the content, hairlines instead of
+/// boxes, large page titles, pill tabs, and two-line rows whose second line is monospaced. Every colour has a light,
+/// a dark, and an Increase Contrast version of each, so the app follows System Settings rather than overriding it.
 enum Theme {
-    static let background = Color(white: 0.105)
-    static let sidebar = Color(white: 0.135)
+    static let background = gray(light: 0.98, dark: 0.105, lightContrast: 1, darkContrast: 0)
+    static let sidebar = gray(light: 0.94, dark: 0.135, lightContrast: 0.96, darkContrast: 0.08)
     /// Pills, cards, inputs and key caps.
-    static let raised = Color(white: 0.165)
+    static let raised = gray(light: 0.92, dark: 0.165, lightContrast: 0.9, darkContrast: 0.2)
     /// The chosen sidebar item and pill.
-    static let selected = Color(white: 0.205)
-    static let line = Color(white: 0.2)
-    static let accent = Color(red: 0.24, green: 0.51, blue: 0.97)
+    static let selected = gray(light: 0.86, dark: 0.205, lightContrast: 0.8, darkContrast: 0.3)
+    static let line = gray(light: 0.85, dark: 0.2, lightContrast: 0.55, darkContrast: 0.45)
+    /// The edge of a control — an input, a menu box, a tile — at 3:1 against the background, where a hairline would
+    /// leave the control's shape to guesswork.
+    static let controlBorder = gray(light: 0.55, dark: 0.42, lightContrast: 0.3, darkContrast: 0.65)
+    /// Dark enough that white text on it clears 4.5:1, for the filled buttons — in either appearance.
+    static let accent = Color(red: 0.16, green: 0.42, blue: 0.85)
     /// The selected list row, with an accent bar down its left edge.
-    static let rowSelected = Color(red: 0.09, green: 0.14, blue: 0.23)
+    static let rowSelected = Color(nsColor: NSColor(name: nil) { appearance in
+        appearance.isDark
+            ? NSColor(red: 0.09, green: 0.14, blue: 0.23, alpha: 1)
+            : NSColor(red: 0.86, green: 0.91, blue: 0.98, alpha: 1)
+    })
+
+    /// A grey that resolves per appearance: light, dark, and each with Increase Contrast on.
+    private static func gray(light: CGFloat, dark: CGFloat, lightContrast: CGFloat, darkContrast: CGFloat) -> Color {
+        Color(nsColor: NSColor(name: nil) { appearance in
+            switch appearance.bestMatch(from: [.aqua, .darkAqua, .accessibilityHighContrastAqua, .accessibilityHighContrastDarkAqua]) {
+            case .darkAqua?: return NSColor(white: dark, alpha: 1)
+            case .accessibilityHighContrastDarkAqua?: return NSColor(white: darkContrast, alpha: 1)
+            case .accessibilityHighContrastAqua?: return NSColor(white: lightContrast, alpha: 1)
+            default: return NSColor(white: light, alpha: 1)
+            }
+        })
+    }
+    /// The spacing scale, on a 4 pt grid: every gap and padding in the shared components is one of these.
+    enum Space {
+        static let xs: CGFloat = 4
+        static let s: CGFloat = 8
+        static let m: CGFloat = 12
+        static let l: CGFloat = 16
+        static let xl: CGFloat = 24
+        static let xxl: CGFloat = 32
+    }
+
     static let sidebarWidth: CGFloat = 212
     /// The content's side margins.
-    static let gutter: CGFloat = 32
+    static let gutter = Space.xxl
 }
 
 /// A key as the reference app draws one: a small rounded cap with the key in it.
@@ -25,7 +56,7 @@ struct KeyCap: View {
 
     var body: some View {
         Text(key)
-            .scaled(.footnote.monospaced())
+            .scaled(.caption.monospaced())
             .foregroundStyle(.secondary)
             .padding(.horizontal, 4)
             .frame(minWidth: 16, minHeight: 16)
@@ -43,7 +74,7 @@ struct PageHeader<Trailing: View>: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(alignment: .center, spacing: 10) {
-                Text(title).scaled(.size(22).weight(.semibold))
+                Text(title).scaled(.title)
                 if let subtitle { Text(subtitle).scaled(.callout).foregroundStyle(.secondary) }
                 Spacer()
                 trailing
@@ -84,6 +115,8 @@ struct InspectorToggle: View {
         }
         .buttonStyle(.plain)
         .help(shown ? "Hide the details panel" : "Show the details panel")
+        .accessibilityLabel("Details panel")
+        .accessibilityValue(shown ? "Shown" : "Hidden")
     }
 }
 
@@ -105,18 +138,21 @@ struct PillTabs<Value: Hashable>: View {
                 let chosen = option.value == selection
                 Button { selection = option.value } label: {
                     HStack(spacing: 6) {
-                        Text(option.title)
+                        Text(option.title).foregroundStyle(chosen ? .primary : .secondary)
                         if let count = option.count {
                             Text("\(count)").scaled(.caption).monospacedDigit().foregroundStyle(.secondary)
                         }
                     }
                     .padding(.horizontal, 12)
                     .padding(.vertical, 6)
-                    .background(chosen ? Theme.selected : Color.clear, in: Capsule())
-                    .overlay(Capsule().strokeBorder(Theme.line))
+                    // The chosen pill is told apart by more than a shade of grey: an accent fill and edge.
+                    .background(chosen ? Theme.accent.opacity(0.25) : Color.clear, in: Capsule())
+                    .hoverFill(cornerRadius: 100, enabled: !chosen)
+                    .overlay(Capsule().strokeBorder(chosen ? Theme.accent : Theme.controlBorder))
                     .contentShape(Capsule())
                 }
                 .buttonStyle(.plain)
+                .accessibilityAddTraits(chosen ? .isSelected : [])
             }
         }
     }
@@ -128,12 +164,12 @@ struct FilterBar<Leading: View, Trailing: View>: View {
     @ViewBuilder var trailing: Trailing
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: Theme.Space.s) {
             leading
-            Spacer(minLength: 12)
+            Spacer(minLength: Theme.Space.m)
             trailing
         }
-        .padding(.vertical, 12)
+        .padding(.vertical, Theme.Space.m)
     }
 }
 
@@ -149,36 +185,68 @@ struct GroupHeader: View {
                 Spacer()
                 if let count { Text("\(count)").scaled(.callout).monospacedDigit().foregroundStyle(.secondary) }
             }
-            .padding(.horizontal, 12)
-            .padding(.top, 14)
-            .padding(.bottom, 8)
+            .padding(.horizontal, Theme.Space.m)
+            .padding(.top, Theme.Space.m)
+            .padding(.bottom, Theme.Space.s)
             Hairline()
         }
     }
 }
 
 /// One row of a list screen: a hairline under it, and the selected one tinted with a bar down its left edge.
-/// A click anywhere that is not a button selects it; a double-click runs `open`.
+/// It sits in a `List(selection:)`, which is what selects it — on a click or the arrow keys — and runs the
+/// screen's primary action on a double-click or Return; the row only keeps the app's look.
 struct ListRow<Content: View>: View {
     var selected = false
-    var select: (() -> Void)?
-    var open: (() -> Void)?
     @ViewBuilder var content: Content
 
     var body: some View {
         content
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
+            .padding(.horizontal, Theme.Space.m)
+            .padding(.vertical, Theme.Space.s)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(selected ? Theme.rowSelected : Color.clear)
+            .hoverFill(Theme.raised.opacity(0.6), cornerRadius: 0, enabled: !selected)
             .overlay(alignment: .leading) {
                 if selected { Rectangle().fill(Theme.accent).frame(width: 2) }
             }
             .overlay(alignment: .bottom) { Hairline() }
             .contentShape(Rectangle())
-            // Alongside the single click rather than ahead of it, so selecting never waits out a double-click.
-            .simultaneousGesture(TapGesture(count: 2).onEnded { open?() })
-            .onTapGesture { select?() }
+            // One element per row for VoiceOver, its buttons still reachable as actions.
+            .accessibilityElement(children: .combine)
+            .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
+            .plainListRow(background: selected ? Theme.rowSelected : Color.clear)
+    }
+}
+
+/// A fill under whatever the pointer is over, so a row or a button shows it can be pressed before it is.
+private struct HoverFill: ViewModifier {
+    var color: Color
+    var cornerRadius: CGFloat
+    var enabled: Bool
+    @State private var hovering = false
+
+    func body(content: Content) -> some View {
+        content
+            .background(enabled && hovering ? color : Color.clear, in: RoundedRectangle(cornerRadius: cornerRadius))
+            .onHover { hovering = $0 }
+    }
+}
+
+extension View {
+    func hoverFill(_ color: Color = Theme.raised, cornerRadius: CGFloat = 6, enabled: Bool = true) -> some View {
+        modifier(HoverFill(color: color, cornerRadius: cornerRadius, enabled: enabled))
+    }
+
+    /// Drops the list's own insets and separator, so a row draws edge to edge with the app's hairlines.
+    func plainListRow(background: Color = .clear) -> some View {
+        listRowInsets(EdgeInsets()).listRowSeparator(.hidden).listRowBackground(background)
+    }
+
+    /// A list screen's `List`: plain, on the window's own background, rows as short as their content.
+    func deskList() -> some View {
+        listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .environment(\.defaultMinListRowHeight, 0)
     }
 }
 
@@ -199,7 +267,7 @@ struct MetaLine: View {
 /// A GitHub account's picture, or its initial while it loads or when there is none.
 struct Avatar: View {
     var login: String
-    private let scale = AppTextStyle.scale
+    @Environment(\.textScale) private var scale
 
     var body: some View {
         Group {
@@ -253,23 +321,36 @@ final class AvatarStore {
 
 /// A search field drawn as one of the reference app's boxed inputs.
 struct SearchBox: View {
+    @Environment(AppModel.self) private var model
     var prompt: String
     @Binding var text: String
+    @FocusState private var focused: Bool
 
     var body: some View {
         HStack(spacing: 6) {
             Image(systemName: "magnifyingglass").foregroundStyle(.tertiary)
             TextField(prompt, text: $text).textFieldStyle(.plain)
+                .focused($focused)
+                // View → Find (⌘F) lands here.
+                .onChange(of: model.searchFocusRequest) { focused = true }
             if !text.isEmpty {
-                Button { text = "" } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.tertiary) }
+                Button { text = "" } label: {
+                    // A 24 pt target, pulled into the box's own height so it does not grow when you type.
+                    Image(systemName: "xmark.circle.fill").foregroundStyle(.tertiary)
+                        .frame(minWidth: 24, minHeight: 24).contentShape(Rectangle())
+                        .padding(.vertical, -4)
+                }
                     .buttonStyle(.plain)
+                    .accessibilityLabel("Clear search")
             }
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
         .frame(width: 240)
         .background(Theme.raised, in: RoundedRectangle(cornerRadius: 6))
-        .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Theme.line))
+        .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Theme.controlBorder))
+        .onAppear { model.visibleSearchBoxes += 1 }
+        .onDisappear { model.visibleSearchBoxes -= 1 }
     }
 }
 
@@ -324,7 +405,7 @@ struct MenuBox: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
         .background(Theme.raised, in: RoundedRectangle(cornerRadius: 6))
-        .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Theme.line))
+        .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Theme.controlBorder))
         .contentShape(RoundedRectangle(cornerRadius: 6))
     }
 }
@@ -335,8 +416,8 @@ struct Panel<Content: View>: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 22) { content }
-                .padding(16)
+            VStack(alignment: .leading, spacing: Theme.Space.xl) { content }
+                .padding(Theme.Space.l)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         .background(Theme.background)
@@ -355,7 +436,7 @@ struct PanelSection<Content: View>: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 9) {
+        VStack(alignment: .leading, spacing: Theme.Space.s) {
             if let title { Text(title).scaled(.callout.weight(.medium)).foregroundStyle(.secondary) }
             content
         }
@@ -382,12 +463,13 @@ struct SidebarColumn<Content: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             content
-            Spacer(minLength: 12)
+            Spacer(minLength: Theme.Space.m)
             SidebarStatus()
         }
-        .padding(.horizontal, 8)
-        .padding(.top, 14)
-        .padding(.bottom, 14)
+        .padding(.horizontal, Theme.Space.s)
+        // Clear of the window's buttons, which sit over the top of the sidebar.
+        .padding(.top, Theme.Space.xxl + Theme.Space.s)
+        .padding(.bottom, Theme.Space.m)
         .frame(width: Theme.sidebarWidth)
         .frame(maxHeight: .infinity, alignment: .top)
         .background(Theme.sidebar.ignoresSafeArea())
@@ -427,7 +509,8 @@ struct SidebarHeading: View {
     var title: String
 
     var body: some View {
-        Text(title).scaled(.subheadline).foregroundStyle(.secondary).padding(.horizontal, 10).padding(.top, 8).padding(.bottom, 6)
+        Text(title).scaled(.subheadline).foregroundStyle(.secondary)
+            .padding(.horizontal, Theme.Space.m).padding(.top, Theme.Space.s).padding(.bottom, Theme.Space.xs)
     }
 }
 
@@ -441,19 +524,21 @@ struct SidebarItem<Trailing: View>: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 9) {
+            HStack(spacing: Theme.Space.s) {
                 SidebarIcon(name: icon).foregroundStyle(.secondary).frame(width: 16)
                 Text(title).foregroundStyle(selected ? .primary : .secondary)
-                Spacer(minLength: 4)
+                Spacer(minLength: Theme.Space.xs)
                 trailing
             }
             .scaled(.body)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
+            .padding(.horizontal, Theme.Space.m)
+            .padding(.vertical, Theme.Space.s)
             .background(selected ? Theme.selected : Color.clear, in: RoundedRectangle(cornerRadius: 6))
+            .hoverFill(enabled: !selected)
             .contentShape(RoundedRectangle(cornerRadius: 6))
         }
         .buttonStyle(.plain)
+        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 }
 
@@ -480,7 +565,7 @@ struct SidebarStatus: View {
                 }
                 SourceDots()
             }
-            .padding(.horizontal, 10)
+            .padding(.horizontal, Theme.Space.m)
         }
     }
 
@@ -514,34 +599,13 @@ struct SyncRow: View {
                 }
             }
             .scaled(.body)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
+            .padding(.horizontal, Theme.Space.m)
+            .padding(.vertical, Theme.Space.s)
             .background(Theme.raised, in: RoundedRectangle(cornerRadius: 6))
             .contentShape(RoundedRectangle(cornerRadius: 6))
         }
         .buttonStyle(.plain)
         .help(model.syncHelp)
-    }
-}
-
-/// The strip along the bottom of a screen naming its keys, as the reference app does.
-struct KeyHints: View {
-    var hints: [(keys: [String], label: String)]
-
-    var body: some View {
-        VStack(spacing: 0) {
-            Hairline()
-            HStack(spacing: 18) {
-                ForEach(hints.indices, id: \.self) { index in
-                    HStack(spacing: 4) {
-                        ForEach(hints[index].keys, id: \.self) { KeyCap(key: $0) }
-                        Text(hints[index].label).scaled(.caption).foregroundStyle(.secondary).padding(.leading, 2)
-                    }
-                }
-            }
-            .padding(.vertical, 8)
-            .frame(maxWidth: .infinity)
-        }
     }
 }
 
@@ -561,4 +625,9 @@ struct Screen<Header: View, Body: View>: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(Theme.background)
     }
+}
+
+extension NSAppearance {
+    /// Dark Aqua, with or without Increase Contrast.
+    var isDark: Bool { bestMatch(from: [.aqua, .darkAqua]) == .darkAqua }
 }

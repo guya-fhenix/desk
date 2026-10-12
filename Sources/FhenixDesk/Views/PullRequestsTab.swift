@@ -7,6 +7,8 @@ struct PullRequestsTab: View {
     @AppStorage("sort.pullRequests") private var storedSort = ""
     @State private var selection: String?
     @State private var search = ""
+    /// With Reduce Motion on, the list jumps to the selected row instead of sliding there.
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private static let sort = TableSort<StackedPullRequest>(
         [
@@ -36,25 +38,50 @@ struct PullRequestsTab: View {
         } content: {
             Hairline()
             if model.state.mine.isEmpty {
-                EmptyText(text: model.state.errors[.github] ?? "No open PRs.").padding(.vertical, 20)
+                if let error = model.state.errors[.github] {
+                    EmptyState(
+                        icon: "exclamationmark.triangle", text: "Couldn't load your pull requests from GitHub.", detail: error,
+                        actionTitle: "Retry", action: { Task { await model.refresh(.github) } }
+                    )
+                    .padding(.vertical, 20)
+                } else {
+                    EmptyState(icon: "checkmark.circle", text: "No open PRs of yours.").padding(.vertical, 20)
+                }
+            } else {
+                StaleBanner(source: .github)
+                if rows.isEmpty {
+                    EmptyState(
+                        icon: "magnifyingglass", text: "No PR matches “\(search)”.",
+                        actionTitle: "Clear search", action: { search = "" }
+                    )
+                    .padding(.vertical, 20)
+                }
             }
             ScrollViewReader { proxy in
-                ScrollView {
-                    LazyVStack(spacing: 0) {
-                        ForEach(rows, id: \.pullRequest.url) { row in
-                            PullRequestRow(row: row, model: model, selected: selection == row.pullRequest.url) {
-                                selection = row.pullRequest.url
-                            }
-                        }
+                // Arrow keys move the selection; Return or a double-click opens the PR on GitHub.
+                List(selection: $selection) {
+                    ForEach(rows, id: \.pullRequest.url) { row in
+                        PullRequestRow(row: row, model: model, selected: selection == row.pullRequest.url)
                     }
+                }
+                .deskList()
+                .contextMenu(forSelectionType: String.self) { urls in
+                    if let pr = model.state.mine.first(where: { urls.contains($0.url) }) { PullRequestMenu(pr: pr, model: model) }
+                } primaryAction: { urls in
+                    if let url = urls.first { model.open(url) }
                 }
                 // Search lands here with the row selected; it may be far down the list.
                 .onChange(of: selection, initial: true) { _, url in
-                    if let url { withAnimation { proxy.scrollTo(url, anchor: .center) } }
+                    if let url { withAnimation(reduceMotion ? nil : .default) { proxy.scrollTo(url, anchor: .center) } }
                 }
             }
         }
         .remembersSort(Self.sort, order: $sortOrder, stored: $storedSort)
+        // The first row is selected when nothing is, so the details panel never opens on an empty column; by id, so
+        // rows that arrive after the screen does still get one.
+        .task(id: rows.first?.pullRequest.url) {
+            if selection == nil { selection = rows.first?.pullRequest.url }
+        }
         .onChange(of: model.selectPullRequest, initial: true) { _, url in
             guard let url else { return }
             selection = url
@@ -64,7 +91,7 @@ struct PullRequestsTab: View {
             if let pr = model.state.mine.first(where: { $0.url == selection }) {
                 PullRequestInspector(pr: pr, model: model)
             } else {
-                EmptyText(text: "Select a pull request.").padding()
+                EmptyState(text: "Select a pull request.").padding()
                 Spacer()
             }
         }
@@ -90,25 +117,24 @@ private struct PullRequestRow: View {
     var row: StackedPullRequest
     var model: AppModel
     var selected: Bool
-    var select: () -> Void
 
     var body: some View {
         let pr = row.pullRequest
-        ListRow(selected: selected, select: select) {
+        ListRow(selected: selected) {
+            // No avatar and no tick: every PR here is yours, and a mark that is gone on the next launch is no mark.
             HStack(alignment: .center, spacing: 12) {
-                CheckMark(url: pr.url, model: model)
                 if row.depth > 0 {
                     Image(systemName: "arrow.turn.down.right")
-                        .foregroundStyle(.tertiary)
+                        .foregroundStyle(.secondary)
                         .padding(.leading, CGFloat(row.depth - 1) * 16)
                 }
-                Avatar(login: pr.author)
                 VStack(alignment: .leading, spacing: 5) {
+                    // The title first, so every title starts at the same edge; the status chips follow it.
                     HStack(spacing: 8) {
-                        PullRequestStatus(pr: pr)
-                        Button { model.open(pr.url) } label: { Text(pr.title).lineLimit(1) }
-                            .buttonStyle(.plain)
-                            .help("Open #\(pr.number) on GitHub" as String)
+                        // Plain text, so a click on it selects the row like a click anywhere else; Return, a
+                        // double-click and the details panel open it on GitHub.
+                        Text(pr.title).lineLimit(1)
+                        PullRequestStatus(pr: pr).fixedSize()
                         if row.depth == 0 { stackNote(pr) }
                     }
                     HStack(spacing: 8) {
@@ -120,8 +146,10 @@ private struct PullRequestRow: View {
                 FlowStageCell(pr: pr, model: model)
                 ClaudeSessionButton(pr: pr, model: model)
                 VStack(alignment: .trailing, spacing: 3) {
-                    Text(Format.age(pr.updatedAt)).monospacedDigit().foregroundStyle(.secondary).help("Updated")
-                    Text("opened \(Format.age(pr.createdAt))").scaled(.caption).monospacedDigit().foregroundStyle(.tertiary)
+                    Text(Format.age(pr.updatedAt)).monospacedDigit().foregroundStyle(.secondary)
+                        .help("Updated \(Format.date(pr.updatedAt))")
+                    Text("opened \(Format.age(pr.createdAt))").scaled(.caption).monospacedDigit().foregroundStyle(.secondary)
+                        .help("Opened \(Format.date(pr.createdAt))")
                 }
             }
         }
@@ -142,7 +170,7 @@ private struct PullRequestRow: View {
 
     @ViewBuilder private func stackNote(_ pr: PullRequest) -> some View {
         if row.stackSize > 1 {
-            Chip(text: "stack of \(row.stackSize)").fixedSize()
+            Chip(text: "Stack of \(row.stackSize)").fixedSize()
         }
         if let parent = model.state.stackParent(of: pr) {
             Text(verbatim: "on #\(parent.number)").scaled(.caption).foregroundStyle(.secondary).fixedSize()
@@ -154,35 +182,16 @@ private struct PullRequestRow: View {
     }
 }
 
-/// Your own tick on a row. GitHub never sees it, and it does not survive the app quitting.
-private struct CheckMark: View {
-    var url: String
-    var model: AppModel
-
-    var body: some View {
-        Toggle("Checked", isOn: Binding(
-            get: { model.checkedPullRequests.contains(url) },
-            set: { checked in
-                if checked { model.checkedPullRequests.insert(url) } else { model.checkedPullRequests.remove(url) }
-            }
-        ))
-        .toggleStyle(.checkbox)
-        .labelsHidden()
-        .help("Your own mark; cleared when the PR leaves this list")
-    }
-}
-
 /// The Jira ticket a pull request is about, and whether the two still agree. Read-only on purpose: the
-/// press that moves a ticket lives on the Tickets screen, where the ticket does.
+/// press that moves a ticket lives on the Jira screen, where the ticket does.
 private struct TicketMark: View {
     var pr: PullRequest
     var model: AppModel
 
     var body: some View {
+        // Nothing at all without a key: an en dash only asks what it stands for.
         if let key = model.state.ticketKeys[pr.url]?.first {
             link(key)
-        } else {
-            Text("–").foregroundStyle(.secondary).help("No Jira key in the branch name or title")
         }
     }
 
@@ -218,15 +227,12 @@ private struct PullRequestInspector: View {
                 }
                 HStack {
                     Button("Open on GitHub") { model.open(pr.url) }
-                    Button("Copy branch") {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(pr.headRef, forType: .string)
-                    }
+                    CopyButton(title: "Copy branch", text: pr.headRef)
                 }
                 .controlSize(.small)
             }
             PanelSection("Status") {
-                LabeledContent("Checks") { HStack(spacing: 4) { ChecksBadge(pr: pr); Text(checksText) } }
+                LabeledContent("Checks") { HStack(spacing: 4) { ChecksBadge(pr: pr); Text(pr.checksText) } }
                 LabeledContent("Review") { ReviewBadge(pr: pr) }
                 LabeledContent("Merge") { MergeBadge(pr: pr) }
                 if let reason = model.state.rebaseReason(pr) {
@@ -245,15 +251,6 @@ private struct PullRequestInspector: View {
             if let flow = model.state.flow(for: pr) { FlowSection(flow: flow, pr: pr, model: model) }
             PanelSection("Jira") { jira }
             PanelSection("Background session") { sessions }
-        }
-    }
-
-    private var checksText: String {
-        switch pr.checks {
-        case .success: return "Passed"
-        case .failure, .error: return "Failed"
-        case .pending, .expected: return "Running"
-        case .none: return "No checks"
         }
     }
 

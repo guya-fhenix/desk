@@ -79,7 +79,7 @@ public enum NudgeEngine {
 
         for pr in input.reviewRequests {
             let waiting = input.now.timeIntervalSince(pr.createdAt)
-            nudges.append(Nudge(id: "review:\(pr.url)", kind: .reviewRequested, severity: waiting > 86_400 ? .warning : .info, title: "Review waits: \(pr.repoName)#\(pr.number)", detail: "\(pr.title) · \(pr.author) · \(TimeText.duration(waiting))", url: pr.url))
+            nudges.append(Nudge(id: "review:\(pr.url)", kind: .reviewRequested, severity: waiting > 86_400 ? .warning : .info, title: "Needs review: \(pr.repoName)#\(pr.number)", detail: "\(pr.title) · \(pr.author) · \(TimeText.duration(waiting))", url: pr.url))
         }
 
         for review in input.readyReviews {
@@ -126,8 +126,9 @@ public enum NudgeEngine {
                 case .fixesProposed: title = "\(label): \(flow.proposals.count) \(flow.proposals.count == 1 ? "fix" : "fixes") proposed"
                 default: title = "\(label) is approved: merge it"
                 }
+                // A warning, not info: this is the press only you can make, so it is counted and coloured as one.
                 nudges.append(Nudge(
-                    id: "flow:\(flow.jobId):\(flow.stage.rawValue):\(flow.step)", kind: .flowWaiting, severity: .info,
+                    id: "flow:\(flow.jobId):\(flow.stage.rawValue):\(flow.step)", kind: .flowWaiting, severity: .warning,
                     title: title, detail: pr.title, url: pr.url, jobId: flow.jobId
                 ))
             }

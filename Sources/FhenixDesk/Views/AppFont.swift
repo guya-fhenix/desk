@@ -10,28 +10,32 @@ import SwiftUI
 /// instead of a `Font`. The chaining mirrors `Font`'s, so `.caption.weight(.semibold)` still reads the
 /// way it did.
 struct AppTextStyle: Equatable {
-    /// The whole app's text, and the few widths and heights that hold text, at this multiple of macOS's own
-    /// sizes: 14 pt body text, the reference app's size.
-    static let scale: CGFloat = 1.08
+    /// The text sizes Settings offers, as multiples of macOS's own; the default gives 14 pt body text, the reference
+    /// app's size. The one in force comes down the environment as `textScale`.
+    static let scales: [(name: String, value: Double)] = [("Small", 1.0), ("Default", 1.08), ("Large", 1.2)]
 
     var size: CGFloat
     var weight: Font.Weight = .regular
     var design: Font.Design = .default
 
-    /// Keys: the smallest text in the app.
-    static let footnote = AppTextStyle(size: 9)
-    static let caption2 = AppTextStyle(size: 10, weight: .medium)
-    static let caption = AppTextStyle(size: 10)
-    static let subheadline = AppTextStyle(size: 11)
-    static let callout = AppTextStyle(size: 12)
-    static let body = AppTextStyle(size: 13)
-    static let headline = AppTextStyle(size: 13, weight: .bold)
-    static let title3 = AppTextStyle(size: 15)
-    /// The diff's code font. Its row height scales with it, or the lines would overlap.
-    static let code = AppTextStyle(size: 11.5, design: .monospaced)
+    // Five roles, as they render at `scale`: title 22, headline 15, body 14, secondary 12, caption 11 — so a view
+    // has a few sizes to choose from rather than ten. The older names stay as aliases of the role they now are.
 
-    /// A one-off size, for the few places that never used a text style to begin with.
-    static func size(_ size: CGFloat) -> AppTextStyle { AppTextStyle(size: size) }
+    /// Page titles and the big numbers.
+    static let title = AppTextStyle(size: 20.4, weight: .semibold)
+    /// Section and panel titles; `title3` is the same size, its weight set where it is used.
+    static let headline = AppTextStyle(size: 14, weight: .semibold)
+    static let title3 = AppTextStyle(size: 14)
+    static let body = AppTextStyle(size: 13)
+    /// Secondary text: group headers, notes, counts.
+    static let secondary = AppTextStyle(size: 11)
+    static let subheadline = secondary
+    static let callout = secondary
+    /// The smallest text, key caps included.
+    static let caption = AppTextStyle(size: 10)
+    static let caption2 = AppTextStyle(size: 10, weight: .medium)
+    /// Code, at the secondary size. A diff's row height scales with it, or the lines would overlap.
+    static let code = AppTextStyle(size: 11, design: .monospaced)
 
     func weight(_ weight: Font.Weight) -> Self {
         var copy = self
@@ -47,14 +51,34 @@ struct AppTextStyle: Equatable {
 
     /// Rounded to a whole point: a fractional size (15.6, 14.4) puts glyph edges between pixels, which reads as
     /// soft text on a 1× display such as an external monitor without Retina scaling.
-    var font: Font { .system(size: (size * Self.scale).rounded(), weight: weight, design: design) }
+    func font(scale: CGFloat) -> Font { .system(size: (size * scale).rounded(), weight: weight, design: design) }
+}
+
+extension EnvironmentValues {
+    /// The whole app's text, and the few widths and heights that hold text, at this multiple of macOS's own sizes.
+    @Entry var textScale: CGFloat = 1.08
+}
+
+/// Hands the text size chosen in Settings to everything under it: the window and the menu panel each sit in one.
+struct TextScaleRoot<Content: View>: View {
+    @Environment(AppModel.self) private var model
+    @ViewBuilder var content: Content
+
+    var body: some View { content.environment(\.textScale, CGFloat(model.config.textScale)) }
+}
+
+private struct ScaledFont: ViewModifier {
+    @Environment(\.textScale) private var scale
+    var style: AppTextStyle
+
+    func body(content: Content) -> some View { content.font(style.font(scale: scale)) }
 }
 
 extension View {
     /// The app's text, in one of its styles. Stands in for `.font(...)` everywhere, because `.font(.caption)`
     /// is macOS's size, not the app's.
-    func scaled(_ style: AppTextStyle) -> some View { font(style.font) }
+    func scaled(_ style: AppTextStyle) -> some View { modifier(ScaledFont(style: style)) }
 
     /// The default font that unstyled text, button titles and fields fall back on.
-    func appFont() -> some View { environment(\.font, AppTextStyle.body.font) }
+    func appFont() -> some View { modifier(ScaledFont(style: .body)) }
 }

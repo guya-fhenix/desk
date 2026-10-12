@@ -5,7 +5,7 @@ import SwiftUI
 /// description, since that is what these read best next to: roomy lines, a clear gap between paragraphs,
 /// list items kept together, headings set off from what came before, and code on a tinted ground.
 struct MarkdownText: View {
-    private let scale = AppTextStyle.scale
+    @Environment(\.textScale) private var scale
     let text: String
 
     private static let bodySize: CGFloat = 13
@@ -30,7 +30,7 @@ struct MarkdownText: View {
         switch block {
         case .heading(let level, let text):
             Text(inline(text))
-                .scaled(.size(level <= 1 ? 17 : level == 2 ? 15 : 13.5).weight(.semibold))
+                .scaled(level <= 1 ? .headline : .body.weight(.semibold))
         case .paragraph(let text):
             prose(text)
         case .bullet(let indent, let text):
@@ -47,7 +47,7 @@ struct MarkdownText: View {
         case .code(_, let text):
             ScrollView(.horizontal) {
                 Text(text)
-                    .scaled(.size(12).monospaced())
+                    .scaled(.code)
                     .lineSpacing(2)
                     .padding(10)
             }
@@ -78,14 +78,14 @@ struct MarkdownText: View {
 
     private func prose(_ text: String) -> some View {
         Text(inline(text))
-            .scaled(.size(Self.bodySize))
+            .scaled(.body)
             .lineSpacing(Self.lineSpacing)
             .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func item(indent: Int, marker: Text, text: String) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
-            marker.scaled(.size(Self.bodySize)).foregroundStyle(.secondary).frame(minWidth: 16, alignment: .trailing)
+            marker.scaled(.body).foregroundStyle(.secondary).frame(minWidth: 16, alignment: .trailing)
             prose(text)
         }
         .padding(.leading, CGFloat(min(indent, 4)) * 20 * scale)
@@ -135,7 +135,7 @@ private struct MarkdownTable: View {
 
     private func cell(_ row: [String], _ column: Int, isHeader: Bool) -> some View {
         Text(inline(column < row.count ? row[column] : ""))
-            .scaled(isHeader ? .size(12.5).weight(.semibold) : .size(12.5))
+            .scaled(isHeader ? .secondary.weight(.semibold) : .secondary)
             .lineSpacing(2)
             .fixedSize(horizontal: false, vertical: true)
             .frame(minWidth: 60, maxWidth: 260, maxHeight: .infinity, alignment: .topLeading)

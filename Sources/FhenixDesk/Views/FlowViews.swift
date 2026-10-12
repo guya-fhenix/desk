@@ -14,7 +14,7 @@ struct FlowSection: View {
             LabeledContent("Stage") {
                 HStack(spacing: 6) {
                     StageChip(stage: flow.stage)
-                    if flow.paused { Chip(text: "paused", color: .secondary) }
+                    if flow.paused { Chip(text: "Paused", color: .secondary) }
                 }
             }
             if let key = flow.ticketKey { LabeledContent("Started from", value: key) }
@@ -78,9 +78,11 @@ struct FlowSection: View {
             if let skill, !skill.isReady { ReviewSkillMark(skill: skill, showsText: true) }
             HStack {
                 Spacer()
+                let blocker = model.approveBlocker(flow, pr)
+                DisabledReason(text: blocker)
                 Button("Approve") { model.approveDraft(flow) }
                     .buttonStyle(.borderedProminent)
-                    .disabled(skill?.isReady != true || flow.paused || flow.pending != nil || flow.awaiting != nil)
+                    .disabled(blocker != nil)
             }
         case .fixesToCheck:
             SelfReviewList(review: flow.selfReview)
@@ -117,10 +119,12 @@ struct FlowSection: View {
             HStack {
                 Spacer()
                 if busy { ProgressView().controlSize(.mini) }
+                let blocker = model.mergeBlocker(flow, pr)
+                if !busy { DisabledReason(text: blocker) }
                 Button("Merge") { model.merge(flow) }
                     .buttonStyle(.borderedProminent)
-                    .disabled(busy || pr.mergeState == .dirty)
-                    .help("Squash-merges the PR into \(pr.baseRef)")
+                    .disabled(blocker != nil)
+                    .help(blocker ?? "Squash-merges the PR into \(pr.baseRef)")
             }
         case .working, .selfReview, .applying, .merged:
             EmptyView()
@@ -198,7 +202,7 @@ private struct SelfReviewList: View {
                         Chip(text: finding.severity.capitalized, color: color(finding.severity))
                         Text(finding.line.map { "\(finding.file):\($0)" } ?? finding.file)
                             .scaled(.caption.monospaced()).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
-                        if finding.fixed == false { Chip(text: "left", color: .secondary) }
+                        if finding.fixed == false { Chip(text: "Left", color: .secondary) }
                     }
                     Text(finding.problem).scaled(.caption).fixedSize(horizontal: false, vertical: true)
                     Text("→ \(finding.fix)").scaled(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
@@ -243,8 +247,6 @@ struct FlowStageCell: View {
                     Image(systemName: "pause.circle").foregroundStyle(.secondary).help("Paused: the app sends this session nothing")
                 }
             }
-        } else {
-            Text("–").foregroundStyle(.secondary).help("Not in a flow: start a session on it to carry it from its current stage")
         }
     }
 }

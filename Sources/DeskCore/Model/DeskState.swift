@@ -1,6 +1,6 @@
 import Foundation
 
-/// One status column of the Tickets screen: every open ticket of yours sitting in that status.
+/// One status column of the Jira screen: every open ticket of yours sitting in that status.
 public struct TicketGroup: Sendable, Identifiable {
     public var id: String { status }
     public var status: String
@@ -16,7 +16,7 @@ public enum ReviewScope: String, CaseIterable, Sendable, Identifiable {
 
     public var title: String {
         switch self {
-        case .onMe: return "On me"
+        case .onMe: return "On you"
         case .open: return "Open"
         case .all: return "All"
         }
