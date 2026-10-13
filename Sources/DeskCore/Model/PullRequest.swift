@@ -171,3 +171,58 @@ public struct PullRequest: Codable, Sendable, Hashable, Identifiable {
         author.hasSuffix("[bot]") || automation.logins.contains(author) || automation.titlePrefixes.contains { title.hasPrefix($0) }
     }
 }
+
+/// One check on a pull request's head commit: an Actions job, another app's check run, or a commit status. What the
+/// details panel lists under a PR's checks, fetched for the one PR on view rather than with every search.
+public struct PullRequestCheck: Sendable, Hashable, Identifiable {
+    /// Worst first, which is the order the panel lists them in.
+    public enum Outcome: Int, Sendable, Comparable {
+        case failed, running, cancelled, passed, neutral, skipped
+
+        public static func < (a: Self, b: Self) -> Bool { a.rawValue < b.rawValue }
+    }
+
+    public var name: String
+    /// The Actions workflow that ran it; nil for another app's check or a commit status.
+    public var workflow: String?
+    public var outcome: Outcome
+    public var url: String?
+    public var startedAt: Date?
+    public var completedAt: Date?
+    /// The step a failed Actions job stopped at.
+    public var failedStep: String?
+    /// What it reported as errors: its failure-level annotations, or a status's description.
+    public var errors: [String]
+
+    public var id: String { url ?? "\(workflow ?? "")/\(name)" }
+
+    public init(
+        name: String, workflow: String? = nil, outcome: Outcome, url: String? = nil, startedAt: Date? = nil,
+        completedAt: Date? = nil, failedStep: String? = nil, errors: [String] = []
+    ) {
+        self.name = name
+        self.workflow = workflow
+        self.outcome = outcome
+        self.url = url
+        self.startedAt = startedAt
+        self.completedAt = completedAt
+        self.failedStep = failedStep
+        self.errors = errors
+    }
+
+    /// One workflow's checks, worst first.
+    public struct Group: Sendable, Hashable, Identifiable {
+        public var workflow: String
+        public var checks: [PullRequestCheck]
+        public var id: String { workflow }
+        public var outcome: Outcome { checks.map(\.outcome).min() ?? .passed }
+    }
+
+    /// Grouped by workflow — the ones with no workflow together under "Other checks" — the worst group first, and
+    /// the worst check first inside each.
+    public static func grouped(_ checks: [PullRequestCheck]) -> [Group] {
+        Dictionary(grouping: checks) { $0.workflow ?? "Other checks" }
+            .map { Group(workflow: $0.key, checks: $0.value.sorted { ($0.outcome, $0.name) < ($1.outcome, $1.name) }) }
+            .sorted { ($0.outcome, $0.workflow) < ($1.outcome, $1.workflow) }
+    }
+}

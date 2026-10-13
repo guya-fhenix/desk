@@ -23,10 +23,9 @@ struct DeskWindow: View {
         /// The key its details panel remembers its flag under, on the screens that have one.
         var inspectorKey: String? {
             switch self {
-            case .pullRequests: return "pullRequests"
             case .tickets: return "tickets"
-            case .reviews: return "reviews"
-            case .upNext: return nil
+            // Pull requests and reviews open a page of their own instead.
+            case .pullRequests, .reviews, .upNext: return nil
             }
         }
 
@@ -104,12 +103,7 @@ struct DeskWindow: View {
                     }
                 }
             }
-            SidebarItem(title: "Settings", icon: "gearshape", selected: model.showingSettings, action: { model.showingSettings = true }) {
-                HStack(spacing: 3) {
-                    KeyCap(key: "⌘")
-                    KeyCap(key: ",")
-                }
-            }
+            SidebarItem(title: "Settings", icon: "gearshape", selected: model.showingSettings, action: { model.showingSettings = true })
         }
     }
 

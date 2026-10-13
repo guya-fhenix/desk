@@ -74,7 +74,7 @@ private struct DeskRoot: View {
     var delegate: AppDelegate
 
     var body: some View {
-        TextScaleRoot { DeskWindow() }
+        DeskWindow()
             .environment(model)
             .task {
                 AppDelegate.openDesk = {
@@ -169,7 +169,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // primary click with the panel open would close the panel and never open the window. Dismissing
         // it by hand leaves the button's clicks to the button.
         panel.behavior = .applicationDefined
-        panel.contentViewController = NSHostingController(rootView: TextScaleRoot { MenuPanelView() }.environment(model))
+        panel.contentViewController = NSHostingController(rootView: MenuPanelView().environment(model))
         popover = panel
         return panel
     }

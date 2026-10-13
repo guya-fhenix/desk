@@ -22,6 +22,13 @@ import Testing
         }
     }
 
+    @Test func recentlyMergedIsTheLastThirtyDaysNewestFirst() {
+        var state = state
+        let day: TimeInterval = 86_400
+        state.github?.mergedRecent = [2, 29, 31].map { Fixtures.pr(number: Int($0), head: "b\($0)", merged: Fixtures.t0 - $0 * day) }
+        #expect(state.recentlyMerged(now: Fixtures.t0).map(\.number) == [2, 29])
+    }
+
     @Test func reviewWorktreesAreKeptApartFromWorkingOnes() {
         var state = state
         let main = Fixtures.worktree(path: "/r/cofhe", branch: "master", isMain: true)
@@ -160,5 +167,27 @@ import Testing
         #expect(!sprint.contains { $0.category == .done })
         #expect(state.ticketGroups(.backlog).map(\.status) == ["To Do"])
         #expect(state.openTickets.count == 4)
+    }
+
+    /// The Jira screen's assignee filter: any mix of you, nobody and named people; nothing picked is everyone.
+    @Test func ticketGroupsFilterByAssignee() {
+        var state = DeskState(config: DeskConfig())
+        state.tickets = [
+            Fixtures.ticket("PRO-1", assignee: "Guy"),
+            Fixtures.ticket("PRO-2", assignedToMe: false),
+            Fixtures.ticket("PRO-3", assignedToMe: false, assignee: "Roee"),
+            Fixtures.ticket("PRO-4", assignedToMe: false, assignee: "Dana"),
+            Fixtures.ticket("PRO-5", category: .done, status: "Done", assignedToMe: false, assignee: "Eli"),
+            Fixtures.ticket("PRO-6", placement: .unknown, assignedToMe: false, assignee: "Noa"),
+        ]
+        let keys = { (assignees: Set<TicketAssignee>) in state.ticketGroups(.sprint, assignees: assignees).flatMap(\.tickets).map(\.key).sorted() }
+        #expect(keys([.me]) == ["PRO-1"])
+        #expect(keys([.me, .unassigned]) == ["PRO-1", "PRO-2"])
+        #expect(keys([.person("Roee"), .unassigned]) == ["PRO-2", "PRO-3"])
+        #expect(keys([]) == ["PRO-1", "PRO-2", "PRO-3", "PRO-4"])
+        // Only people with open, placed tickets are offered, and you are "Me", not your name.
+        #expect(state.ticketAssignees.map(\.name) == ["Dana", "Roee"])
+        #expect(state.ticketSelf?.name == "Guy")
+        #expect(TicketAssignee(rawValue: TicketAssignee.person("Roee Z").rawValue) == .person("Roee Z"))
     }
 }

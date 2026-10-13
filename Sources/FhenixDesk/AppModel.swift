@@ -47,8 +47,8 @@ final class AppModel {
     var startingSessions: Set<String> = []
     /// Flows with an instruction going out or a GitHub write in flight, by job id.
     var busyFlows: Set<String> = []
-    /// Set to have the Pull Requests screen select this PR; the screen clears it. Up Next uses it to open a PR's
-    /// details panel.
+    /// Set to have the Pull Requests or Reviews screen open this PR's page; the screen clears it. Search, Up Next
+    /// and a notification's Show use it.
     var selectPullRequest: String?
     /// Why the session button last failed, per PR url or ticket key. It is the button's own tooltip: a press that
     /// does nothing is the one thing this must not be.
@@ -360,6 +360,9 @@ final class AppModel {
         guard let url, let parsed = URL(string: url) else { return }
         NSWorkspace.shared.open(parsed)
     }
+
+    /// A PR's checks in full, for its page. Not kept: the page asks again each time it shows the PR.
+    func checks(for pr: PullRequest) async throws -> [PullRequestCheck] { try await service.checks(for: pr) }
 
     /// Opens the window on the screen a PR lives on, its row selected — your own in Pull Requests, one in the queue in
     /// Reviews — and GitHub for one on no screen here. A finished review's url points at its Files tab; the PR is the

@@ -42,6 +42,8 @@ public enum Markdown {
         var fence: (language: String?, lines: [String])?
         var table: [String] = []
         var brokeLine = false
+        /// Whether the line before was a quote's, which this one then carries on.
+        var quoting = false
 
         func flushParagraph() {
             guard !paragraph.isEmpty else { return }
@@ -55,11 +57,16 @@ public enum Markdown {
             table = []
         }
 
-        for rawLine in text.replacingOccurrences(of: "\r\n", with: "\n").split(separator: "\n", omittingEmptySubsequences: false) {
+        // HTML comments are for the author and the bots (a template's hints, a bot's markers), and GitHub hides them.
+        // ponytail: one inside a code fence goes too; parse comments per line if a description ever shows one as code.
+        let visible = text.replacingOccurrences(of: "\r\n", with: "\n").replacing(/<!--[\s\S]*?-->/, with: "")
+        for rawLine in visible.split(separator: "\n", omittingEmptySubsequences: false) {
             let line = String(rawLine)
             var trimmed = line.trimmingCharacters(in: .whitespaces)
             let continues = brokeLine
             brokeLine = false
+            let quoted = quoting
+            quoting = false
 
             if fence == nil, trimmed.hasPrefix("|") {
                 flushParagraph()
@@ -107,9 +114,18 @@ public enum Markdown {
                 blocks.append(heading)
                 continue
             }
+            // Consecutive quote lines are one quote, its lines kept and a bare `>` a blank line between paragraphs.
+            // GitHub's alert marker (`[!NOTE]`) heads it in words.
             if trimmed.hasPrefix("> ") || trimmed == ">" {
                 flushParagraph()
-                blocks.append(.quote(String(trimmed.dropFirst(trimmed == ">" ? 1 : 2))))
+                var body = String(trimmed.dropFirst(trimmed == ">" ? 1 : 2))
+                if let match = body.wholeMatch(of: /\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]/) { body = "**\(match.1.capitalized)**" }
+                if quoted, case .quote(let previous)? = blocks.last {
+                    blocks[blocks.count - 1] = .quote(previous + "\n" + body)
+                } else {
+                    blocks.append(.quote(body))
+                }
+                quoting = true
                 continue
             }
             let indent = (line.prefix { $0 == " " || $0 == "\t" }.count) / 2
@@ -147,7 +163,11 @@ public enum Markdown {
             blocks.append(.code(language: open.language, text: lines.joined(separator: "\n")))
         }
         flushParagraph()
-        return blocks
+        // A quote's closing bare `>` lines are no part of what it says.
+        return blocks.map { block in
+            if case .quote(let text) = block { return .quote(text.trimmingCharacters(in: .newlines)) }
+            return block
+        }
     }
 
     /// Adds a broken-off line to the block it belongs to. Only text-carrying items can take one; anything

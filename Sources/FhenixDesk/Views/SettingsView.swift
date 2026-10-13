@@ -390,16 +390,6 @@ private struct GeneralSettings: View {
                 BoxedStepper(label: "Stale PR after", value: $draft.config.stalePullRequestDays, range: 1...30, step: 1, text: "\(draft.config.stalePullRequestDays) days")
             }
         }
-        FieldGroup(title: "Display") {
-            Field(label: "Text size", hint: "Every screen and the menu panel, at once.") {
-                Picker("Text size", selection: $draft.config.textScale) {
-                    ForEach(AppTextStyle.scales, id: \.value) { Text($0.name).tag($0.value) }
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .fixedSize()
-            }
-        }
         FieldGroup(title: "Alerts") {
             Field(label: "macOS notifications") {
                 Toggle("Notify me", isOn: $draft.config.notificationsEnabled).toggleStyle(.switch).controlSize(.small)

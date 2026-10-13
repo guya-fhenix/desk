@@ -164,10 +164,10 @@ private struct NudgeRow: View {
             // go on the line under it. A nudge with no PR keeps its own two lines.
             VStack(alignment: .leading, spacing: 1) {
                 if let pr {
-                    Text(pr.title).lineLimit(1)
+                    Text(pr.title).scaled(.rowTitle).lineLimit(1)
                     MetaLine(parts: [Text(nudge.title), Text(pr.author), Text("opened \(Format.age(pr.createdAt))")])
                 } else {
-                    Text(nudge.title).lineLimit(1)
+                    Text(nudge.title).scaled(.rowTitle).lineLimit(1)
                     Text(nudge.detail).scaled(.caption).foregroundStyle(.secondary).lineLimit(1)
                 }
             }
@@ -220,7 +220,7 @@ private struct NudgeRow: View {
 }
 
 extension NudgeRow {
-    /// Approve and Merge right here; the stages that want reading first open the PR's details panel.
+    /// Approve and Merge right here; the stages that want reading first open the PR's page.
     @ViewBuilder fileprivate func flowActions(_ pr: PullRequest) -> some View {
         if let flow = model.state.flow(for: pr) {
             switch flow.stage {
@@ -257,7 +257,7 @@ private struct DriftRow: View {
         HStack(spacing: 10) {
             StatusDot(color: .blue)
             VStack(alignment: .leading, spacing: 1) {
-                Text("\(drift.ticket.key) should be “\(drift.target)”").lineLimit(1)
+                Text("\(drift.ticket.key) should be “\(drift.target)”").scaled(.rowTitle).lineLimit(1)
                 Text("Jira says “\(drift.ticket.status)” · \(reason)").scaled(.caption).foregroundStyle(.secondary).lineLimit(1)
                 Text(model.ticketMoveErrors[drift.ticket.key] ?? "").scaled(.caption).foregroundStyle(.red).lineLimit(1)
                     .help(model.ticketMoveErrors[drift.ticket.key] ?? "")

@@ -1,13 +1,15 @@
 import DeskCore
 import SwiftUI
 
-/// Your Jira tickets as a list: the running sprint or the backlog, one group per status in workflow order. Done
-/// is left out: the list is about what is still open. Selecting a row opens it in the details panel, which is
+/// Jira tickets as a list: the running sprint or the backlog, one group per status in workflow order, yours unless
+/// the assignee filter picks others. Done is left out: the list is about what is still open. Selecting a row opens it in the details panel, which is
 /// where its description is read.
 struct TicketsTab: View {
     @Environment(AppModel.self) private var model
     /// Remembered, so a trip to another screen does not drop you back on the sprint.
     @AppStorage("tickets.placement") private var placement: TicketPlacement = .sprint
+    /// The assignee filter's picks, one raw value per line; empty is everyone. Remembered like the placement.
+    @AppStorage("tickets.assignees") private var storedAssignees = TicketAssignee.me.rawValue
     /// By key, so a poll that replaces every ticket keeps the selection.
     @State private var selection: String?
     @State private var search = ""
@@ -16,7 +18,7 @@ struct TicketsTab: View {
     @State private var planNote = ""
 
     var body: some View {
-        let groups = filtered(model.state.ticketGroups(placement))
+        let groups = filtered(model.state.ticketGroups(placement, assignees: assignees))
         Screen {
             PageHeader(title: "Jira") { HeaderControls(inspector: "tickets") }
             header
@@ -50,10 +52,7 @@ struct TicketsTab: View {
                 }
             }
         }
-        // The first ticket is selected when nothing is, so the details panel never opens on an empty column.
-        .task(id: groups.first?.tickets.first?.key) {
-            if selection == nil { selection = groups.first?.tickets.first?.key }
-        }
+        .selectsFirstRow(groups.first?.tickets.first?.key, selection: $selection)
         // Wider than the others: this one is for reading a description, tables and all.
         .deskInspector("tickets", width: 420) {
             if let key = selection, let ticket = model.state.ticket(key) {
@@ -66,6 +65,10 @@ struct TicketsTab: View {
         .sheet(item: $planning) { request in
             PlanSheet(request: request, model: model, note: $planNote) { planning = nil }
         }
+    }
+
+    private var assignees: Set<TicketAssignee> {
+        Set(storedAssignees.split(separator: "\n").compactMap { TicketAssignee(rawValue: String($0)) })
     }
 
     private func plan(_ ticket: Ticket, _ repo: RepoRef) {
@@ -92,9 +95,10 @@ struct TicketsTab: View {
                 actionTitle: "Open Settings → Jira", action: { model.openSettings(.jira) }
             )
         } else {
+            let place = placement == .backlog ? "the backlog" : "the open sprint"
             EmptyState(
                 icon: "checkmark.circle",
-                text: placement == .backlog ? "Nothing of yours in the backlog." : "Nothing of yours in the open sprint."
+                text: assignees == [.me] ? "Nothing of yours in \(place)." : "No tickets in \(place) for this assignee filter."
             )
         }
     }
@@ -104,13 +108,18 @@ struct TicketsTab: View {
         FilterBar {
             PillTabs(
                 options: [TicketPlacement.sprint, .backlog].map { option in
-                    let count = filtered(model.state.ticketGroups(option)).reduce(0) { $0 + $1.tickets.count }
+                    let count = filtered(model.state.ticketGroups(option, assignees: assignees)).reduce(0) { $0 + $1.tickets.count }
                     return .init(value: option, title: option == .sprint ? "Sprint" : "Backlog", count: count)
                 },
                 selection: $placement
             )
         } trailing: {
             SearchBox(prompt: "Key or summary", text: $search)
+            AssigneeFilter(
+                selection: Binding(get: { assignees }, set: { storedAssignees = $0.map(\.rawValue).sorted().joined(separator: "\n") }),
+                me: model.state.ticketSelf,
+                people: model.state.ticketAssignees
+            )
         }
     }
 }
@@ -126,10 +135,13 @@ private struct TicketRow: View {
     var body: some View {
         let linked = model.state.pullRequests(forTicket: ticket.key).count
         HStack(alignment: .center, spacing: 12) {
-            StatusDot(color: TicketColor.of(ticket.category))
+            // Whose it is, as a picture; the status is already the group's heading.
+            AssigneeAvatar(ticket: ticket)
             VStack(alignment: .leading, spacing: 5) {
-                Text(ticket.summary).lineLimit(1)
+                Text(ticket.summary).scaled(.rowTitle).lineLimit(1)
+                // Whose it is, unless it is yours: the filter may be showing other people's.
                 MetaLine(parts: [Text(ticket.key), Text(ticket.status)] + [ticket.priority.map(PriorityMark.text)].compactMap { $0 }
+                    + (ticket.assignedToMe ? [] : [Text(ticket.assignee ?? "Unassigned")])
                     + (linked > 0 ? [Text("\(linked) open \(linked == 1 ? "PR" : "PRs")")] : []))
             }
             Spacer(minLength: 8)
@@ -188,6 +200,12 @@ private struct TicketInspector: View {
                     HStack(spacing: 6) { StatusDot(color: TicketColor.of(ticket.category)); Text(ticket.status) }
                 }
                 if let priority = ticket.priority { LabeledContent("Priority") { PriorityMark.text(priority) } }
+                LabeledContent("Assignee") {
+                    HStack(spacing: 6) {
+                        AssigneeAvatar(ticket: ticket, size: 20)
+                        Text(ticket.assignedToMe ? "You" : ticket.assignee ?? "Unassigned")
+                    }
+                }
                 HStack {
                     Button("Open in Jira") { model.open(ticket.url) }
                     planMenu
@@ -410,5 +428,111 @@ private struct PlanSheet: View {
         .frame(width: 460)
         .background(Theme.background)
         .onAppear { writing = true }
+    }
+}
+
+/// Whose tickets the list shows, the way Jira's board filters by assignee: a row of overlapping pictures — you, the
+/// people with open tickets, nobody — each a toggle, so any mix can be on, with the ones past the first few behind
+/// "+N". Nothing on is everyone's; "Clear filters" gets back there.
+private struct AssigneeFilter: View {
+    @Binding var selection: Set<TicketAssignee>
+    var me: TicketPerson?
+    var people: [TicketPerson]
+    @State private var showingMore = false
+    /// People shown as pictures before the rest go behind "+N", as Jira's board does.
+    private static let shown = 4
+
+    var body: some View {
+        HStack(spacing: 10) {
+            HStack(spacing: -6) {
+                FilterFace(name: "You", on: selection.contains(.me), toggle: { toggle(.me) }) {
+                    if let me { Avatar(login: me.name, url: me.avatar) } else { NobodyAvatar() }
+                }
+                ForEach(people.prefix(Self.shown)) { person in
+                    FilterFace(name: person.name, on: selection.contains(.person(person.name)), toggle: { toggle(.person(person.name)) }) {
+                        Avatar(login: person.name, url: person.avatar)
+                    }
+                }
+                FilterFace(name: "Unassigned", on: selection.contains(.unassigned), toggle: { toggle(.unassigned) }) {
+                    NobodyAvatar()
+                }
+                if people.count > Self.shown { more }
+            }
+            if !selection.isEmpty {
+                Button("Clear filters") { selection = [] }.buttonStyle(.link).fixedSize()
+            }
+        }
+    }
+
+    /// The people past the first few, each a tick with their picture, in a popover that stays open while you tick.
+    private var more: some View {
+        let rest = Array(people.dropFirst(Self.shown))
+        let on = rest.count { selection.contains(.person($0.name)) }
+        return FilterFace(name: "\(rest.count) more", on: on > 0, toggle: { showingMore.toggle() }) {
+            Text("+\(rest.count)").scaled(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                .frame(width: 30, height: 30).background(Theme.raised, in: Circle())
+        }
+        .popover(isPresented: $showingMore, arrowEdge: .bottom) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(rest) { person in
+                        Toggle(isOn: Binding(get: { selection.contains(.person(person.name)) }, set: { _ in toggle(.person(person.name)) })) {
+                            HStack(spacing: 8) { Avatar(login: person.name, url: person.avatar, size: 20); Text(person.name) }
+                        }
+                        .toggleStyle(.checkbox)
+                    }
+                }
+                .padding(12)
+            }
+            .frame(width: 240)
+            .frame(maxHeight: 320)
+        }
+    }
+
+    private func toggle(_ value: TicketAssignee) {
+        if selection.contains(value) { selection.remove(value) } else { selection.insert(value) }
+    }
+}
+
+/// One picture in the assignee filter: ringed in the accent colour while it is on, lifted under the pointer, its name
+/// in the tooltip, as Jira draws them. The ring in the background colour keeps overlapping pictures apart.
+private struct FilterFace<Face: View>: View {
+    var name: String
+    var on: Bool
+    var toggle: () -> Void
+    @ViewBuilder var face: Face
+    @State private var hovering = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        Button(action: toggle) {
+            face
+                .padding(2)
+                .background(Circle().fill(Theme.background))
+                .overlay(Circle().strokeBorder(on ? Theme.accent : Color.clear, lineWidth: 2))
+                .offset(y: hovering && !reduceMotion ? -3 : 0)
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .zIndex(hovering ? 2 : on ? 1 : 0)
+        .onHover { hovering = $0 }
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: hovering)
+        .help(name)
+        .accessibilityLabel(name)
+        .accessibilityAddTraits(on ? .isSelected : [])
+    }
+}
+
+/// The picture of whoever a ticket is assigned to, or Jira's silhouette when nobody is.
+private struct AssigneeAvatar: View {
+    var ticket: Ticket
+    var size: CGFloat = 28
+
+    var body: some View {
+        if let name = ticket.assignee {
+            Avatar(login: name, url: ticket.assigneeAvatar, size: size)
+        } else {
+            NobodyAvatar(size: size)
+        }
     }
 }

@@ -8,7 +8,7 @@ struct Chip: View {
 
     var body: some View {
         Text(text)
-            .scaled(.caption.weight(.medium))
+            .scaled(.secondary)
             .padding(.horizontal, Theme.Space.s)
             .padding(.vertical, Theme.Space.xs / 2)
             .background(color.opacity(0.18), in: RoundedRectangle(cornerRadius: 4))
@@ -221,11 +221,14 @@ struct PullRequestMenu: View {
         Button("Open on GitHub") { model.open(pr.url) }
         Button("Copy Link") { Clipboard.copy(pr.url) }
         Button("Copy Branch") { Clipboard.copy(pr.headRef) }
-        Divider()
-        if let job = model.state.claudeJobs(for: pr).first {
-            Button("Attach to Session") { model.attach(job, for: pr) }
-        } else {
-            Button("Start Session") { model.startSession(for: pr) }.disabled(model.state.localRepo(for: pr) == nil)
+        // A merged PR has no branch left to work on.
+        if pr.state != .merged {
+            Divider()
+            if let job = model.state.claudeJobs(for: pr).first {
+                Button("Attach to Session") { model.attach(job, for: pr) }
+            } else {
+                Button("Start Session") { model.startSession(for: pr) }.disabled(model.state.localRepo(for: pr) == nil)
+            }
         }
     }
 }
@@ -463,16 +466,171 @@ struct DriftBadge: View {
     }
 }
 
-/// Checks, review decision and merge state in one cell: three columns of mostly-quiet badges read better
-/// as one, and the inspector spells each out.
+/// Checks, review decision and merge state in one cell; the inspector spells each out. Each chip sits in a
+/// column as wide as its longest label, so down a list the three line up whatever the chip says or the text size.
 struct PullRequestStatus: View {
     var pr: PullRequest
 
     var body: some View {
         HStack(spacing: 5) {
             ChecksBadge(pr: pr)
-            ReviewBadge(pr: pr)
-            MergeBadge(pr: pr)
+            column(widest: ["Changes requested", "Review required"]) { ReviewBadge(pr: pr) }
+            column(widest: ["Conflicts", "Unstable"]) { MergeBadge(pr: pr) }
+        }
+    }
+
+    private func column(widest: [String], @ViewBuilder chip: () -> some View) -> some View {
+        ZStack(alignment: .leading) {
+            ForEach(widest, id: \.self) { Chip(text: $0).hidden() }
+            chip()
+        }
+    }
+}
+
+/// A PR's checks by workflow: the worst first, a failed job with the step it stopped at and the errors it reported,
+/// each opening its log on GitHub. Fetched when the panel shows the PR, again when its head or overall state moves,
+/// and every 20 s while a job is still running, since one finishing leaves the overall state pending until the last.
+struct WorkflowsSection: View {
+    var pr: PullRequest
+    var model: AppModel
+    /// The PR these were fetched for: the panel keeps this view as the selection moves to another PR.
+    @State private var loaded: (url: String, checks: [PullRequestCheck])?
+    @State private var error: String?
+
+    var body: some View {
+        PanelSection("Workflows") {
+            if let loaded, loaded.url == pr.url {
+                if loaded.checks.isEmpty { Text("No checks on the latest commit.").foregroundStyle(.secondary) }
+                ForEach(PullRequestCheck.grouped(loaded.checks)) { WorkflowGroup(group: $0, model: model) }
+            } else if let error {
+                Text(error).scaled(.caption).foregroundStyle(.red).textSelection(.enabled)
+            } else {
+                ProgressView().controlSize(.small)
+            }
+        }
+        .task(id: "\(pr.url) \(pr.headSha) \(pr.checks.rawValue)") {
+            error = nil
+            while !Task.isCancelled {
+                do {
+                    loaded = (pr.url, try await model.checks(for: pr))
+                } catch {
+                    if !Task.isCancelled { self.error = "Couldn't load the checks: \(error)" }
+                    return
+                }
+                guard loaded?.checks.contains(where: { $0.outcome == .running }) == true else { return }
+                try? await Task.sleep(for: .seconds(20))
+            }
+        }
+    }
+}
+
+/// One workflow: its worst outcome and a count in the heading, its jobs under it. Open while anything in it failed or
+/// is running; folded when all is well, since passing jobs are rarely what you came to read.
+private struct WorkflowGroup: View {
+    var group: PullRequestCheck.Group
+    var model: AppModel
+    /// Flipped from the default by a click.
+    @State private var flipped = false
+
+    var body: some View {
+        let open = (group.outcome <= .cancelled) != flipped
+        DisclosureGroup(isExpanded: Binding(get: { open }, set: { flipped = $0 != (group.outcome <= .cancelled) })) {
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(group.checks) { CheckLine(check: $0, model: model) }
+            }
+            .padding(.top, 4)
+        } label: {
+            HStack(spacing: 6) {
+                CheckIcon(outcome: group.outcome)
+                Text(group.workflow).lineLimit(1)
+                Spacer(minLength: 8)
+                Text(summary).scaled(.caption).foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    /// "4 passed", or "1 failed, 3 passed": the outcomes present, worst first.
+    private var summary: String {
+        Dictionary(grouping: group.checks, by: \.outcome).sorted { $0.key < $1.key }
+            .map { "\($0.value.count) \(CheckIcon.word($0.key))" }.joined(separator: ", ")
+    }
+}
+
+/// One job: its outcome, name and how long it took; under a failed one, where it stopped and what it said.
+private struct CheckLine: View {
+    var check: PullRequestCheck
+    var model: AppModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Button { model.open(check.url) } label: {
+                HStack(spacing: 6) {
+                    CheckIcon(outcome: check.outcome)
+                    Text(check.name).lineLimit(1)
+                    Spacer(minLength: 8)
+                    Text(duration).scaled(.caption).monospacedDigit().foregroundStyle(.secondary)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(check.url == nil)
+            .help(check.url == nil ? "" : "Open its log on GitHub")
+            Group {
+                if let step = check.failedStep { Text("Failed at “\(step)”").foregroundStyle(.red) }
+                ForEach(check.errors, id: \.self) { Text($0).foregroundStyle(.secondary).textSelection(.enabled) }
+            }
+            .scaled(.caption)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.leading, 22)
+        }
+    }
+
+    private var duration: String {
+        guard let start = check.startedAt else { return "" }
+        let seconds = (check.completedAt ?? Date()).timeIntervalSince(start)
+        let text = Duration.seconds(max(seconds, 0))
+            .formatted(.units(allowed: [.hours, .minutes, .seconds], width: .narrow, maximumUnitCount: 2))
+        return check.completedAt == nil ? "running \(text)" : text
+    }
+}
+
+/// A check's outcome as an icon with a shape of its own, so it reads without telling red from green.
+private struct CheckIcon: View {
+    var outcome: PullRequestCheck.Outcome
+
+    var body: some View {
+        let (symbol, color): (String, Color) = switch outcome {
+        case .failed: ("xmark.circle.fill", .red)
+        case .running: ("clock.fill", .orange)
+        case .cancelled: ("stop.circle", .secondary)
+        case .passed: ("checkmark.circle.fill", .green)
+        case .neutral: ("circle", .secondary)
+        case .skipped: ("minus.circle", .secondary)
+        }
+        Image(systemName: symbol).foregroundStyle(color).frame(width: 16).accessibilityLabel(Self.word(outcome))
+    }
+
+    static func word(_ outcome: PullRequestCheck.Outcome) -> String {
+        switch outcome {
+        case .failed: return "failed"
+        case .running: return "running"
+        case .cancelled: return "cancelled"
+        case .passed: return "passed"
+        case .neutral: return "neutral"
+        case .skipped: return "skipped"
+        }
+    }
+}
+
+/// A PR's description as GitHub renders it, or a line saying there is none.
+struct PullRequestDescription: View {
+    var pr: PullRequest
+
+    var body: some View {
+        if pr.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            Text("No description.").foregroundStyle(.secondary)
+        } else {
+            MarkdownText(text: pr.body).textSelection(.enabled)
         }
     }
 }

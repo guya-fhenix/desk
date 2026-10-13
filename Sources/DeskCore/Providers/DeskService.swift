@@ -238,6 +238,11 @@ public actor DeskService {
         try await github.markReady(repo: pr.repo, number: pr.number)
     }
 
+    public func checks(for pr: PullRequest) async throws -> [PullRequestCheck] {
+        guard let github else { throw DeskError.ghNotFound }
+        return try await github.checks(repo: pr.repo, number: pr.number)
+    }
+
     public func squashMerge(_ pr: PullRequest) async throws {
         guard let github else { throw DeskError.ghNotFound }
         try await github.squashMerge(repo: pr.repo, number: pr.number)
@@ -250,10 +255,12 @@ public actor DeskService {
 
     public func refreshJira(referencedKeys: [String]) async throws -> [Ticket] {
         guard let jira else { throw DeskError.jiraNotConfigured }
-        let mine = try await jira.myOpenIssues()
-        let mineKeys = Set(mine.map(\.key))
-        let others = try await jira.issues(keys: referencedKeys.filter { !mineKeys.contains($0) })
-        return mine + others
+        async let mine = jira.myOpenIssues()
+        async let team = jira.teamOpenIssues(projects: config.jiraProjectKeys)
+        let placed = try await mine + team
+        let placedKeys = Set(placed.map(\.key))
+        let others = try await jira.issues(keys: referencedKeys.filter { !placedKeys.contains($0) })
+        return placed + others
     }
 
     /// The only call in the app that writes to Jira: planning a ticket, and moving one that has fallen

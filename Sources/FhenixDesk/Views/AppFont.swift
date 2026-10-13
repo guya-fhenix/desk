@@ -10,23 +10,22 @@ import SwiftUI
 /// instead of a `Font`. The chaining mirrors `Font`'s, so `.caption.weight(.semibold)` still reads the
 /// way it did.
 struct AppTextStyle: Equatable {
-    /// The text sizes Settings offers, as multiples of macOS's own; the default gives 14 pt body text, the reference
-    /// app's size. The one in force comes down the environment as `textScale`.
-    static let scales: [(name: String, value: Double)] = [("Small", 1.0), ("Default", 1.08), ("Large", 1.2)]
-
     var size: CGFloat
     var weight: Font.Weight = .regular
     var design: Font.Design = .default
 
-    // Five roles, as they render at `scale`: title 22, headline 15, body 14, secondary 12, caption 11 — so a view
+    // Five roles, as they render at `scale`: title 24, headline 15, body 14, secondary 12, caption 11 — so a view
     // has a few sizes to choose from rather than ten. The older names stay as aliases of the role they now are.
+    // Sizes and weights follow PR Cockpit's: its page title, row title, meta line and badges are these.
 
     /// Page titles and the big numbers.
-    static let title = AppTextStyle(size: 20.4, weight: .semibold)
+    static let title = AppTextStyle(size: 22.25, weight: .medium)
     /// Section and panel titles; `title3` is the same size, its weight set where it is used.
     static let headline = AppTextStyle(size: 14, weight: .semibold)
     static let title3 = AppTextStyle(size: 14)
     static let body = AppTextStyle(size: 13)
+    /// A list row's title: body size, medium, so it leads the line of facts under it.
+    static let rowTitle = AppTextStyle(size: 13, weight: .medium)
     /// Secondary text: group headers, notes, counts.
     static let secondary = AppTextStyle(size: 11)
     static let subheadline = secondary
@@ -55,16 +54,9 @@ struct AppTextStyle: Equatable {
 }
 
 extension EnvironmentValues {
-    /// The whole app's text, and the few widths and heights that hold text, at this multiple of macOS's own sizes.
+    /// The app's text, and the few widths and heights that hold text, at this multiple of macOS's own sizes: 14 pt
+    /// body text, the reference app's size.
     @Entry var textScale: CGFloat = 1.08
-}
-
-/// Hands the text size chosen in Settings to everything under it: the window and the menu panel each sit in one.
-struct TextScaleRoot<Content: View>: View {
-    @Environment(AppModel.self) private var model
-    @ViewBuilder var content: Content
-
-    var body: some View { content.environment(\.textScale, CGFloat(model.config.textScale)) }
 }
 
 private struct ScaledFont: ViewModifier {
@@ -80,5 +72,4 @@ extension View {
     func scaled(_ style: AppTextStyle) -> some View { modifier(ScaledFont(style: style)) }
 
     /// The default font that unstyled text, button titles and fields fall back on.
-    func appFont() -> some View { modifier(ScaledFont(style: .body)) }
-}
+    func appFont() -> some View { modifier(ScaledFont(style: .body)) }}

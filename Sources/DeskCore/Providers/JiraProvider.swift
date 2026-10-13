@@ -66,6 +66,20 @@ public actor JiraProvider {
         return try await sprint + backlog
     }
 
+    /// Everyone else's unfinished tickets in these projects, unassigned ones included, for the Jira screen's
+    /// assignee filter. Placed the way yours are; nothing without a project to scope it to, or it would be the site.
+    public func teamOpenIssues(projects: [String]) async throws -> [Ticket] {
+        guard !projects.isEmpty else { return [] }
+        let others = "project in (\(projects.joined(separator: ","))) AND resolution = Unresolved"
+            + " AND (assignee is EMPTY OR assignee != currentUser())"
+        async let sprint = search(jql: "\(others) AND sprint in openSprints() ORDER BY updated DESC", assignedToMe: false, placement: .sprint)
+        async let backlog = search(
+            jql: "\(others) AND (sprint is EMPTY OR sprint not in openSprints()) ORDER BY updated DESC",
+            assignedToMe: false, placement: .backlog
+        )
+        return try await sprint + backlog
+    }
+
     /// Tickets referenced by a PR but assigned to someone else. The Tickets screen never shows these, so
     /// they are left unplaced rather than given a sprint they may not be in.
     public func issues(keys: [String]) async throws -> [Ticket] {
@@ -85,7 +99,7 @@ public actor JiraProvider {
             "jira", "workitem", "search", "--jql", jql,
             // acli allows only this handful; `updated` is not among them, which is why `Ticket` carries no
             // timestamp. The JQL still orders by it.
-            "--fields", "key,summary,status,priority,description",
+            "--fields", "key,summary,status,priority,assignee,description",
             "--json", "--paginate",
         ])
         return try JiraDecoding.tickets(from: data, site: account.site, assignedToMe: assignedToMe, placement: placement)
@@ -144,6 +158,8 @@ public enum JiraDecoding {
             priority: issue.fields.priority?.name,
             url: "https://\(site)/browse/\(issue.key)",
             assignedToMe: assignedToMe,
+            assignee: issue.fields.assignee?.displayName,
+            assigneeAvatar: issue.fields.assignee?.avatarUrls?["48x48"],
             placement: placement,
             description: JiraDescription.markdown(issue.fields.description)
         )
@@ -158,7 +174,13 @@ public enum JiraDecoding {
         public var summary: String
         public var status: Status
         public var priority: Named?
+        public var assignee: Person?
         public var description: ADFNode?
+    }
+
+    public struct Person: Decodable {
+        public var displayName: String
+        public var avatarUrls: [String: String]?
     }
 
     public struct Status: Decodable {

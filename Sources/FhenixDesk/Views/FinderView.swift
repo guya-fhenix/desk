@@ -179,9 +179,11 @@ struct FinderView: View {
                 Spacer(minLength: 8)
                 Text(ticket.key).scaled(.caption.monospaced()).foregroundStyle(.secondary)
             case .pullRequest(let pr):
-                // A chip only for a draft: every result here is open, so "Open" on each said nothing.
-                Group { if pr.isDraft { Chip(text: "Draft", color: .secondary) } }.frame(width: 68, alignment: .leading)
+                // Which screen it opens on: yours on Pull Requests, the review queue's on Reviews.
+                let review = model.state.reviewQueue(.all).contains { $0.url == pr.url }
+                Chip(text: review ? "Review" : "PR", color: review ? .green : .teal).frame(width: 68, alignment: .leading)
                 Text(pr.title).lineLimit(1).truncationMode(.tail)
+                if pr.isDraft { Chip(text: "Draft", color: .secondary).fixedSize() }
                 Spacer(minLength: 8)
                 Text(verbatim: "\(pr.repoName)#\(pr.number)").scaled(.caption.monospaced()).foregroundStyle(.secondary)
                 ChecksBadge(pr: pr)

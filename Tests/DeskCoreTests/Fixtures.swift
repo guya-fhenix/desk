@@ -50,11 +50,11 @@ enum Fixtures {
 
     static func ticket(
         _ key: String, category: TicketStatusCategory = .inProgress, status: String = "In Progress",
-        placement: TicketPlacement = .sprint, assignedToMe: Bool = true
+        placement: TicketPlacement = .sprint, assignedToMe: Bool = true, assignee: String? = nil
     ) -> Ticket {
         Ticket(
             key: key, summary: "Summary \(key)", status: status, category: category,
-            url: "https://j/browse/\(key)", assignedToMe: assignedToMe, placement: placement
+            url: "https://j/browse/\(key)", assignedToMe: assignedToMe, assignee: assignee, placement: placement
         )
     }
 }

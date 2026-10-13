@@ -91,7 +91,7 @@ import Testing
     @Test func decodesAcliWorkItemSearch() throws {
         let json = """
         [{"id":"20322","key":"PRO-484","self":"https://jira-prod-eu-47-2.prod.atl-paas.net/rest/api/3/issue/20322",
-          "fields":{"summary":"Create a status page","priority":{"name":"Highest"},
+          "fields":{"summary":"Create a status page","priority":{"name":"Highest"},"assignee":{"displayName":"Roee Zolantz","avatarUrls":{"48x48":"https://a/48"}},
             "status":{"name":"In Progress","statusCategory":{"key":"indeterminate"}}}}]
         """
         let tickets = try JiraDecoding.tickets(from: Data(json.utf8), site: "fhenix.atlassian.net", assignedToMe: true)
@@ -102,6 +102,47 @@ import Testing
         // acli's `self` points at an internal host, so the browse URL is built from the signed-in site.
         #expect(ticket.url == "https://fhenix.atlassian.net/browse/PRO-484")
         #expect(ticket.assignedToMe)
+        #expect(ticket.assignee == "Roee Zolantz")
+        #expect(ticket.assigneeAvatar == "https://a/48")
+    }
+
+    /// A PR's checks: Actions jobs by workflow with the failed step and its errors, another app's check, a status.
+    @Test func decodesPullRequestChecks() throws {
+        let json = #"""
+        {"data":{"repository":{"pullRequest":{"commits":{"nodes":[{"commit":{"statusCheckRollup":{"contexts":{"nodes":[
+          {"__typename":"CheckRun","name":"check-changelog","status":"COMPLETED","conclusion":"FAILURE",
+           "detailsUrl":"https://github.com/o/r/actions/runs/1/job/11","startedAt":"2026-10-08T13:00:36Z","completedAt":"2026-10-08T13:05:36Z",
+           "checkSuite":{"workflowRun":{"workflow":{"name":"Changelog Check"}}},
+           "steps":{"nodes":[{"name":"Set up job","conclusion":"SUCCESS"},{"name":"Wait for approval","conclusion":"FAILURE"}]},
+           "annotations":{"nodes":[{"message":"Node 20 is deprecated","annotationLevel":"WARNING"},
+                                   {"message":"CHANGELOG.md was not updated","annotationLevel":"FAILURE"}]}},
+          {"__typename":"CheckRun","name":"fhe-engine-fmt","status":"COMPLETED","conclusion":"SUCCESS","detailsUrl":"https://github.com/o/r/actions/runs/2/job/21",
+           "startedAt":"2026-10-08T13:01:00Z","completedAt":"2026-10-08T13:02:00Z","checkSuite":{"workflowRun":{"workflow":{"name":"Unit Tests"}}},
+           "steps":{"nodes":[]},"annotations":{"nodes":[]}},
+          {"__typename":"CheckRun","name":"fhe-engine-unit-tests","status":"IN_PROGRESS","conclusion":null,"detailsUrl":"https://github.com/o/r/actions/runs/2/job/22",
+           "startedAt":"2026-10-08T13:01:00Z","completedAt":null,"checkSuite":{"workflowRun":{"workflow":{"name":"Unit Tests"}}},
+           "steps":{"nodes":[]},"annotations":{"nodes":[]}},
+          {"__typename":"CheckRun","name":"Cursor Bugbot","status":"COMPLETED","conclusion":"SKIPPED","detailsUrl":"https://cursor.com",
+           "startedAt":null,"completedAt":null,"checkSuite":{"workflowRun":null},"steps":{"nodes":[]},"annotations":{"nodes":[]}},
+          {"__typename":"StatusContext","context":"ci/legacy","state":"ERROR","targetUrl":"https://ci/1","description":"Build broke","createdAt":"2026-10-08T13:00:00Z"}
+        ]}}}}]}}}}}
+        """#
+        let checks = try GitHubDecoding.checks(from: Data(json.utf8))
+        let changelog = try #require(checks.first { $0.name == "check-changelog" })
+        #expect(changelog.outcome == .failed)
+        #expect(changelog.workflow == "Changelog Check")
+        #expect(changelog.failedStep == "Wait for approval")
+        // Warnings and notices are noise next to why it failed.
+        #expect(changelog.errors == ["CHANGELOG.md was not updated"])
+        #expect(checks.first { $0.name == "fhe-engine-unit-tests" }?.outcome == .running)
+        let status = try #require(checks.first { $0.name == "ci/legacy" })
+        #expect(status.outcome == .failed && status.errors == ["Build broke"] && status.workflow == nil)
+
+        let groups = PullRequestCheck.grouped(checks)
+        // Worst group first; inside one, the running job before the passed one.
+        #expect(groups.map(\.workflow) == ["Changelog Check", "Other checks", "Unit Tests"])
+        #expect(groups.last?.checks.map(\.name) == ["fhe-engine-unit-tests", "fhe-engine-fmt"])
+        #expect(groups[1].checks.map(\.name) == ["ci/legacy", "Cursor Bugbot"])
     }
 
     @Test func decodesAcliProjectList() throws {
@@ -210,6 +251,14 @@ import Testing
         #expect(blocks.contains(.quote("a note")))
         #expect(blocks.contains(.rule))
         #expect(!blocks.contains(.heading(level: 1, text: "not a heading")))
+    }
+
+    /// A bot's summary as PR descriptions carry them: the HTML comment hidden, the quote one block, the alert named.
+    @Test func aQuoteIsOneBlockAndCommentsAreHidden() {
+        let text = "Intro.\n<!-- CURSOR_SUMMARY -->\n> [!NOTE]\n> **Medium Risk**\n>\n> Details here.\n>\n\n<!-- multi\nline -->After."
+        #expect(Markdown.blocks(text) == [
+            .paragraph("Intro."), .quote("**Note**\n**Medium Risk**\n\nDetails here."), .paragraph("After."),
+        ])
     }
 
     @Test func anUnclosedFenceStillKeepsItsText() {

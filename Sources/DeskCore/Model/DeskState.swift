@@ -124,10 +124,14 @@ public struct DeskState: Sendable {
         tickets.filter { $0.assignedToMe && $0.category != .done }
     }
 
-    /// Your unfinished tickets in one placement, grouped by status. Statuses come out in workflow order —
-    /// to do, then in progress, then anything Jira does not categorise — and done never appears.
-    public func ticketGroups(_ placement: TicketPlacement) -> [TicketGroup] {
-        let rows = openTickets.filter { $0.placement == placement }
+    /// Unfinished tickets in one placement whose assignee is among `assignees`, grouped by status; an empty set
+    /// is everyone's. Statuses come out in workflow order — to do, then in progress, then anything Jira does not
+    /// categorise — and done never appears.
+    public func ticketGroups(_ placement: TicketPlacement, assignees: Set<TicketAssignee> = [.me]) -> [TicketGroup] {
+        let rows = tickets.filter { ticket in
+            ticket.placement == placement && ticket.category != .done
+                && (assignees.isEmpty || assignees.contains { $0.matches(ticket) })
+        }
         return Dictionary(grouping: rows, by: \.status)
             .map { TicketGroup(status: $0.key, category: $0.value[0].category, tickets: $0.value.sorted { $0.key < $1.key }) }
             .sorted { ($0.category.rank, $0.status) < ($1.category.rank, $1.status) }
@@ -135,9 +139,30 @@ public struct DeskState: Sendable {
 
     public func ticket(_ key: String) -> Ticket? { tickets.first { $0.key == key } }
 
+    /// Everyone but you with an unfinished ticket in the sprint or the backlog, by name: the assignee filter's list.
+    public var ticketAssignees: [TicketPerson] {
+        let open = tickets.filter { !$0.assignedToMe && $0.placement != .unknown && $0.category != .done }
+        let people = Dictionary(open.compactMap { t in t.assignee.map { ($0, t.assigneeAvatar) } }, uniquingKeysWith: { first, _ in first })
+        return people.map { TicketPerson(name: $0.key, avatar: $0.value) }.sorted { $0.name < $1.name }
+    }
+
+    /// You as Jira has you, read off one of your tickets; nil when you have none.
+    public var ticketSelf: TicketPerson? {
+        tickets.first { $0.assignedToMe && $0.assignee != nil }.map { TicketPerson(name: $0.assignee!, avatar: $0.assigneeAvatar) }
+    }
+
     /// My open pull requests that name this ticket in their branch or title.
     public func pullRequests(forTicket key: String) -> [PullRequest] {
         mine.filter { ticketKeys[$0.url]?.contains(key) == true }
+    }
+
+    /// Your pull requests merged in the last 30 days, newest first: the Pull Requests screen's second tab. The
+    /// merged search reaches further back, for Jira's sake; the screen shows only this month.
+    public func recentlyMerged(now: Date = Date()) -> [PullRequest] {
+        let since = now.addingTimeInterval(-30 * 86_400)
+        return (github?.mergedRecent ?? [])
+            .filter { ($0.mergedAt ?? .distantPast) >= since }
+            .sorted { ($0.mergedAt ?? .distantPast) > ($1.mergedAt ?? .distantPast) }
     }
 
     /// Where this ticket should move, or nil when Jira already agrees with GitHub.
@@ -161,7 +186,8 @@ public struct DeskState: Sendable {
             login: login, queue: reviewRequests + openForReview, runs: reviewRuns, repos: gitScan?.repos ?? []
         ))
         let matcher = TicketKeyMatcher(projectKeys: config.jiraProjectKeys)
-        ticketKeys = Dictionary(uniqueKeysWithValues: mine.map { ($0.url, TicketSync.keys(for: $0, matcher: matcher)) })
+        // The merged ones too, so their rows name the ticket they closed.
+        ticketKeys = Dictionary((mine + merged).map { ($0.url, TicketSync.keys(for: $0, matcher: matcher)) }, uniquingKeysWith: { first, _ in first })
         ticketDrifts = TicketSync.drifts(TicketSyncInput(
             tickets: tickets, open: mine, merged: merged, defaultBranches: defaultBranches,
             projectKeys: config.jiraProjectKeys, reviewStatus: config.jiraReviewStatus, doneStatus: config.jiraDoneStatus

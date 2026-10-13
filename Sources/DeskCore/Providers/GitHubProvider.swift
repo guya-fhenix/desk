@@ -88,6 +88,18 @@ public actor GitHubProvider {
         return try GitHubDecoding.pullRequestState(from: data)
     }
 
+    /// Every check on the PR's head commit, with the failed step and the errors of each that failed. One PR at a
+    /// time: steps and annotations for every PR of every search would push those past GitHub's 10 s limit.
+    public func checks(repo: String, number: Int) async throws -> [PullRequestCheck] {
+        let parts = repo.split(separator: "/", maxSplits: 1)
+        guard parts.count == 2 else { throw GitHubError.graphQL(["not an owner/name repository: \(repo)"]) }
+        let data = try await graphQL(
+            query: GitHubQueries.checksQuery,
+            variables: ["owner": String(parts[0]), "name": String(parts[1]), "number": number]
+        )
+        return try GitHubDecoding.checks(from: data)
+    }
+
     /// Every repository in the org, newest push first, so Settings can offer them.
     public func repositories() async throws -> [GitHubRepo] {
         var repos: [GitHubRepo] = []
@@ -188,7 +200,8 @@ public enum GitHubQueries {
         return GitHubSearches(
             mine: "is:pr is:open author:\(login) \(scope)",
             reviews: "is:pr is:open review-requested:\(login) \(scope)",
-            merged: "is:pr is:merged author:\(login) \(scope) merged:>=\(day)",
+            // Newest first, so when `first:` cuts the list it drops the oldest merges, never this month's.
+            merged: "is:pr is:merged author:\(login) \(scope) merged:>=\(day) sort:updated-desc",
             // Everything open that someone else wrote. Drafts are dropped server-side because this is the
             // widest search of the four and `first:` would otherwise fill up with them.
             openForReview: "is:pr is:open draft:false -author:\(login) \(scope) sort:created-asc"
@@ -198,6 +211,24 @@ public enum GitHubQueries {
     public static let pullRequestStateQuery = """
     query($owner: String!, $name: String!, $number: Int!) {
       repository(owner: $owner, name: $name) { pullRequest(number: $number) { state } }
+    }
+    """
+
+    /// ponytail: the first 100 contexts and 50 steps of each; a PR with more checks than that loses the rest.
+    public static let checksQuery = """
+    query($owner: String!, $name: String!, $number: Int!) {
+      repository(owner: $owner, name: $name) { pullRequest(number: $number) {
+        commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 100) { nodes {
+          __typename
+          ... on CheckRun {
+            name status conclusion detailsUrl startedAt completedAt
+            checkSuite { workflowRun { workflow { name } } }
+            steps(first: 50) { nodes { name conclusion } }
+            annotations(first: 10) { nodes { message annotationLevel } }
+          }
+          ... on StatusContext { context state targetUrl description createdAt }
+        } } } } } }
+      } }
     }
     """
 
@@ -261,6 +292,49 @@ public enum GitHubDecoding {
         guard let state = response.data?.repository?.pullRequest?.state else { throw GitHubError.emptyResponse }
         guard let parsed = PullRequestState(rawValue: state) else { throw GitHubError.graphQL(["unknown pull request state: \(state)"]) }
         return parsed
+    }
+
+    public static func checks(from data: Data) throws -> [PullRequestCheck] {
+        let response = try JSON.decoder().decode(Response<ChecksData>.self, from: data)
+        if let errors = response.errors, !errors.isEmpty { throw GitHubError.graphQL(errors.map(\.message)) }
+        guard let pr = response.data?.repository?.pullRequest else { throw GitHubError.emptyResponse }
+        let nodes = pr.commits.nodes.first?.commit.statusCheckRollup?.contexts.nodes ?? []
+        return nodes.map { node in
+            if let context = node.context {
+                return PullRequestCheck(
+                    name: context, outcome: outcome(state: node.state), url: node.targetUrl, startedAt: node.createdAt,
+                    errors: outcome(state: node.state) == .failed ? [node.description].compactMap { $0 } : []
+                )
+            }
+            let outcome = outcome(status: node.status, conclusion: node.conclusion)
+            return PullRequestCheck(
+                name: node.name ?? "Unnamed check", workflow: node.checkSuite?.workflowRun?.workflow.name, outcome: outcome,
+                url: node.detailsUrl, startedAt: node.startedAt, completedAt: node.completedAt,
+                failedStep: node.steps?.nodes.first { $0.conclusion == "FAILURE" }?.name,
+                errors: (node.annotations?.nodes ?? []).filter { $0.annotationLevel == "FAILURE" }.map(\.message)
+            )
+        }
+    }
+
+    /// A check run: not finished is running, whatever it waits on; action required and timed out are failures.
+    static func outcome(status: String?, conclusion: String?) -> PullRequestCheck.Outcome {
+        guard status == "COMPLETED" else { return .running }
+        switch conclusion {
+        case "SUCCESS": return .passed
+        case "SKIPPED": return .skipped
+        case "NEUTRAL", "STALE": return .neutral
+        case "CANCELLED": return .cancelled
+        default: return .failed
+        }
+    }
+
+    /// A commit status.
+    static func outcome(state: String?) -> PullRequestCheck.Outcome {
+        switch state {
+        case "SUCCESS": return .passed
+        case "PENDING", "EXPECTED": return .running
+        default: return .failed
+        }
     }
 
     public static func pullRequests(from data: Data) throws -> (prs: [PullRequest], next: String?) {
@@ -338,6 +412,45 @@ public enum GitHubDecoding {
     private struct ViewerData: Decodable { var viewer: Login }
     private struct Login: Decodable { var login: String }
     private struct Repository: Decodable { var nameWithOwner: String }
+
+    private struct ChecksData: Decodable { var repository: ChecksRepository? }
+    private struct ChecksRepository: Decodable { var pullRequest: ChecksPR? }
+    private struct ChecksPR: Decodable { var commits: ChecksCommits }
+    private struct ChecksCommits: Decodable { var nodes: [ChecksCommitNode] }
+    private struct ChecksCommitNode: Decodable { var commit: ChecksCommit }
+    private struct ChecksCommit: Decodable { var statusCheckRollup: ChecksRollup? }
+    private struct ChecksRollup: Decodable { var contexts: CheckNodes }
+    private struct CheckNodes: Decodable { var nodes: [CheckNode] }
+    /// A check run or a commit status: the two share the list, so every field is optional.
+    private struct CheckNode: Decodable {
+        var name: String?
+        var status: String?
+        var conclusion: String?
+        var detailsUrl: String?
+        var startedAt: Date?
+        var completedAt: Date?
+        var checkSuite: CheckSuite?
+        var steps: Steps?
+        var annotations: Annotations?
+        var context: String?
+        var state: String?
+        var targetUrl: String?
+        var description: String?
+        var createdAt: Date?
+    }
+    private struct CheckSuite: Decodable { var workflowRun: WorkflowRun? }
+    private struct WorkflowRun: Decodable { var workflow: Workflow }
+    private struct Workflow: Decodable { var name: String }
+    private struct Steps: Decodable { var nodes: [Step] }
+    private struct Step: Decodable {
+        var name: String
+        var conclusion: String?
+    }
+    private struct Annotations: Decodable { var nodes: [Annotation] }
+    private struct Annotation: Decodable {
+        var message: String
+        var annotationLevel: String?
+    }
 
     private struct PullRequestData: Decodable { var repository: RepositoryPR? }
     private struct RepositoryPR: Decodable { var pullRequest: PRState? }

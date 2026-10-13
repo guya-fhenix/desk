@@ -126,6 +126,8 @@ struct PillTabs<Value: Hashable>: View {
         var value: Value
         var title: String
         var count: Int?
+        /// The key that reaches this pill from the keyboard, drawn as a key cap after the count.
+        var hint: String? = nil
     }
 
     var options: [Option]
@@ -138,10 +140,11 @@ struct PillTabs<Value: Hashable>: View {
                 let chosen = option.value == selection
                 Button { selection = option.value } label: {
                     HStack(spacing: 6) {
-                        Text(option.title).foregroundStyle(chosen ? .primary : .secondary)
+                        Text(option.title).scaled(.body.weight(.medium)).foregroundStyle(chosen ? .primary : .secondary)
                         if let count = option.count {
-                            Text("\(count)").scaled(.caption).monospacedDigit().foregroundStyle(.secondary)
+                            Text("\(count)").scaled(.caption.weight(.medium)).monospacedDigit().foregroundStyle(.secondary)
                         }
+                        if let hint = option.hint { KeyCap(key: hint).accessibilityHidden(true) }
                     }
                     .padding(.horizontal, 12)
                     .padding(.vertical, 6)
@@ -181,7 +184,7 @@ struct GroupHeader: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                Text(title).scaled(.callout).foregroundStyle(.secondary)
+                Text(title).scaled(.callout.weight(.medium)).foregroundStyle(.secondary)
                 Spacer()
                 if let count { Text("\(count)").scaled(.callout).monospacedDigit().foregroundStyle(.secondary) }
             }
@@ -203,7 +206,8 @@ struct ListRow<Content: View>: View {
     var body: some View {
         content
             .padding(.horizontal, Theme.Space.m)
-            .padding(.vertical, Theme.Space.s)
+            // About PR Cockpit's: two lines of text with room above and below, not packed edge to edge.
+            .padding(.vertical, Theme.Space.m)
             .frame(maxWidth: .infinity, alignment: .leading)
             .hoverFill(Theme.raised.opacity(0.6), cornerRadius: 0, enabled: !selected)
             .overlay(alignment: .leading) {
@@ -233,6 +237,14 @@ private struct HoverFill: ViewModifier {
 }
 
 extension View {
+    /// Selects `first` whenever nothing is selected: when rows arrive after the screen does, and when a click
+    /// clears the list's selection, so the details panel never sits on an empty column.
+    func selectsFirstRow(_ first: String?, selection: Binding<String?>) -> some View {
+        onChange(of: [first, selection.wrappedValue], initial: true) {
+            if selection.wrappedValue == nil, let first { selection.wrappedValue = first }
+        }
+    }
+
     func hoverFill(_ color: Color = Theme.raised, cornerRadius: CGFloat = 6, enabled: Bool = true) -> some View {
         modifier(HoverFill(color: color, cornerRadius: cornerRadius, enabled: enabled))
     }
@@ -258,20 +270,25 @@ struct MetaLine: View {
         parts.enumerated().reduce(Text("")) { line, part in
             part.offset == 0 ? part.element : line + Text("  ·  ").foregroundColor(.secondary) + part.element
         }
-        .scaled(.caption.monospaced())
+        .scaled(.secondary.monospaced())
         .foregroundStyle(.secondary)
         .lineLimit(1)
     }
 }
 
-/// A GitHub account's picture, or its initial while it loads or when there is none.
+/// Someone's picture — a GitHub account's, or the one at `url` — or their initial while it loads or when there is
+/// none.
 struct Avatar: View {
     var login: String
+    /// Where the picture is, for someone who is not a GitHub login, such as a Jira assignee.
+    var url: String? = nil
+    var size: CGFloat = 28
     @Environment(\.textScale) private var scale
 
     var body: some View {
+        let key = url ?? login
         Group {
-            if let image = AvatarStore.shared.images[login] {
+            if let image = AvatarStore.shared.images[key] {
                 Image(nsImage: image).resizable().scaledToFill()
             } else {
                 Text(login.prefix(1).uppercased())
@@ -281,14 +298,31 @@ struct Avatar: View {
                     .background(Theme.raised)
             }
         }
-        .frame(width: (28 * scale).rounded(), height: (28 * scale).rounded())
+        .frame(width: (size * scale).rounded(), height: (size * scale).rounded())
         .clipShape(Circle())
         .help(login)
-        .task(id: login) { AvatarStore.shared.load(login) }
+        .task(id: key) { AvatarStore.shared.load(key, from: url ?? "https://github.com/\(login).png?size=64") }
     }
 }
 
-/// Every GitHub picture, loaded once for the whole app and kept, so each row by the same person shows the same
+/// Nobody's picture: Jira's grey silhouette for an unassigned ticket.
+struct NobodyAvatar: View {
+    var size: CGFloat = 28
+    @Environment(\.textScale) private var scale
+
+    var body: some View {
+        Image(systemName: "person.fill")
+            .resizable()
+            .scaledToFit()
+            .padding((size * scale * 0.24).rounded())
+            .foregroundStyle(.secondary)
+            .frame(width: (size * scale).rounded(), height: (size * scale).rounded())
+            .background(Theme.raised, in: Circle())
+            .help("Unassigned")
+    }
+}
+
+/// Every picture, loaded once for the whole app and kept, so each row by the same person shows the same
 /// one. A per-row loader gave up for good when a list redraw cancelled it mid-download, which is how one row of
 /// an author got the picture and the next only the initial. The download here belongs to no row, so a redraw
 /// cannot cancel it, and a failed one is tried again a few minutes later, the next time a row asks.
@@ -301,19 +335,20 @@ final class AvatarStore {
     private var loading: Set<String> = []
     private var failedAt: [String: Date] = [:]
 
-    func load(_ login: String) {
-        guard images[login] == nil, !loading.contains(login),
-              failedAt[login].map({ Date().timeIntervalSince($0) > 300 }) ?? true,
-              let url = URL(string: "https://github.com/\(login).png?size=64")
+    /// Keyed by `key`, a GitHub login or the picture's own URL.
+    func load(_ key: String, from address: String) {
+        guard images[key] == nil, !loading.contains(key),
+              failedAt[key].map({ Date().timeIntervalSince($0) > 300 }) ?? true,
+              let url = URL(string: address)
         else { return }
-        loading.insert(login)
+        loading.insert(key)
         Task {
-            defer { loading.remove(login) }
+            defer { loading.remove(key) }
             if let (data, response) = try? await URLSession.shared.data(from: url),
                (response as? HTTPURLResponse)?.statusCode == 200, let image = NSImage(data: data) {
-                images[login] = image
+                images[key] = image
             } else {
-                failedAt[login] = Date()
+                failedAt[key] = Date()
             }
         }
     }
@@ -624,6 +659,78 @@ struct Screen<Header: View, Body: View>: View {
         .padding(.top, 14)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(Theme.background)
+    }
+}
+
+/// A pull request's own page, in place of the list it was opened from, laid out as PR Cockpit lays its PR page: a back
+/// link at the top, a header, then the long reads in a wide column and the facts and presses in a side one. ← goes
+/// back; the page takes focus when it opens so that works without a click first.
+struct DetailPage<Header: View, Main: View, Side: View>: View {
+    var back: String
+    var onBack: () -> Void
+    @ViewBuilder var header: Header
+    @ViewBuilder var main: Main
+    @ViewBuilder var side: Side
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            BackLink(title: back, action: onBack)
+            ScrollView {
+                VStack(alignment: .leading, spacing: Theme.Space.l) {
+                    header
+                    Hairline()
+                    HStack(alignment: .top, spacing: Theme.Space.xl) {
+                        VStack(alignment: .leading, spacing: Theme.Space.xl) { main }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        VStack(alignment: .leading, spacing: Theme.Space.xl) { side }
+                            .frame(width: 300, alignment: .leading)
+                    }
+                }
+                .padding(.bottom, Theme.Space.xl)
+                .labeledContentStyle(PanelRowStyle())
+            }
+        }
+        .padding(.horizontal, Theme.gutter)
+        .padding(.top, 6)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(Theme.background)
+        .focusable()
+        .focusEffectDisabled()
+        .focused($focused)
+        // A turn of the run loop later: asked for while the page is still being put on screen, in place of the list
+        // that had focus, the focus is dropped, and ← does nothing until a click.
+        .task {
+            await Task.yield()
+            focused = true
+        }
+        .onKeyPress(.leftArrow) {
+            onBack()
+            return .handled
+        }
+    }
+}
+
+/// "‹ Pull Requests": PR Cockpit's back link, faint until the pointer is on it.
+private struct BackLink: View {
+    var title: String
+    var action: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 5) {
+                Image(systemName: "chevron.left")
+                Text(title)
+            }
+            .scaled(.secondary)
+            .foregroundStyle(hovering ? .primary : .secondary)
+            .frame(height: 32)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .help("Back to \(title) (←)")
     }
 }
 
