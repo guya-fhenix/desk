@@ -50,12 +50,21 @@ public struct ReviewRun: Sendable, Hashable {
     /// Comments it could not post: the model named a file this PR does not change, or the draft already
     /// had a comment on that line.
     public var skipped: Int
+    /// What the review said overall, and the comments it placed on lines: what goes to the PR's session afterwards,
+    /// so the review can be talked through there.
+    public var summary: String
+    public var findings: [DraftThread]
 
-    public init(phase: ReviewPhase = .preparing, error: String? = nil, posted: Int = 0, skipped: Int = 0) {
+    public init(
+        phase: ReviewPhase = .preparing, error: String? = nil, posted: Int = 0, skipped: Int = 0, summary: String = "",
+        findings: [DraftThread] = []
+    ) {
         self.phase = phase
         self.error = error
         self.posted = posted
         self.skipped = skipped
+        self.summary = summary
+        self.findings = findings
     }
 }
 

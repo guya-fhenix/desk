@@ -66,7 +66,7 @@ struct DeskWindow: View {
         // A regular app while the window shows, so ⌘-Tab and the Dock can bring it back.
         .onAppear { NSApp.setActivationPolicy(.regular) }
         // The menu bar and the nudges ask for a tab by setting this; clearing it keeps it a one-shot.
-        .onChange(of: model.pendingTab) { _, requested in
+        .onChange(of: model.pendingTab, initial: true) { _, requested in
             guard let requested else { return }
             tab = requested
             model.showingSettings = false
@@ -121,7 +121,7 @@ struct DeskWindow: View {
     /// same numbers.
     private func badge(for tab: Tab) -> Int {
         switch tab {
-        case .upNext: return model.upNextCount
+        case .upNext: return model.upNextCount(reviewDays: reviewDays.window)
         case .tickets: return model.state.openTickets.count
         case .pullRequests: return model.state.waiting(on: .pullRequests)
         case .reviews: return model.state.reviewQueue(.all, days: reviewDays.window).count

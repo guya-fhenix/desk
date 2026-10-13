@@ -59,7 +59,10 @@ public enum Markdown {
 
         // HTML comments are for the author and the bots (a template's hints, a bot's markers), and GitHub hides them.
         // ponytail: one inside a code fence goes too; parse comments per line if a description ever shows one as code.
+        // The few HTML tags descriptions carry for looks (a bot's <sup> footer, a <details> fold) go too, their
+        // text kept.
         let visible = text.replacingOccurrences(of: "\r\n", with: "\n").replacing(/<!--[\s\S]*?-->/, with: "")
+            .replacing(/<\/?(sup|sub|small|span|div|p|details|summary)\b[^>]*>/, with: "")
         for rawLine in visible.split(separator: "\n", omittingEmptySubsequences: false) {
             let line = String(rawLine)
             var trimmed = line.trimmingCharacters(in: .whitespaces)

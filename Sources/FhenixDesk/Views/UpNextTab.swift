@@ -1,251 +1,152 @@
 import DeskCore
 import SwiftUI
 
-/// The landing screen: every nudge and every ticket the app could not move, grouped by what you do about
-/// it, each with the press that deals with it. The other screens hold the detail; this one says what next.
+/// The landing screen: what waits on you, your PRs and the reviews alike, under the section that says what to do —
+/// ready to merge, your move, to review — then the sprint's tickets nothing has started, your PRs that wait on someone
+/// else, and the Jira moves that failed. The rows are the Pull Requests, Reviews and Jira screens' own; a click, Return
+/// or → opens the PR's or the ticket's page here, and its back link, or ←, returns here. The reviews follow the Reviews
+/// screen's day filter.
 struct UpNextTab: View {
     @Environment(AppModel.self) private var model
-    /// A nudge's id or a drift's ticket key, so the arrow keys can walk the list and Return can open one.
+    /// A PR's url, or a ticket's key: one to start, or one whose Jira move failed.
     @State private var selection: String?
+    /// The PR whose page is showing in place of the list; nil shows the list.
+    @State private var opened: String?
+    @FocusState private var listFocused: Bool
+    /// The ticket and repository a plan has been asked for, while the note is still being written.
+    @State private var planning: PlanRequest?
+    @State private var planNote = ""
+    /// With Reduce Motion on, the list jumps to the selected row instead of sliding there.
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private var reviewDays = ReviewDays()
 
-    /// In the order they are worth your attention.
-    enum Group: CaseIterable, Identifiable {
-        case waiting, fix, review, merge, sync, quiet
-
-        var id: Self { self }
-
-        var title: String {
-            switch self {
-            case .waiting: return "Waiting on you"
-            case .fix: return "Fix"
-            case .review: return "Review"
-            case .merge: return "Merge"
-            case .sync: return "Jira out of sync"
-            case .quiet: return "Quiet"
+    var body: some View {
+        let plan = model.state.upNext(reviewDays: reviewDays.window)
+        let tickets = model.state.ticketsToStart
+        let drifts = model.failedDrifts
+        let rows = plan.flatMap(\.pullRequests).map(\.url) + tickets.map(\.key) + drifts.map(\.id)
+        Group {
+            if let key = opened, let ticket = model.state.ticket(key) {
+                TicketPage(ticket: ticket, model: model, back: "Up Next", plan: startPlan) { opened = nil }
+            } else if let url = opened, let pr = (model.state.mine + model.state.recentlyMerged()).first(where: { $0.url == url }) {
+                PullRequestPage(pr: pr, model: model, back: "Up Next") { opened = nil }
+            } else if let url = opened, let pr = model.state.github?.allOpen.first(where: { $0.url == url }) {
+                ReviewPage(pr: pr, model: model, onMe: onMe(pr), back: "Up Next") { opened = nil }
+            } else {
+                list(plan: plan, tickets: tickets, drifts: drifts)
             }
         }
-
-        /// Nudges in the order Up Next lists them, group by group, keeping the engine's order inside a group. The menu
-        /// panel shows the head of this same list.
-        static func ordered(_ nudges: [Nudge]) -> [Nudge] {
-            let rank = Dictionary(uniqueKeysWithValues: allCases.enumerated().map { ($1, $0) })
-            return nudges.enumerated()
-                .sorted { (rank[of($0.element.kind)] ?? 0, $0.offset) < (rank[of($1.element.kind)] ?? 0, $1.offset) }
-                .map(\.element)
-        }
-
-        static func of(_ kind: NudgeKind) -> Group {
-            switch kind {
-            case .flowWaiting: return .waiting
-            case .ciFailed, .changesRequested, .needsRebase, .sessionNeedsYou: return .fix
-            case .reviewRequested, .reviewReady: return .review
-            case .readyToMerge: return .merge
-            case .stalePullRequest: return .quiet
-            }
+        .selectsFirstRow(rows.first, selection: $selection)
+        .sheet(item: $planning) { request in
+            PlanSheet(request: request, model: model, note: $planNote) { planning = nil }
         }
     }
 
-    var body: some View {
-        let byGroup = Dictionary(grouping: model.state.nudges) { Group.of($0.kind) }
-        // Only the moves that failed: the rest the app makes on its own, and they need nothing from you.
-        let drifts = model.failedDrifts
-        // One filled button on the screen, on the row that comes first; the rest are plain bordered ones.
-        let firstNudge = Group.allCases.lazy.compactMap { byGroup[$0]?.first?.id }.first
+    @ViewBuilder private func list(plan: [UpNextGroup], tickets: [Ticket], drifts: [TicketDrift]) -> some View {
+        // Starting something new comes after what is already under way, and before what waits on others.
+        let early = plan.filter { $0.section != .waiting }
+        let waiting = plan.first { $0.section == .waiting }
+        let titles = early.map(\.section.title) + (tickets.isEmpty ? [] : [Self.start]) + [waiting?.section.title].compactMap { $0 }
+            + (drifts.isEmpty ? [] : [Self.jira])
         Screen {
-            PageHeader(title: "Up Next") {
-                HeaderControls()
-            }
+            PageHeader(title: "Up Next") {}
         } content: {
-            // Arrow keys walk the nudges; Return or a double-click opens the selected one where it lives.
-            List(selection: $selection) {
-                tiles.padding(.vertical, 14).plainListRow().selectionDisabled()
-                ForEach(Group.allCases) { group in
-                    let nudges = byGroup[group] ?? []
-                    let count = group == .sync ? drifts.count : nudges.count
-                    if count > 0 {
-                        GroupHeader(title: group.title, count: count).plainListRow().selectionDisabled()
-                        if group == .sync {
-                            ForEach(drifts) { drift in
-                                ListRow(selected: selection == drift.id) { DriftRow(drift: drift, model: model) }
-                            }
-                        } else {
-                            ForEach(nudges) { nudge in
-                                ListRow(selected: selection == nudge.id) {
-                                    NudgeRow(nudge: nudge, model: model, prominent: nudge.id == firstNudge)
-                                }
+            if titles.isEmpty {
+                // Says how fresh "nothing" is, and where to go next, rather than one grey line.
+                EmptyState(
+                    icon: "checkmark.circle", text: "All clear · synced \(Format.age(model.state.lastRefresh.values.max())) ago",
+                    actionTitle: "Browse the review queue", action: { model.pendingTab = .reviews }
+                )
+                .padding(.vertical, 20)
+            }
+            ScrollViewReader { proxy in
+                // Arrow keys walk the rows; a click, Return or → opens a PR's page, Return on a Jira row opens Jira.
+                List(selection: $selection) {
+                    ForEach(early) { group in pullRequests(group, first: titles.first) }
+                    if !tickets.isEmpty {
+                        header(Self.start, tickets.count, first: titles.first)
+                        ForEach(tickets) { ticket in
+                            ListRow(selected: selection == ticket.key, open: { open(ticket.key) }) {
+                                TicketRow(ticket: ticket, model: model)
                             }
                         }
                     }
-                }
-                if model.state.nudges.isEmpty && drifts.isEmpty {
-                    // Says how fresh "nothing" is, and where to go next, rather than one grey line.
-                    EmptyState(
-                        icon: "checkmark.circle", text: "All clear · synced \(Format.age(model.state.lastRefresh.values.max())) ago",
-                        actionTitle: "Browse the review queue", action: { model.pendingTab = .reviews }
-                    )
-                    .padding(.vertical, 20)
-                    .plainListRow()
-                    .selectionDisabled()
-                }
-            }
-            .deskList()
-            .contextMenu(forSelectionType: String.self) { ids in
-                if let id = ids.first, let nudge = model.state.nudges.first(where: { $0.id == id }), let url = nudge.url {
-                    Button("Open on GitHub") { model.open(url) }
-                    Button("Copy Link") { Clipboard.copy(url) }
-                } else if let id = ids.first, let drift = drifts.first(where: { $0.id == id }) {
-                    Button("Open in Jira") { model.open(drift.ticket.url) }
-                    Button("Copy Key") { Clipboard.copy(drift.ticket.key) }
-                }
-            } primaryAction: { ids in
-                guard let id = ids.first else { return }
-                if let nudge = model.state.nudges.first(where: { $0.id == id }) {
-                    model.open(nudge.url)
-                } else if let drift = drifts.first(where: { $0.id == id }) {
-                    model.open(drift.ticket.url)
-                }
-            }
-        }
-    }
-
-    /// The three numbers that say how full the other screens are, the same ones their sidebar badges show; each one
-    /// opens its screen. Where a second number helps, it is spelled out beside the label.
-    private var tiles: some View {
-        let state = model.state
-        return HStack(spacing: 10) {
-            tile("\(state.waiting(on: .pullRequests))", "PRs need you · \(state.mine.count) open", .pullRequests)
-            tile("\(state.reviewQueue(.all, days: reviewDays.window).count)", "In the review queue · \(state.reviewRequests.count) on you", .reviews)
-            tile("\(state.openTickets.count)", "Open Jira tickets", .tickets)
-        }
-        .padding(.vertical, 4)
-    }
-
-    private func tile(_ value: String, _ label: String, _ tab: DeskWindow.Tab) -> some View {
-        Button { model.pendingTab = tab } label: {
-            // The chevron says it goes somewhere, as the hover fill does once the pointer is on it.
-            HStack {
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(value).scaled(.title).monospacedDigit()
-                    Text(label).scaled(.caption).foregroundStyle(.secondary)
-                }
-                Spacer(minLength: 8)
-                Image(systemName: "chevron.right").foregroundStyle(.secondary)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
-            .hoverFill(Theme.selected, cornerRadius: 8)
-            .background(Theme.raised, in: RoundedRectangle(cornerRadius: 8))
-            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Theme.controlBorder))
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-    }
-}
-
-/// One nudge and the buttons that act on it. The pull request is looked up by url, so a nudge whose PR has
-/// just left the snapshot still reads, and only loses its buttons.
-private struct NudgeRow: View {
-    var nudge: Nudge
-    var model: AppModel
-    /// The one row whose press is drawn filled.
-    var prominent = false
-
-    private var pr: PullRequest? {
-        let state = model.state
-        return (state.mine + state.reviewRequests + state.openForReview).first { $0.url == nudge.url }
-    }
-
-    var body: some View {
-        HStack(spacing: 10) {
-            dot
-            // The PR's own title leads, as on every other screen; what happened, the repo, the author and the age
-            // go on the line under it. A nudge with no PR keeps its own two lines.
-            VStack(alignment: .leading, spacing: 1) {
-                if let pr {
-                    Text(pr.title).scaled(.rowTitle).lineLimit(1)
-                    MetaLine(parts: [Text(nudge.title), Text(pr.author), Text("opened \(Format.age(pr.createdAt))")])
-                } else {
-                    Text(nudge.title).scaled(.rowTitle).lineLimit(1)
-                    Text(nudge.detail).scaled(.caption).foregroundStyle(.secondary).lineLimit(1)
-                }
-            }
-            Spacer(minLength: 8)
-            actions
-            // Labelled: the detail line may carry an age of its own, the time the PR has waited.
-            Text(pr.map { "updated \(Format.age($0.updatedAt))" } ?? "")
-                .scaled(.caption).monospacedDigit().foregroundStyle(.secondary)
-                .frame(minWidth: 72, alignment: .trailing)
-                .help(pr.map { "Updated \(Format.date($0.updatedAt))" } ?? "")
-        }
-        .padding(.vertical, 2)
-    }
-
-    @ViewBuilder private var dot: some View {
-        if nudge.kind == .readyToMerge { StatusDot(color: .green) } else { SeverityDot(severity: nudge.severity) }
-    }
-
-    @ViewBuilder private var actions: some View {
-        HStack(spacing: 6) {
-            if let pr {
-                switch nudge.kind {
-                case .reviewRequested, .reviewReady:
-                    if model.state.reviewNeed(for: pr) != nil {
-                        let blocker = model.reviewBlocker(pr)
-                        DisabledReason(text: blocker)
-                        Button("Review") { model.review(pr) }
-                            .primaryStyle(prominent)
-                            .disabled(blocker != nil)
-                            .help(blocker ?? "Run Claude on this PR and put its comments in your draft review")
+                    if let waiting { pullRequests(waiting, first: titles.first) }
+                    if !drifts.isEmpty {
+                        header(Self.jira, drifts.count, first: titles.first)
+                        ForEach(drifts) { drift in
+                            ListRow(selected: selection == drift.id) { DriftRow(drift: drift, model: model) }
+                        }
                     }
-                    if pr.pendingReview != nil {
-                        Button("Open draft") { model.openDraft(pr) }
+                }
+                .deskList()
+                // Focused on arrival and on the way back from a page, so the keys work without a click first.
+                .focused($listFocused)
+                .onAppear { listFocused = true }
+                .onKeyPress(.rightArrow) {
+                    guard let selection, !drifts.contains(where: { $0.id == selection }) else { return .ignored }
+                    open(selection)
+                    return .handled
+                }
+                .contextMenu(forSelectionType: String.self) { ids in
+                    if let id = ids.first, let ticket = model.state.ticket(id) {
+                        Button("Open in Jira") { model.open(ticket.url) }
+                        Button("Copy Key") { Clipboard.copy(ticket.key) }
+                    } else if let id = ids.first, let pr = model.state.github?.allOpen.first(where: { $0.url == id }) {
+                        PullRequestMenu(pr: pr, model: model)
                     }
-                case .flowWaiting:
-                    flowActions(pr)
-                case .sessionNeedsYou:
-                    EmptyView()
-                default:
-                    ClaudeSessionButton(pr: pr, model: model)
+                } primaryAction: { ids in
+                    guard let id = ids.first else { return }
+                    if let drift = drifts.first(where: { $0.id == id }) { model.open(drift.ticket.url) } else { open(id) }
+                }
+                .onChange(of: selection, initial: true) { _, id in
+                    if let id { withAnimation(reduceMotion ? nil : .default) { proxy.scrollTo(id, anchor: .center) } }
                 }
             }
-            if nudge.kind == .sessionNeedsYou, let jobId = nudge.jobId {
-                Button("Attach") { model.attach(jobId: jobId, errorKey: nudge.url ?? jobId) }
-            }
-            Button("Open PR") { model.open(nudge.url) }.disabled(nudge.url == nil)
         }
-        .controlSize(.small)
     }
-}
 
-extension NudgeRow {
-    /// Approve and Merge right here; the stages that want reading first open the PR's page.
-    @ViewBuilder fileprivate func flowActions(_ pr: PullRequest) -> some View {
-        if let flow = model.state.flow(for: pr) {
-            switch flow.stage {
-            case .draft:
-                let blocker = model.approveBlocker(flow, pr)
-                DisabledReason(text: blocker)
-                Button("Approve") { model.approveDraft(flow) }
-                    .primaryStyle(prominent)
-                    .disabled(blocker != nil)
-                    .help(model.state.reviewSkill(for: pr)?.text ?? "Start the self-review")
-            case .approved:
-                let blocker = model.mergeBlocker(flow, pr)
-                DisabledReason(text: blocker)
-                Button("Merge") { model.merge(flow) }
-                    .primaryStyle(prominent)
-                    .disabled(blocker != nil)
-                    .help(blocker ?? "Squash-merges the PR into \(pr.baseRef)")
-            default:
-                Button("Show") {
-                    model.selectPullRequest = pr.url
-                    model.pendingTab = .pullRequests
+    private static let start = "Ready to start"
+    private static let jira = "Jira out of sync"
+
+    /// A section's heading, with room above it to set it off from the one before.
+    private func header(_ title: String, _ count: Int, first: String?) -> some View {
+        GroupHeader(title: title, count: count)
+            .padding(.top, title == first ? 0 : Theme.Space.l)
+            .plainListRow()
+            .selectionDisabled()
+    }
+
+    /// A section of PRs, each row as its own screen draws it: a review as the review queue's, yours as Pull Requests'.
+    @ViewBuilder private func pullRequests(_ group: UpNextGroup, first: String?) -> some View {
+        header(group.section.title, group.pullRequests.count, first: first)
+        ForEach(group.pullRequests, id: \.url) { pr in
+            if group.section == .toReview {
+                ListRow(selected: selection == pr.url, open: { open(pr.url) }) {
+                    QueueRow(pr: pr, model: model, onMe: onMe(pr))
+                }
+            } else {
+                PullRequestRow(row: StackedPullRequest(pullRequest: pr), model: model, selected: selection == pr.url) {
+                    open(pr.url)
                 }
             }
         }
     }
+
+    /// Its page, with its row selected behind it for the way back. A PR's url, or a ticket's key.
+    private func open(_ id: String) {
+        selection = id
+        opened = id
+    }
+
+    /// Picking a repository from Start in… opens the sheet that asks what the plan is for.
+    private func startPlan(_ ticket: Ticket, _ repo: RepoRef) {
+        planNote = ""
+        planning = PlanRequest(ticket: ticket, repo: repo)
+    }
+
+    /// GitHub put it on you, as opposed to its being open for anyone to review.
+    private func onMe(_ pr: PullRequest) -> Bool { model.state.reviewRequests.contains { $0.url == pr.url } }
 }
 
 /// A ticket whose Jira status has fallen behind its pull requests and that the app could not move, and why.

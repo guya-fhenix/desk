@@ -280,7 +280,7 @@ private struct TokenField: View {
                         Button { set(tokens.filter { $0 != token }) } label: {
                             Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.plain).handCursor()
                         .accessibilityLabel("Remove \(token)")
                     }
                 }
@@ -319,7 +319,7 @@ private struct StatusField: View {
                     } label: {
                         Image(systemName: "chevron.up.chevron.down")
                     }
-                    .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+                    .menuStyle(.borderlessButton).handCursor().menuIndicator(.hidden).fixedSize()
                     .help("Pick one of the statuses your tickets are in")
                     .accessibilityLabel("Pick a status")
                 }
@@ -343,6 +343,7 @@ private struct ChoiceField: View {
             ForEach(choices + (value.isEmpty || choices.contains(value) ? [] : [value]), id: \.self) { Text($0).tag($0) }
         }
         .labelsHidden()
+        .handCursor()
         .frame(maxWidth: 300, alignment: .leading)
     }
 }
@@ -392,7 +393,7 @@ private struct GeneralSettings: View {
         }
         FieldGroup(title: "Alerts") {
             Field(label: "macOS notifications") {
-                Toggle("Notify me", isOn: $draft.config.notificationsEnabled).toggleStyle(.switch).controlSize(.small)
+                Toggle("Notify me", isOn: $draft.config.notificationsEnabled).toggleStyle(.switch).handCursor().controlSize(.small)
             }
         }
     }
@@ -532,7 +533,7 @@ private struct ReviewsSettings: View {
             Field(label: "Review worktrees root") { BoxedText(placeholder: "~/Repos/.reviews", text: $draft.config.reviewRoot) }
             Field(label: "When the PR is merged") {
                 Toggle("Remove the review and its worktree", isOn: $draft.config.cleanupReviewsOnMerge)
-                    .toggleStyle(.switch).controlSize(.small)
+                    .toggleStyle(.switch).handCursor().controlSize(.small)
             }
         }
     }
@@ -584,7 +585,7 @@ private struct ReposSettings: View {
                                     Text(Format.age(repo.pushedAt)).scaled(.caption.monospaced()).foregroundStyle(.secondary)
                                 }
                             }
-                            .toggleStyle(.checkbox)
+                            .toggleStyle(.checkbox).handCursor()
                         }
                     }
                 }
@@ -638,6 +639,7 @@ private struct PromptsSettings: View {
                     }
                 }
                 .labelsHidden()
+                .handCursor()
                 .frame(maxWidth: 320, alignment: .leading)
                 if edits[id.rawValue] != nil { Chip(text: "Edited", color: .orange) }
             } trailing: {

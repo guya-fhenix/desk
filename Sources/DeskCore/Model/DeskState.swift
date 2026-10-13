@@ -269,3 +269,62 @@ public struct DeskState: Sendable {
         }
     }
 }
+
+/// Up Next's sections, in the order the screen lists them: what you can finish now, what is yours to fix, the reviews
+/// waiting on you, and your PRs that wait on someone else.
+public enum UpNextSection: Int, CaseIterable, Sendable, Hashable {
+    case readyToMerge, yourMove, toReview, waiting
+
+    public var title: String {
+        switch self {
+        case .readyToMerge: return "Ready to merge"
+        case .yourMove: return "Your move"
+        case .toReview: return "To review"
+        case .waiting: return "Waiting"
+        }
+    }
+}
+
+extension DeskState {
+    /// Up Next's new work: your tickets in the open sprint that are still to do, with no PR open for them and no session
+    /// started on them, in Jira's order, most recently updated first.
+    public var ticketsToStart: [Ticket] {
+        openTickets.filter { ticket in
+            ticket.placement == .sprint && ticket.category == .todo
+                && pullRequests(forTicket: ticket.key).isEmpty && flows(forTicket: ticket.key).isEmpty
+        }
+    }
+}
+
+/// One section of Up Next and its PRs.
+public struct UpNextGroup: Sendable, Identifiable {
+    public var section: UpNextSection
+    public var pullRequests: [PullRequest]
+    public var id: UpNextSection { section }
+}
+
+extension DeskState {
+    /// Up Next: every PR of yours under one section — your move when it is red, conflicts, has changes requested,
+    /// needs a rebase or a flow or session waits on you; ready to merge when its nudge says so; otherwise waiting on
+    /// others — most recently updated first; then the review queue's PRs that need your review, inside the Reviews
+    /// screen's day filter (`reviewDays`, nil for all time), oldest first as the queue lists them. Empty sections are
+    /// left out. The PR's own state decides a fix, not its nudge: drafts get no nudges, and a red draft is still yours.
+    public func upNext(reviewDays: Int?, now: Date = Date()) -> [UpNextGroup] {
+        let yours: Set<NudgeKind> = [.sessionNeedsYou, .flowWaiting]
+        var kinds: [String: Set<NudgeKind>] = [:]
+        for nudge in nudges { if let url = nudge.url { kinds[url, default: []].insert(nudge.kind) } }
+        var sections: [UpNextSection: [PullRequest]] = [:]
+        for pr in mine.sorted(by: { $0.updatedAt > $1.updatedAt }) {
+            let found = kinds[pr.url] ?? []
+            let fix = pr.checks.isRed || pr.mergeState == .dirty || pr.reviewDecision == .changesRequested || rebaseReason(pr) != nil
+            let section: UpNextSection = fix || !found.isDisjoint(with: yours) ? .yourMove
+                : found.contains(.readyToMerge) ? .readyToMerge : .waiting
+            sections[section, default: []].append(pr)
+        }
+        sections[.toReview] = reviewQueue(.all, days: reviewDays, now: now).filter { reviewNeed(for: $0) != nil }
+        return UpNextSection.allCases.compactMap { section in
+            guard let prs = sections[section], !prs.isEmpty else { return nil }
+            return UpNextGroup(section: section, pullRequests: prs)
+        }
+    }
+}

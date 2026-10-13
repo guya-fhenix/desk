@@ -29,6 +29,33 @@ import Testing
         #expect(state.recentlyMerged(now: Fixtures.t0).map(\.number) == [2, 29])
     }
 
+    /// The PR page's Reviewers card: a decision outweighs a later comment, a re-request is pending again, the author's
+    /// replies are no review, and anyone asked who has not answered is pending.
+    @Test func reviewersStandWhereTheirLastDecisionLeftThem() {
+        var pr = Fixtures.pr(number: 5, head: "x", author: "me", reviews: [
+            Review(state: "COMMENTED", submittedAt: Fixtures.t0, author: "ann"),
+            Review(state: "APPROVED", submittedAt: Fixtures.t0 + 60, author: "ann"),
+            Review(state: "COMMENTED", submittedAt: Fixtures.t0 + 120, author: "ann"),
+            Review(state: "CHANGES_REQUESTED", submittedAt: Fixtures.t0 + 30, author: "bob"),
+            Review(state: "COMMENTED", submittedAt: Fixtures.t0 + 40, author: "cy"),
+            Review(state: "COMMENTED", submittedAt: Fixtures.t0 + 50, author: "me"),
+        ])
+        pr.requestedReviewers = ["bob", "Protocol Team"]
+        #expect(pr.reviewerStatuses == [
+            ReviewerStatus(name: "ann", state: .approved), ReviewerStatus(name: "cy", state: .commented),
+            ReviewerStatus(name: "bob", state: .pending), ReviewerStatus(name: "Protocol Team", state: .pending),
+        ])
+    }
+
+    @Test func mergeIsRefusedWithAReason() {
+        #expect(Fixtures.pr(number: 1, head: "x", merge: .clean).mergeBlocker == nil)
+        #expect(Fixtures.pr(number: 1, head: "x", merge: .unstable).mergeBlocker == nil)
+        #expect(Fixtures.pr(number: 1, head: "x", merge: .clean, draft: true).mergeBlocker?.hasPrefix("A draft") == true)
+        #expect(Fixtures.pr(number: 1, head: "x", base: "main", merge: .dirty).mergeBlocker == "Conflicts with main")
+        #expect(Fixtures.pr(number: 1, head: "x", review: .reviewRequired, merge: .blocked).mergeBlocker == "Needs an approving review")
+        #expect(Fixtures.pr(number: 1, head: "x", checks: .failure, review: .approved, merge: .blocked).mergeBlocker == "Required checks are failing")
+    }
+
     @Test func reviewWorktreesAreKeptApartFromWorkingOnes() {
         var state = state
         let main = Fixtures.worktree(path: "/r/cofhe", branch: "master", isMain: true)
@@ -75,6 +102,48 @@ import Testing
         state.recompute(now: Fixtures.t0)
         #expect(state.reviewRequests.map(\.number) == [1])
         #expect(state.nudges.filter { $0.kind == .reviewRequested }.map(\.url) == [ready.url])
+    }
+
+    /// Up Next sorts your PRs by what they wait for and adds the reviews that wait on you, inside the day filter.
+    @Test func upNextSortsYourPullRequestsAndTheReviewsOnYou() {
+        var state = state
+        state.gitScan = GitScan(repos: [Fixtures.repo()], worktrees: [])
+        let failing = Fixtures.pr(number: 1, head: "a", checks: .failure)
+        let ready = Fixtures.pr(number: 2, head: "b", review: .approved, merge: .clean)
+        let inReview = Fixtures.pr(number: 3, head: "c")
+        // A draft gets no nudge, but red is still yours to fix.
+        let redDraft = Fixtures.pr(number: 4, head: "d", updated: Fixtures.t0 - 60, checks: .failure, draft: true)
+        state.github?.mine = [failing, ready, inReview, redDraft]
+        let recent = Fixtures.pr(number: 10, head: "x", author: "alice", created: Fixtures.t0 - 2 * 86_400)
+        let old = Fixtures.pr(number: 11, head: "y", author: "alice", created: Fixtures.t0 - 30 * 86_400)
+        state.github?.reviewRequests = [recent, old]
+        state.recompute(now: Fixtures.t0)
+        let plan = state.upNext(reviewDays: 14, now: Fixtures.t0)
+        #expect(plan.map(\.section) == [.readyToMerge, .yourMove, .toReview, .waiting])
+        #expect(plan.map { $0.pullRequests.map(\.number) } == [[2], [1, 4], [10], [3]])
+        // All time takes the old one in too.
+        #expect(state.upNext(reviewDays: nil, now: Fixtures.t0).first { $0.section == .toReview }?.pullRequests.count == 2)
+    }
+
+    /// Up Next offers your sprint's to-do tickets that nothing has started yet.
+    @Test func upNextOffersTheTicketsNothingHasStarted() {
+        var config = DeskConfig()
+        config.jiraProjectKeys = ["PRO"]
+        var state = DeskState(config: config)
+        state.github = GitHubSnapshot(
+            login: "me", mine: [Fixtures.pr(number: 1, title: "PRO-2 the fix", head: "x")], reviewRequests: [], mergedRecent: [],
+            fetchedAt: Fixtures.t0
+        )
+        state.tickets = [
+            Fixtures.ticket("PRO-1", category: .todo, status: "To Do"),
+            Fixtures.ticket("PRO-2", category: .todo, status: "To Do"),
+            Fixtures.ticket("PRO-3", category: .inProgress),
+            Fixtures.ticket("PRO-4", category: .todo, status: "To Do", placement: .backlog),
+            Fixtures.ticket("PRO-5", category: .todo, status: "To Do", assignedToMe: false),
+        ]
+        state.recompute(now: Fixtures.t0)
+        // PRO-2 has a PR, PRO-3 is underway, PRO-4 waits in the backlog, PRO-5 is someone else's.
+        #expect(state.ticketsToStart.map(\.key) == ["PRO-1"])
     }
 
     @Test func stateMarksWhichPullRequestsAreReadyToRun() {

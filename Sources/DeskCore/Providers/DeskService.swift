@@ -103,7 +103,7 @@ public actor DeskService {
     /// Claude Code reads the project's settings, plugins and memory from, and a worktree is a different
     /// directory to it. The prompt sends it on to the branch, and carries the PR url, which is what ties
     /// the session to this PR until it has touched it itself.
-    public func startClaudeSession(pr: PullRequest, repoRoot: String, worktree: String?) async throws -> ClaudeJob {
+    public func startClaudeSession(pr: PullRequest, repoRoot: String, worktree: String?, opening extra: String? = nil) async throws -> ClaudeJob {
         guard let claude = config.resolvedClaudePath else { throw DeskError.claudeNotFound }
         let path: String
         if let worktree {
@@ -111,7 +111,9 @@ public actor DeskService {
         } else {
             path = try await worktrees.prepareBranch(pr: pr, repoRoot: repoRoot)
         }
-        let prompt = Self.sessionPrompt(for: pr, worktree: path == repoRoot ? nil : path, config: config)
+        // A session started for a review's hand-off opens with it, after the usual brief.
+        let prompt = [Self.sessionPrompt(for: pr, worktree: path == repoRoot ? nil : path, config: config), extra]
+            .compactMap { $0 }.joined(separator: "\n\n")
         let output = try await Shell.output(claude, ["--bg", prompt], cwd: repoRoot, timeout: 120)
         guard let id = ClaudeJobs.startedID(in: output) else { throw DeskError.sessionNotStarted(output) }
         return ClaudeJob(
@@ -157,6 +159,21 @@ public actor DeskService {
             .session, values,
             when: ["worktree": worktree != nil, "unresolved": pr.unresolvedThreads > 0, "conflict": pr.mergeState == .dirty]
         )
+    }
+
+    /// What a review found, for the PR's session to talk through: its summary, and each comment as "path:line — body".
+    public static func reviewHandoffPrompt(for pr: PullRequest, run: ReviewRun, config: DeskConfig = DeskConfig()) -> String {
+        let findings = run.findings.map { finding in
+            let place = finding.line.map { "\(finding.path):\($0)" } ?? finding.path
+            // A body over several lines stays one item of the list.
+            return "- \(place) — " + finding.body.replacingOccurrences(of: "\n", with: "\n  ")
+        }
+        let summary = run.summary.trimmingCharacters(in: .whitespacesAndNewlines)
+        let values = [
+            "repo": pr.repo, "number": String(pr.number), "title": pr.title, "url": pr.url, "baseRef": pr.baseRef,
+            "posted": String(run.posted), "summary": summary, "findings": findings.joined(separator: "\n"),
+        ]
+        return config.prompt(.reviewHandoff, values, when: ["summary": !summary.isEmpty, "findings": !findings.isEmpty])
     }
 
     // MARK: Flows
@@ -241,6 +258,16 @@ public actor DeskService {
     public func checks(for pr: PullRequest) async throws -> [PullRequestCheck] {
         guard let github else { throw DeskError.ghNotFound }
         return try await github.checks(repo: pr.repo, number: pr.number)
+    }
+
+    public func retitle(_ pr: PullRequest, to title: String) async throws {
+        guard let github else { throw DeskError.ghNotFound }
+        try await github.retitle(repo: pr.repo, number: pr.number, title: title)
+    }
+
+    public func close(_ pr: PullRequest) async throws {
+        guard let github else { throw DeskError.ghNotFound }
+        try await github.close(repo: pr.repo, number: pr.number)
     }
 
     public func squashMerge(_ pr: PullRequest) async throws {

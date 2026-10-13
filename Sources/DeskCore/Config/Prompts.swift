@@ -5,6 +5,7 @@ import Foundation
 /// optional `{else}` for the text that goes in when the condition does not hold.
 public enum PromptID: String, CaseIterable, Sendable, Identifiable {
     case ticketPlan, session, selfReview, proposeFixes, applyFixes, fixConflict, fixChecks, review, reviewSystem, reviewReformat
+    case reviewHandoff
 
     public var id: String { rawValue }
 
@@ -20,6 +21,7 @@ public enum PromptID: String, CaseIterable, Sendable, Identifiable {
         case .review: "Review"
         case .reviewSystem: "Review › System prompt"
         case .reviewReformat: "Review › Reformat pass"
+        case .reviewHandoff: "Review › Hand-off to the session"
         }
     }
 
@@ -36,6 +38,7 @@ public enum PromptID: String, CaseIterable, Sendable, Identifiable {
         case .review: "Sent with `claude -p` when you press Review. The app reads the answer as the JSON described here, so keep its field names."
         case .reviewSystem: "Sent as `--append-system-prompt` on every review run."
         case .reviewReformat: "Sent with `claude -p` only when a review answer does not parse; that answer follows on stdin. Keep the JSON shape."
+        case .reviewHandoff: "Sent to the PR's background session once a review has put its comments in your draft, so you can talk them through there: as soon as the session is idle, never while it works or waits on you. With no session on the PR, a new one starts with it."
         }
     }
 
@@ -64,6 +67,11 @@ public enum PromptID: String, CaseIterable, Sendable, Identifiable {
             return pr + [("author", "the PR author"), ("headSha", "the PR head commit"), ("repos", "one line per other clone")]
         case .reviewSystem, .reviewReformat:
             return []
+        case .reviewHandoff:
+            return pr + [
+                ("posted", "how many comments went into the draft"), ("summary", "what the review said overall"),
+                ("findings", "the comments, one per line with file and line"),
+            ]
         }
     }
 
@@ -80,6 +88,7 @@ public enum PromptID: String, CaseIterable, Sendable, Identifiable {
         case .fixConflict: [("worktree", "the branch is checked out in a worktree"), ("draft", "the PR is still a draft")]
         case .review: [("otherRepos", "there are other clones under the repo roots")]
         case .reviewSystem, .reviewReformat: []
+        case .reviewHandoff: [("summary", "the review wrote a summary"), ("findings", "the review placed comments on lines")]
         }
     }
 
@@ -298,6 +307,23 @@ public enum PromptID: String, CaseIterable, Sendable, Identifiable {
             comments, reviews or approvals to GitHub, and never modify files or git state. If a tool call is \
             denied, continue without it. Your entire final message must be the single JSON object the prompt \
             describes: no preamble, no closing remarks, no code fence.
+            """
+        // Into a session that can push and post: the review is the user's to finish, so it says so, and it hands over
+        // the talk, not a task.
+        case .reviewHandoff:
+            """
+            Claude just reviewed {repo}#{number} — {title} ({url}) and put {posted} comments into my pending review \
+            on GitHub. Nobody else can see that draft yet.
+
+            {#summary}Its summary: {summary}{/summary}
+
+            {#findings}The comments:
+
+            {findings}{/findings}
+
+            I want to talk them through with you: which hold up, which are wrong, and how to word them. Read the code \
+            they point at as you need to. Don't post, comment, approve or push anything: the review is mine to finish \
+            on GitHub. Wait for my questions.
             """
         case .reviewReformat:
             """

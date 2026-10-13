@@ -138,11 +138,6 @@ import Testing
         let status = try #require(checks.first { $0.name == "ci/legacy" })
         #expect(status.outcome == .failed && status.errors == ["Build broke"] && status.workflow == nil)
 
-        let groups = PullRequestCheck.grouped(checks)
-        // Worst group first; inside one, the running job before the passed one.
-        #expect(groups.map(\.workflow) == ["Changelog Check", "Other checks", "Unit Tests"])
-        #expect(groups.last?.checks.map(\.name) == ["fhe-engine-unit-tests", "fhe-engine-fmt"])
-        #expect(groups[1].checks.map(\.name) == ["ci/legacy", "Cursor Bugbot"])
     }
 
     @Test func decodesAcliProjectList() throws {
@@ -255,9 +250,10 @@ import Testing
 
     /// A bot's summary as PR descriptions carry them: the HTML comment hidden, the quote one block, the alert named.
     @Test func aQuoteIsOneBlockAndCommentsAreHidden() {
-        let text = "Intro.\n<!-- CURSOR_SUMMARY -->\n> [!NOTE]\n> **Medium Risk**\n>\n> Details here.\n>\n\n<!-- multi\nline -->After."
+        let text = "Intro.\n<!-- CURSOR_SUMMARY -->\n> [!NOTE]\n> **Medium Risk**\n>\n> Details here.\n>\n\n<!-- multi\nline -->After.\n\n<sup>Reviewed by Bugbot.</sup>"
         #expect(Markdown.blocks(text) == [
             .paragraph("Intro."), .quote("**Note**\n**Medium Risk**\n\nDetails here."), .paragraph("After."),
+            .paragraph("Reviewed by Bugbot."),
         ])
     }
 

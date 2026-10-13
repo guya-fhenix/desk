@@ -100,6 +100,8 @@ public actor ReviewRunner {
             }
 
             let placed = DraftThreads.threads(Anchoring.resolve(parsed.comments, in: diff), in: diff)
+            run.summary = parsed.summary
+            run.findings = placed.threads
             run.phase = .posting
             runs[pr.url] = run
             do {

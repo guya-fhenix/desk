@@ -74,7 +74,8 @@ import Testing
         var pr = Fixtures.pr(number: 1, head: "h", merge: .dirty)
         pr.unresolvedThreads = 2
         let repos = [OtherRepo(name: "a", root: "/r/a", ref: "origin/main", fetched: true)]
-        for id in [PromptID.ticketPlan, .session, .selfReview, .proposeFixes, .applyFixes, .fixConflict, .fixChecks, .review] {
+        let run = ReviewRun(phase: .posted, posted: 1, summary: "S", findings: [DraftThread(path: "a.swift", line: 3, body: "B")])
+        for id in [PromptID.ticketPlan, .session, .selfReview, .proposeFixes, .applyFixes, .fixConflict, .fixChecks, .review, .reviewHandoff] {
             var config = DeskConfig()
             config.prompts[id.rawValue] = (id.placeholders.map { "{\($0.name)}" } + id.conditions.map { "{#\($0.name)}C{/\($0.name)}" })
                 .joined(separator: " ")
@@ -86,10 +87,28 @@ import Testing
             case .applyFixes: DeskService.flowPrompt(.applyFixes, pr: pr, worktree: "/w", resultFile: "/f", fixes: "1. F", config: config)
             case .fixConflict: DeskService.flowPrompt(.fixConflict, pr: pr, worktree: "/w", resultFile: "/f", config: config)
             case .fixChecks: DeskService.flowPrompt(.fixChecks, pr: pr, worktree: "/w", resultFile: "/f", config: config)
+            case .reviewHandoff: DeskService.reviewHandoffPrompt(for: pr, run: run, config: config)
             default: DeskService.sessionPrompt(for: pr, worktree: "/w", config: config)
             }
             #expect(!text.contains("{"), "\(id) left a marker: \(text)")
         }
+    }
+
+    /// The session is told what the review found, line by line, and that the review stays the user's to finish.
+    @Test func aReviewHandsItsFindingsToTheSession() {
+        let pr = Fixtures.pr(number: 9, head: "h")
+        let run = ReviewRun(phase: .posted, posted: 2, summary: "Mostly fine.", findings: [
+            DraftThread(path: "src/a.rs", line: 12, body: "Unchecked unwrap.\nIt panics on empty input."),
+            DraftThread(path: "README.md", line: nil, body: "Typo in the title."),
+        ])
+        let text = DeskService.reviewHandoffPrompt(for: pr, run: run)
+        #expect(text.contains("put 2 comments into my pending review"))
+        #expect(text.contains("Its summary: Mostly fine."))
+        #expect(text.contains("- src/a.rs:12 — Unchecked unwrap.\n  It panics on empty input."))
+        #expect(text.contains("- README.md — Typo in the title."))
+        #expect(text.contains("Don't post, comment, approve or push anything"))
+        // Nothing found: no empty heading.
+        #expect(!DeskService.reviewHandoffPrompt(for: pr, run: ReviewRun(phase: .posted)).contains("The comments:"))
     }
 
     /// Every condition the legend lists is one the default text uses.

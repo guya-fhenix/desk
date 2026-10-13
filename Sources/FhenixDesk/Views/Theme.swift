@@ -113,7 +113,7 @@ struct InspectorToggle: View {
                 .frame(width: 28, height: 24)
                 .background(Theme.raised, in: Capsule())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.plain).handCursor()
         .help(shown ? "Hide the details panel" : "Show the details panel")
         .accessibilityLabel("Details panel")
         .accessibilityValue(shown ? "Shown" : "Hidden")
@@ -154,7 +154,7 @@ struct PillTabs<Value: Hashable>: View {
                     .overlay(Capsule().strokeBorder(chosen ? Theme.accent : Theme.controlBorder))
                     .contentShape(Capsule())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.plain).handCursor()
                 .accessibilityAddTraits(chosen ? .isSelected : [])
             }
         }
@@ -201,6 +201,8 @@ struct GroupHeader: View {
 /// screen's primary action on a double-click or Return; the row only keeps the app's look.
 struct ListRow<Content: View>: View {
     var selected = false
+    /// For a row with a page of its own: a click opens it, and the pointer is a hand over the row to say so.
+    var open: (() -> Void)? = nil
     @ViewBuilder var content: Content
 
     var body: some View {
@@ -218,7 +220,25 @@ struct ListRow<Content: View>: View {
             // One element per row for VoiceOver, its buttons still reachable as actions.
             .accessibilityElement(children: .combine)
             .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
+            .modifier(OpensOnClick(open: open))
             .plainListRow(background: selected ? Theme.rowSelected : Color.clear)
+    }
+}
+
+/// A click anywhere on the row opens it, except on a button in it, which keeps its own click; so does VoiceOver's
+/// press.
+private struct OpensOnClick: ViewModifier {
+    var open: (() -> Void)?
+
+    func body(content: Content) -> some View {
+        if let open {
+            content
+                .pointerStyle(.link)
+                .onTapGesture(perform: open)
+                .accessibilityAction(.default) { open() }
+        } else {
+            content
+        }
     }
 }
 
@@ -259,7 +279,14 @@ extension View {
         listStyle(.plain)
             .scrollContentBackground(.hidden)
             .environment(\.defaultMinListRowHeight, 0)
+            // Rows stop short of the scroll bar instead of running under it.
+            .contentMargins(.trailing, Theme.Space.m, for: .scrollContent)
+            .deskScrollBar()
     }
+
+    /// The full-width scroll bar with its track, shown whenever there is something to scroll, in place of the thin one
+    /// that overlays the content and fades.
+    func deskScrollBar() -> some View { scrollIndicators(.visible) }
 }
 
 /// The monospaced second line of a row: its parts joined by middle dots.
@@ -375,7 +402,7 @@ struct SearchBox: View {
                         .frame(minWidth: 24, minHeight: 24).contentShape(Rectangle())
                         .padding(.vertical, -4)
                 }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.plain).handCursor()
                     .accessibilityLabel("Clear search")
             }
         }
@@ -418,8 +445,8 @@ struct SortMenu<Value>: View {
                 icon: currentName == nil ? nil : current?.order == .reverse ? "arrow.down" : "arrow.up"
             )
         }
-        .menuStyle(.button)
-        .buttonStyle(.plain)
+        .menuStyle(.button).handCursor()
+        .buttonStyle(.plain).handCursor()
         .menuIndicator(.hidden)
         .fixedSize()
     }
@@ -572,7 +599,7 @@ struct SidebarItem<Trailing: View>: View {
             .hoverFill(enabled: !selected)
             .contentShape(RoundedRectangle(cornerRadius: 6))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.plain).handCursor()
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
 }
@@ -639,7 +666,7 @@ struct SyncRow: View {
             .background(Theme.raised, in: RoundedRectangle(cornerRadius: 6))
             .contentShape(RoundedRectangle(cornerRadius: 6))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.plain).handCursor()
         .help(model.syncHelp)
     }
 }
@@ -665,17 +692,26 @@ struct Screen<Header: View, Body: View>: View {
 /// A pull request's own page, in place of the list it was opened from, laid out as PR Cockpit lays its PR page: a back
 /// link at the top, a header, then the long reads in a wide column and the facts and presses in a side one. ← goes
 /// back; the page takes focus when it opens so that works without a click first.
-struct DetailPage<Header: View, Main: View, Side: View>: View {
+struct DetailPage<Header: View, Main: View, Side: View, Accessory: View>: View {
     var back: String
     var onBack: () -> Void
     @ViewBuilder var header: Header
     @ViewBuilder var main: Main
     @ViewBuilder var side: Side
+    /// What the page has to warn about, on the right of the back link: the page's top right.
+    @ViewBuilder var accessory: Accessory
     @FocusState private var focused: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            BackLink(title: back, action: onBack)
+            HStack {
+                BackLink(title: back, action: onBack)
+                Spacer(minLength: Theme.Space.m)
+                accessory
+            }
+            .padding(.horizontal, Theme.gutter)
+            // Out to the window's edge, the margins inside it: the scroll bar then sits in the right margin, clear of
+            // the cards, rather than against them.
             ScrollView {
                 VStack(alignment: .leading, spacing: Theme.Space.l) {
                     header
@@ -683,15 +719,17 @@ struct DetailPage<Header: View, Main: View, Side: View>: View {
                     HStack(alignment: .top, spacing: Theme.Space.xl) {
                         VStack(alignment: .leading, spacing: Theme.Space.xl) { main }
                             .frame(maxWidth: .infinity, alignment: .leading)
-                        VStack(alignment: .leading, spacing: Theme.Space.xl) { side }
+                        VStack(alignment: .leading, spacing: Theme.Space.m) { side }
                             .frame(width: 300, alignment: .leading)
                     }
                 }
                 .padding(.bottom, Theme.Space.xl)
+                .padding(.horizontal, Theme.gutter)
                 .labeledContentStyle(PanelRowStyle())
             }
+            .deskScrollBar()
         }
-        .padding(.horizontal, Theme.gutter)
+        .environment(\.focusPage, { [focus = $focused] in focus.wrappedValue = true })
         .padding(.top, 6)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(Theme.background)
@@ -704,11 +742,68 @@ struct DetailPage<Header: View, Main: View, Side: View>: View {
             await Task.yield()
             focused = true
         }
+        // Not while a field is being typed in, such as the title being renamed: there ← moves the caret. The page
+        // counts as focused with its field focused, and its key handler runs before the field's, so the window's
+        // first responder is what tells.
         .onKeyPress(.leftArrow) {
+            guard !(NSApp.keyWindow?.firstResponder is NSText) else { return .ignored }
             onBack()
             return .handled
         }
     }
+}
+
+extension DetailPage where Accessory == EmptyView {
+    init(
+        back: String, onBack: @escaping () -> Void, @ViewBuilder header: () -> Header, @ViewBuilder main: () -> Main,
+        @ViewBuilder side: () -> Side
+    ) {
+        self.init(back: back, onBack: onBack, header: header, main: main, side: side) { EmptyView() }
+    }
+}
+
+/// One card of a PR page's side column, as PR Cockpit's: a title, a count beside it where there is one, the content.
+struct SideCard<Content: View>: View {
+    var title: String
+    var count: Int? = nil
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 6) {
+                Text(title).scaled(.body.weight(.medium))
+                if let count { Text("\(count)").scaled(.secondary).monospacedDigit().foregroundStyle(.secondary) }
+            }
+            content
+        }
+        .sideCard()
+    }
+}
+
+extension View {
+    /// A side-column card's frame, for a view that brings its own heading.
+    func sideCard() -> some View {
+        padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Theme.raised.opacity(0.5), in: RoundedRectangle(cornerRadius: 10))
+            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Theme.line))
+    }
+
+    /// A status-line pill: a few words on a raised capsule with an edge.
+    func pill() -> some View {
+        scaled(.secondary)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 4)
+            .background(Theme.raised, in: Capsule())
+            .overlay(Capsule().strokeBorder(Theme.controlBorder))
+            .fixedSize()
+    }
+}
+
+extension EnvironmentValues {
+    /// Puts the keyboard focus back on the page around a view that took it — a field, once it is done — so ← goes
+    /// back again.
+    @Entry var focusPage: () -> Void = {}
 }
 
 /// "‹ Pull Requests": PR Cockpit's back link, faint until the pointer is on it.
@@ -728,10 +823,35 @@ private struct BackLink: View {
             .frame(height: 32)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.plain).handCursor()
         .onHover { hovering = $0 }
         .help("Back to \(title) (←)")
     }
+}
+
+extension View {
+    /// The pointing hand over a control while it is enabled: every button, menu, picker and toggle in the app has
+    /// it, as a link would. SwiftUI sets the cursor over its own views, so it has to be asked for on each; the
+    /// default-styled buttons get it from `handButtons()` at each window's root.
+    func handCursor() -> some View { modifier(HandCursor()) }
+
+    /// Every button under it that does not name a style of its own gets the pointing hand.
+    func handButtons() -> some View { buttonStyle(HandButtonStyle(base: .automatic)) }
+}
+
+/// A system button style with the pointing hand over it.
+struct HandButtonStyle<Base: PrimitiveButtonStyle>: PrimitiveButtonStyle {
+    var base: Base
+
+    func makeBody(configuration: Configuration) -> some View {
+        Button(configuration).buttonStyle(base).handCursor()
+    }
+}
+
+private struct HandCursor: ViewModifier {
+    @Environment(\.isEnabled) private var enabled
+
+    func body(content: Content) -> some View { content.pointerStyle(enabled ? .link : nil) }
 }
 
 extension NSAppearance {

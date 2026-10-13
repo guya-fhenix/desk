@@ -75,6 +75,7 @@ private struct DeskRoot: View {
 
     var body: some View {
         DeskWindow()
+            .handButtons()
             .environment(model)
             .task {
                 AppDelegate.openDesk = {
@@ -94,13 +95,8 @@ private struct DeskRoot: View {
 /// answers every click the same way, and the two buttons have to mean different things here.
 final class AppDelegate: NSObject, NSApplicationDelegate {
     @MainActor static var openDesk: (() -> Void)?
-    /// The event monitors below run outside the delegate's own isolation and cannot capture it.
-    @MainActor fileprivate static weak var shared: AppDelegate?
-
     private var statusItem: NSStatusItem?
-    private var popover: NSPopover?
     private var model: AppModel?
-    private var dismissMonitors: [Any] = []
 
     /// This is a menu bar app first: closing the Desk window leaves it running behind the status item.
     /// Without this a lone `Window` scene takes the app down with it — `MenuBarExtra` used to be what
@@ -123,18 +119,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @MainActor func installMenuBarItem(model: AppModel) {
         guard statusItem == nil else { return }
-        Self.shared = self
         self.model = model
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        item.button?.image = NSImage(systemSymbolName: "hexagon", accessibilityDescription: "Fhenix Desk")
         item.button?.target = self
         item.button?.action = #selector(clicked)
         // Without this a button only reports the primary button, and the secondary one opens nothing.
         item.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
         // The two clicks mean different things, which nothing else on the button says.
-        item.button?.toolTip = "Click: open Desk · Right-click: quick look"
+        item.button?.toolTip = "Click: open Desk · Right-click: menu"
         statusItem = item
-        draw(count: model.urgentCount)
-        model.onUrgentCountChange = { [weak self] count in self?.draw(count: count) }
     }
 
     /// macOS swaps the two buttons itself when someone sets the right one as primary, so a primary
@@ -144,71 +138,69 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @MainActor @objc private func clicked() {
         guard let event = NSApp.currentEvent else { return }
         if event.type == .rightMouseUp || event.modifierFlags.contains(.control) {
-            togglePanel()
+            showMenu()
         } else {
-            closePanel()
             Self.openDesk?()
         }
     }
 
-    @MainActor private func togglePanel() {
-        guard let button = statusItem?.button, let model else { return }
-        if popover?.isShown == true {
-            closePanel()
-            return
+    /// A plain macOS menu, built afresh on each click: open the Desk, quit, then your open PRs and the review queue
+    /// inside the Reviews screen's day filter, each opening the Desk on that PR's page. Set on the item only while it
+    /// shows, so a primary click goes on opening the Desk rather than the menu.
+    @MainActor private func showMenu() {
+        guard let item = statusItem, let model else { return }
+        let menu = NSMenu()
+        menu.addItem(MenuAction("Open Fhenix Desk") { Self.openDesk?() })
+        menu.addItem(MenuAction("Quit App", key: "q") { NSApp.terminate(nil) })
+        let mine = model.state.mine.sorted { $0.updatedAt > $1.updatedAt }
+        if !mine.isEmpty {
+            menu.addItem(.separator())
+            menu.addItem(.sectionHeader(title: "Pull Requests"))
+            for pr in mine { menu.addItem(Self.item(for: pr, model: model, tab: .pullRequests)) }
         }
-        let panel = popover ?? makePopover(model: model)
-        panel.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-        NSApp.activate()
-        watchForDismiss()
-    }
-
-    @MainActor private func makePopover(model: AppModel) -> NSPopover {
-        let panel = NSPopover()
-        // Not `.transient`: that dismisses the panel by eating the click on its way to the button, so a
-        // primary click with the panel open would close the panel and never open the window. Dismissing
-        // it by hand leaves the button's clicks to the button.
-        panel.behavior = .applicationDefined
-        panel.contentViewController = NSHostingController(rootView: MenuPanelView().environment(model))
-        popover = panel
-        return panel
-    }
-
-    /// What `.transient` used to do: close on anything that is neither the panel nor the menu bar button,
-    /// and on Escape.
-    @MainActor private func watchForDismiss() {
-        let elsewhere = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { _ in
-            MainActor.assumeIsolated { AppDelegate.shared?.closePanel() }
+        let reviews = model.state.reviewQueue(.all, days: ReviewDays.current)
+        if !reviews.isEmpty {
+            menu.addItem(.separator())
+            menu.addItem(.sectionHeader(title: "Reviews"))
+            for pr in reviews { menu.addItem(Self.item(for: pr, model: model, tab: .reviews)) }
         }
-        let inApp = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .keyDown]) { event in
-            let isEscape = event.type == .keyDown && event.keyCode == 53
-            MainActor.assumeIsolated {
-                guard let delegate = AppDelegate.shared else { return }
-                if event.type == .keyDown {
-                    if isEscape { delegate.closePanel() }
-                    return
-                }
-                let ours = [delegate.popover?.contentViewController?.view.window, delegate.statusItem?.button?.window]
-                if !ours.contains(where: { $0 === event.window }) { delegate.closePanel() }
-            }
-            // The event still goes where it was headed; the panel only steps out of its way.
-            return event
+        item.menu = menu
+        item.button?.performClick(nil)
+        item.menu = nil
+    }
+
+    /// One PR in the menu: its checks as a coloured mark, repo#number and title, and a press that opens its page.
+    @MainActor private static func item(for pr: PullRequest, model: AppModel, tab: DeskWindow.Tab) -> NSMenuItem {
+        let title = "\(pr.repoName)#\(pr.number)  \(pr.title)"
+        let entry = MenuAction(title.count > 72 ? title.prefix(71) + "…" : title) {
+            model.selectPullRequest = pr.url
+            model.pendingTab = tab
+            Self.openDesk?()
         }
-        dismissMonitors = [elsewhere, inApp].compactMap { $0 }
+        let (symbol, color): (String, NSColor) = switch pr.checks {
+        case .success: ("checkmark.circle.fill", .systemGreen)
+        case .failure, .error: ("xmark.circle.fill", .systemRed)
+        case .pending, .expected: ("clock.fill", .systemOrange)
+        case .none: ("minus.circle", .secondaryLabelColor)
+        }
+        entry.image = NSImage(systemSymbolName: symbol, accessibilityDescription: pr.checks.rawValue)?
+            .withSymbolConfiguration(.init(paletteColors: [color]))
+        entry.toolTip = pr.title
+        return entry
+    }
+}
+
+/// A menu item that runs a closure, which AppKit's target and selector make awkward for a menu built on the spot.
+private final class MenuAction: NSMenuItem {
+    private let run: () -> Void
+
+    init(_ title: String, key: String = "", run: @escaping () -> Void) {
+        self.run = run
+        super.init(title: title, action: #selector(fire), keyEquivalent: key)
+        target = self
     }
 
-    @MainActor private func closePanel() {
-        dismissMonitors.forEach(NSEvent.removeMonitor)
-        dismissMonitors = []
-        popover?.performClose(nil)
-    }
+    required init(coder: NSCoder) { fatalError("built in code only") }
 
-    @MainActor private func draw(count: Int) {
-        guard let button = statusItem?.button else { return }
-        button.image = NSImage(
-            systemSymbolName: count > 0 ? "hexagon.fill" : "hexagon", accessibilityDescription: "Fhenix Desk"
-        )
-        button.imagePosition = count > 0 ? .imageLeading : .imageOnly
-        button.title = count > 0 ? " \(count)" : ""
-    }
+    @objc private func fire() { run() }
 }

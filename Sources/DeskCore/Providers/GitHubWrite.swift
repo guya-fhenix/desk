@@ -161,6 +161,16 @@ extension GitHubProvider {
         try await Shell.output(ghPath, ["pr", "ready", String(number), "--repo", repo])
     }
 
+    /// Renames one of your PRs, from the title on its page.
+    public func retitle(repo: String, number: Int, title: String) async throws {
+        try await Shell.output(ghPath, ["pr", "edit", String(number), "--repo", repo, "--title", title])
+    }
+
+    /// Closes one of your PRs without merging it; it can be reopened on GitHub.
+    public func close(repo: String, number: Int) async throws {
+        try await Shell.output(ghPath, ["pr", "close", String(number), "--repo", repo])
+    }
+
     /// Always a squash: one commit per PR on the base branch.
     public func squashMerge(repo: String, number: Int) async throws {
         try await Shell.output(ghPath, ["pr", "merge", String(number), "--repo", repo, "--squash"])

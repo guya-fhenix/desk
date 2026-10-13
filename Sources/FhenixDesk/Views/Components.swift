@@ -53,13 +53,28 @@ struct StatusDot: View {
     }
 }
 
-extension PullRequest {
-    /// The checks in a word, for the details panels.
-    var checksText: String {
-        switch checks {
-        case .success: return "Passed"
-        case .failure, .error: return "Failed"
-        case .pending, .expected: return "Running"
+/// The checks as a sentence in a pill, "All checks passed · 11 checks", for a page's status line, which has the room a
+/// row's icon does not.
+struct ChecksPill: View {
+    var pr: PullRequest
+
+    var body: some View {
+        HStack(spacing: 6) {
+            ChecksBadge(pr: pr).accessibilityHidden(true)
+            Text(sentence)
+            if pr.checkCount > 0 {
+                Text("·  \(pr.checkCount) \(pr.checkCount == 1 ? "check" : "checks")").foregroundStyle(.secondary)
+            }
+        }
+        .pill()
+        .accessibilityElement(children: .combine)
+    }
+
+    private var sentence: String {
+        switch pr.checks {
+        case .success: return "All checks passed"
+        case .failure, .error: return "Checks failed"
+        case .pending, .expected: return "Checks running"
         case .none: return "No checks"
         }
     }
@@ -110,20 +125,6 @@ struct MergeBadge: View {
     }
 }
 
-struct SeverityDot: View {
-    var severity: NudgeSeverity
-
-    var body: some View {
-        switch severity {
-        // A shape as well as a colour, so urgent reads without telling red from orange.
-        case .urgent:
-            Image(systemName: "exclamationmark.circle.fill").scaled(.caption).foregroundStyle(.red).accessibilityLabel("Urgent")
-        case .warning: StatusDot(color: .orange, meaning: "Warning")
-        case .info: StatusDot(color: .blue, meaning: "Info")
-        }
-    }
-}
-
 /// The sync pill doubles as the refresh button: "Synced" with a green dot, a spinner while any source loads,
 /// and an orange dot when one failed, whose error is the tooltip. Pressing it refreshes everything.
 struct RefreshControl: View {
@@ -144,7 +145,7 @@ struct RefreshControl: View {
             .background(Theme.raised, in: Capsule())
             .contentShape(Capsule())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.plain).handCursor()
         .help(model.syncHelp)
     }
 }
@@ -195,19 +196,36 @@ enum Clipboard {
 
 /// A Copy press that says it worked: its title reads "Copied" for a moment after.
 struct CopyButton: View {
-    var title: String
     var text: String
+    /// What it copies, for the tooltip and VoiceOver.
+    var what: String
     @State private var copied = false
 
     var body: some View {
-        Button(copied ? "Copied" : title) {
+        Button {
             Clipboard.copy(text)
             copied = true
+        } label: {
+            Image(systemName: copied ? "checkmark" : "doc.on.doc").scaled(.caption)
         }
+        .buttonStyle(IconButtonStyle())
+        .help(copied ? "Copied" : "Copy \(what)")
+        .accessibilityLabel(copied ? "Copied" : "Copy \(what)")
         .task(id: copied) {
             guard copied else { return }
             try? await Task.sleep(for: .seconds(1.5))
             copied = false
+        }
+    }
+}
+
+extension View {
+    /// The session button's look: filled and full size as a page's action, plain and small elsewhere.
+    @ViewBuilder fileprivate func sessionStyle(_ prominent: Bool, menu: Bool = false) -> some View {
+        if prominent {
+            if menu { menuStyle(.button).buttonStyle(.borderedProminent).handCursor() } else { buttonStyle(.borderedProminent).handCursor() }
+        } else {
+            if menu { menuStyle(.borderlessButton).controlSize(.small).handCursor() } else { buttonStyle(.borderless).controlSize(.small).handCursor() }
         }
     }
 }
@@ -236,7 +254,7 @@ struct PullRequestMenu: View {
 extension View {
     /// Filled for the one press a screen leads with, bordered for the rest: six filled buttons are six focal points.
     @ViewBuilder func primaryStyle(_ prominent: Bool) -> some View {
-        if prominent { buttonStyle(.borderedProminent) } else { buttonStyle(.bordered) }
+        if prominent { buttonStyle(.borderedProminent).handCursor() } else { buttonStyle(.bordered).handCursor() }
     }
 }
 
@@ -387,6 +405,8 @@ struct ReviewStatusChip: View {
 struct ClaudeSessionButton: View {
     var pr: PullRequest
     var model: AppModel
+    /// Filled and full size, as a page's own action; plain and small where it sits among other things.
+    var prominent = false
 
     var body: some View {
         let jobs = model.state.claudeJobs(for: pr)
@@ -400,16 +420,15 @@ struct ClaudeSessionButton: View {
             } label: {
                 Label { Text("Attach") } icon: { icon("terminal.fill", newest.isRunning ? .green : .accentColor) }
             }
-            .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
-            .controlSize(.small)
+            .menuIndicator(.hidden).fixedSize()
+            .sessionStyle(prominent, menu: true)
             .labelStyle(.titleAndIcon)
             .help(failure ?? "\(jobs.count) background sessions on this PR")
         } else if let job = jobs.first {
             Button { model.attach(job, for: pr) } label: {
                 Label { Text("Attach") } icon: { icon("terminal.fill", job.isRunning ? .green : .accentColor) }
             }
-            .buttonStyle(.borderless)
-            .controlSize(.small)
+            .sessionStyle(prominent)
             .labelStyle(.titleAndIcon)
             .help(failure ?? "Attach to “\(job.name)” (\(job.state)) in Terminal")
         } else {
@@ -417,8 +436,7 @@ struct ClaudeSessionButton: View {
             Button { model.startSession(for: pr) } label: {
                 Label { Text("Start session") } icon: { icon("terminal", .secondary) }
             }
-            .buttonStyle(.borderless)
-            .controlSize(.small)
+            .sessionStyle(prominent)
             .labelStyle(.titleAndIcon)
             .disabled(model.state.localRepo(for: pr) == nil)
             .help(failure ?? startHelp)
@@ -429,9 +447,14 @@ struct ClaudeSessionButton: View {
     private var failure: String? { model.sessionErrors[pr.url] }
 
     /// Green while a session is running, the accent colour for one that has finished, grey for the button
-    /// that would start the first — and red once a press has failed, whichever it was.
-    private func icon(_ name: String, _ tint: Color) -> some View {
-        Image(systemName: name).foregroundStyle(failure == nil ? tint : .red)
+    /// that would start the first — and red once a press has failed, whichever it was. On a filled button it takes
+    /// the button's own text colour: none of those reads on the accent fill.
+    @ViewBuilder private func icon(_ name: String, _ tint: Color) -> some View {
+        if prominent {
+            Image(systemName: name)
+        } else {
+            Image(systemName: name).foregroundStyle(failure == nil ? tint : .red)
+        }
     }
 
     private var startHelp: String {
@@ -487,21 +510,25 @@ struct PullRequestStatus: View {
     }
 }
 
-/// A PR's checks by workflow: the worst first, a failed job with the step it stopped at and the errors it reported,
-/// each opening its log on GitHub. Fetched when the panel shows the PR, again when its head or overall state moves,
-/// and every 20 s while a job is still running, since one finishing leaves the overall state pending until the last.
+/// A PR page's Checks card: every check on its head commit, fetched when the page shows the PR, again when its head or
+/// overall state moves, and every 20 s while a job is still running, since one finishing leaves the overall state
+/// pending until the last.
 struct WorkflowsSection: View {
     var pr: PullRequest
     var model: AppModel
-    /// The PR these were fetched for: the panel keeps this view as the selection moves to another PR.
+    /// The PR these were fetched for: the page keeps this view as it moves to another PR.
     @State private var loaded: (url: String, checks: [PullRequestCheck])?
     @State private var error: String?
 
     var body: some View {
-        PanelSection("Workflows") {
+        SideCard(title: "Checks", count: pr.checkCount > 0 ? pr.checkCount : nil) {
             if let loaded, loaded.url == pr.url {
-                if loaded.checks.isEmpty { Text("No checks on the latest commit.").foregroundStyle(.secondary) }
-                ForEach(PullRequestCheck.grouped(loaded.checks)) { WorkflowGroup(group: $0, model: model) }
+                if loaded.checks.isEmpty {
+                    Text("No checks on the latest commit.").foregroundStyle(.secondary)
+                } else {
+                    Text(CheckList.summary(loaded.checks)).scaled(.secondary).foregroundStyle(.secondary)
+                    CheckList(checks: loaded.checks, model: model)
+                }
             } else if let error {
                 Text(error).scaled(.caption).foregroundStyle(.red).textSelection(.enabled)
             } else {
@@ -524,94 +551,111 @@ struct WorkflowsSection: View {
     }
 }
 
-/// One workflow: its worst outcome and a count in the heading, its jobs under it. Open while anything in it failed or
-/// is running; folded when all is well, since passing jobs are rarely what you came to read.
-private struct WorkflowGroup: View {
-    var group: PullRequestCheck.Group
-    var model: AppModel
-    /// Flipped from the default by a click.
-    @State private var flipped = false
-
-    var body: some View {
-        let open = (group.outcome <= .cancelled) != flipped
-        DisclosureGroup(isExpanded: Binding(get: { open }, set: { flipped = $0 != (group.outcome <= .cancelled) })) {
-            VStack(alignment: .leading, spacing: 6) {
-                ForEach(group.checks) { CheckLine(check: $0, model: model) }
-            }
-            .padding(.top, 4)
-        } label: {
-            HStack(spacing: 6) {
-                CheckIcon(outcome: group.outcome)
-                Text(group.workflow).lineLimit(1)
-                Spacer(minLength: 8)
-                Text(summary).scaled(.caption).foregroundStyle(.secondary)
-            }
-        }
-    }
-
-    /// "4 passed", or "1 failed, 3 passed": the outcomes present, worst first.
-    private var summary: String {
-        Dictionary(grouping: group.checks, by: \.outcome).sorted { $0.key < $1.key }
-            .map { "\($0.value.count) \(CheckIcon.word($0.key))" }.joined(separator: ", ")
-    }
+/// How long a check ran, or has been running: "5s", "29m 58s"; nil before it started.
+private func elapsed(_ check: PullRequestCheck) -> String? {
+    guard let start = check.startedAt else { return nil }
+    return Duration.seconds(max((check.completedAt ?? Date()).timeIntervalSince(start), 0))
+        .formatted(.units(allowed: [.hours, .minutes, .seconds], width: .narrow, maximumUnitCount: 2))
 }
 
-/// One job: its outcome, name and how long it took; under a failed one, where it stopped and what it said.
-private struct CheckLine: View {
-    var check: PullRequestCheck
+/// Every check in one list, PR Cockpit's way: a heading per outcome, worst first, and under it each check as
+/// "Workflow / job" with how it ended under that; a failed one also says where it stopped and what it reported.
+private struct CheckList: View {
+    var checks: [PullRequestCheck]
     var model: AppModel
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Button { model.open(check.url) } label: {
-                HStack(spacing: 6) {
-                    CheckIcon(outcome: check.outcome)
-                    Text(check.name).lineLimit(1)
-                    Spacer(minLength: 8)
-                    Text(duration).scaled(.caption).monospacedDigit().foregroundStyle(.secondary)
+        let byOutcome = Dictionary(grouping: checks, by: \.outcome).sorted { $0.key < $1.key }
+        VStack(alignment: .leading, spacing: 16) {
+            ForEach(byOutcome, id: \.key) { outcome, checks in
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("\(checks.count) \(Self.word(outcome))".uppercased())
+                        .scaled(.caption.weight(.medium))
+                        .tracking(0.8)
+                        .foregroundStyle(.secondary)
+                    // By workflow, the checks no workflow ran last, as GitHub lists them.
+                    ForEach(checks.sorted { ($0.workflow ?? "\u{10FFFF}", $0.name) < ($1.workflow ?? "\u{10FFFF}", $1.name) }) {
+                        CheckEntry(check: $0, model: model)
+                    }
                 }
-                .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
-            .disabled(check.url == nil)
-            .help(check.url == nil ? "" : "Open its log on GitHub")
-            Group {
-                if let step = check.failedStep { Text("Failed at “\(step)”").foregroundStyle(.red) }
-                ForEach(check.errors, id: \.self) { Text($0).foregroundStyle(.secondary).textSelection(.enabled) }
-            }
-            .scaled(.caption)
-            .fixedSize(horizontal: false, vertical: true)
-            .padding(.leading, 22)
         }
     }
 
-    private var duration: String {
-        guard let start = check.startedAt else { return "" }
-        let seconds = (check.completedAt ?? Date()).timeIntervalSince(start)
-        let text = Duration.seconds(max(seconds, 0))
-            .formatted(.units(allowed: [.hours, .minutes, .seconds], width: .narrow, maximumUnitCount: 2))
-        return check.completedAt == nil ? "running \(text)" : text
-    }
-}
-
-/// A check's outcome as an icon with a shape of its own, so it reads without telling red from green.
-private struct CheckIcon: View {
-    var outcome: PullRequestCheck.Outcome
-
-    var body: some View {
-        let (symbol, color): (String, Color) = switch outcome {
-        case .failed: ("xmark.circle.fill", .red)
-        case .running: ("clock.fill", .orange)
-        case .cancelled: ("stop.circle", .secondary)
-        case .passed: ("checkmark.circle.fill", .green)
-        case .neutral: ("circle", .secondary)
-        case .skipped: ("minus.circle", .secondary)
-        }
-        Image(systemName: symbol).foregroundStyle(color).frame(width: 16).accessibilityLabel(Self.word(outcome))
+    /// "11 successful", or "2 failed, 9 successful".
+    static func summary(_ checks: [PullRequestCheck]) -> String {
+        Dictionary(grouping: checks, by: \.outcome).sorted { $0.key < $1.key }
+            .map { "\($0.value.count) \(word($0.key))" }.joined(separator: ", ")
     }
 
     static func word(_ outcome: PullRequestCheck.Outcome) -> String {
-        switch outcome {
+        outcome == .passed ? "successful" : outcome.word
+    }
+}
+
+/// One check of the list: its dot, "Workflow / job", which opens its log, and how it ended; under a failed one, the
+/// step it stopped at and the errors it reported.
+private struct CheckEntry: View {
+    var check: PullRequestCheck
+    var model: AppModel
+    @Environment(\.textScale) private var scale
+
+    var body: some View {
+        // The dot's middle on the middle of the first line's capitals, as the page title's icons are.
+        let lift = (AppTextStyle.body.size * scale).rounded() * 0.35
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            StatusDot(color: color, meaning: check.outcome.word)
+                .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + lift }
+            VStack(alignment: .leading, spacing: 2) {
+                Button { model.open(check.url) } label: {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text([check.workflow, check.name].compactMap { $0 }.joined(separator: " / "))
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                        Text(ending).scaled(.caption).foregroundStyle(.secondary)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain).handCursor()
+                .disabled(check.url == nil)
+                .help(check.url == nil ? "" : "Open its log on GitHub")
+                Group {
+                    if let step = check.failedStep { Text("Failed at “\(step)”").foregroundStyle(.red) }
+                    ForEach(check.errors, id: \.self) { Text($0).foregroundStyle(.secondary).textSelection(.enabled) }
+                }
+                .scaled(.caption)
+                .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    /// "Successful in 5s", "Failed in 29m 58s", "Running for 3m"; the bare word when it never started.
+    private var ending: String {
+        let time = elapsed(check)
+        switch check.outcome {
+        case .passed: return time.map { "Successful in \($0)" } ?? "Successful"
+        case .failed: return time.map { "Failed in \($0)" } ?? "Failed"
+        case .running: return time.map { "Running for \($0)" } ?? "Queued"
+        case .cancelled: return time.map { "Cancelled after \($0)" } ?? "Cancelled"
+        case .neutral: return time.map { "Neutral in \($0)" } ?? "Neutral"
+        case .skipped: return "Skipped"
+        }
+    }
+
+    private var color: Color {
+        switch check.outcome {
+        case .passed: return .green
+        case .failed: return .red
+        case .running: return .orange
+        case .cancelled, .neutral, .skipped: return .secondary
+        }
+    }
+}
+
+extension PullRequestCheck.Outcome {
+    /// The outcome in a word: "failed", "running", "passed".
+    var word: String {
+        switch self {
         case .failed: return "failed"
         case .running: return "running"
         case .cancelled: return "cancelled"
@@ -631,6 +675,214 @@ struct PullRequestDescription: View {
             Text("No description.").foregroundStyle(.secondary)
         } else {
             MarkdownText(text: pr.body).textSelection(.enabled)
+        }
+    }
+}
+
+/// A PR page's headline: the number set apart from the title, a pencil beside it on hover — on your own PR — that
+/// turns the title into a field, where Return saves it to GitHub and Esc puts it back; then GitHub's mark to open it
+/// there. Under it the repo, author and branches, with a copy button for the branch.
+struct PageHeadline: View {
+    var pr: PullRequest
+    var model: AppModel
+    /// Where GitHub's mark goes: the PR, or for a review its Files tab, where your draft is.
+    var gitHub: String
+    var editable: Bool
+    @Environment(\.focusPage) private var focusPage
+    @Environment(\.textScale) private var scale
+    @State private var hovering = false
+    @State private var editing = false
+    @State private var draft = ""
+    @State private var saving = false
+    @State private var error: String?
+    @FocusState private var fieldFocused: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if editing { field } else { headline }
+            if let error { Text(error).scaled(.caption).foregroundStyle(.red).textSelection(.enabled) }
+            HStack(spacing: 6) {
+                Text("\(pr.repoName) · \(pr.author) · \(pr.baseRef) ← \(pr.headRef)")
+                    .scaled(.secondary.monospaced()).foregroundStyle(.secondary).textSelection(.enabled)
+                CopyButton(text: pr.headRef, what: "the branch name")
+            }
+        }
+    }
+
+    private var headline: some View {
+        // Puts an icon's middle on the middle of the title's capitals, half a cap height above its baseline; on the
+        // baseline itself, as an icon's own baseline is, it hung low. SF's capitals are 0.7 of the point size.
+        let lift = (AppTextStyle.title.size * scale).rounded() * 0.35
+        return HStack(alignment: .firstTextBaseline, spacing: 6) {
+            // The number is GitHub's, not part of the title, so it reads as a label beside it.
+            (Text(verbatim: "#\(pr.number) ").foregroundStyle(.secondary) + Text(pr.title))
+                .scaled(.title)
+                .fixedSize(horizontal: false, vertical: true)
+                .textSelection(.enabled)
+            if editable {
+                Button(action: start) { Image(systemName: "pencil").scaled(.secondary) }
+                    .buttonStyle(IconButtonStyle())
+                    // Kept in place while hidden, so the title does not shift when the pointer arrives; VoiceOver
+                    // still finds it.
+                    .opacity(hovering ? 1 : 0)
+                    .help("Rename the PR")
+                    .accessibilityLabel("Rename the PR")
+                    .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + lift }
+            }
+            Button { model.open(gitHub) } label: {
+                HStack(spacing: 3) {
+                    GitHubMark()
+                    Image(systemName: "arrow.up.right").scaled(.caption)
+                }
+            }
+            .buttonStyle(IconButtonStyle())
+            .help("Open on GitHub")
+            .accessibilityLabel("Open on GitHub")
+            .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + lift }
+        }
+        .onHover { hovering = $0 }
+    }
+
+    private var field: some View {
+        HStack(spacing: 6) {
+            TextField("Title", text: $draft)
+                .textFieldStyle(.plain)
+                .scaled(.title)
+                .focused($fieldFocused)
+                .onSubmit(save)
+                .onExitCommand(perform: cancel)
+                .disabled(saving)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .background(Theme.raised, in: RoundedRectangle(cornerRadius: 6))
+                .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Theme.accent, lineWidth: 1.5))
+            if saving {
+                ProgressView().controlSize(.small)
+            } else {
+                Button(action: save) { KeyCap(key: "↩") }.buttonStyle(.plain).handCursor().help("Save (Return)")
+                Button(action: cancel) { KeyCap(key: "Esc") }.buttonStyle(.plain).handCursor().help("Cancel (Esc)")
+            }
+        }
+    }
+
+    private func start() {
+        draft = pr.title
+        error = nil
+        editing = true
+        // Once the field is on screen; focusing it selects the whole title, ready to be typed over.
+        Task {
+            await Task.yield()
+            fieldFocused = true
+        }
+    }
+
+    private func cancel() {
+        editing = false
+        error = nil
+        focusPage()
+    }
+
+    private func save() {
+        let title = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !title.isEmpty, title != pr.title else { return cancel() }
+        saving = true
+        Task {
+            error = await model.retitle(pr, to: title)
+            saving = false
+            if error == nil {
+                editing = false
+                focusPage()
+            }
+        }
+    }
+}
+
+/// GitHub's mark, from its SVG outline; a template, so it takes the text colour.
+struct GitHubMark: View {
+    var body: some View {
+        Image(nsImage: Self.mark).resizable().scaledToFit().frame(width: 14, height: 14)
+    }
+
+    private static let mark: NSImage = {
+        let svg = """
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path fill-rule="evenodd" d="M8 0C3.58 0 0 \
+            3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94\
+            -.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52\
+            .28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 \
+            2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56\
+            .82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55\
+            .38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+            """
+        let image = NSImage(data: Data(svg.utf8)) ?? NSImage()
+        image.isTemplate = true
+        return image
+    }()
+}
+
+/// An icon that is a button: faint until the pointer is on it, then on a raised square, as PR Cockpit's are.
+struct IconButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View { IconButtonBody(configuration: configuration) }
+}
+
+private struct IconButtonBody: View {
+    let configuration: ButtonStyleConfiguration
+    @State private var hovering = false
+
+    var body: some View {
+        configuration.label
+            .foregroundStyle(hovering ? .primary : .secondary)
+            .padding(5)
+            .background(hovering || configuration.isPressed ? Theme.raised : Color.clear, in: RoundedRectangle(cornerRadius: 5))
+            .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(hovering ? Theme.controlBorder : Color.clear))
+            .contentShape(Rectangle())
+            .onHover { hovering = $0 }
+            .handCursor()
+    }
+}
+
+/// Where the PR's background session stands, in place of the press that starts one: what it is doing, and a click
+/// attaches to it; its menu has every session on the PR and, outside a flow, the one that carries the PR through it.
+/// With no session, the press to start one.
+struct SessionStatus: View {
+    var pr: PullRequest
+    var model: AppModel
+
+    var body: some View {
+        let jobs = model.state.claudeJobs(for: pr)
+        if let newest = jobs.first {
+            Menu {
+                ForEach(jobs) { job in
+                    Button("Attach to \(job.name) — \(job.state)") { model.attach(job, for: pr) }
+                }
+                if model.state.flow(for: pr) == nil {
+                    Divider()
+                    Button("Use for Flow") { model.joinFlow(newest, pr) }
+                }
+            } label: {
+                // One text and an icon: a menu button keeps no more of its label than that.
+                Label("Session · \(newest.state)", systemImage: newest.isRunning ? "terminal.fill" : "terminal")
+                    .labelStyle(.titleAndIcon)
+            } primaryAction: {
+                model.attach(newest, for: pr)
+            }
+            .menuStyle(.button).handCursor()
+            .fixedSize()
+            .help("“\(newest.name)”, \(newest.state). Click to attach in Terminal")
+        } else {
+            ClaudeSessionButton(pr: pr, model: model, prominent: true).fixedSize()
+        }
+    }
+}
+
+/// A PR page's Details card: how big the change is, and when it was opened and last updated, the exact time on hover.
+struct DetailsCard: View {
+    var pr: PullRequest
+
+    var body: some View {
+        SideCard(title: "Details") {
+            LabeledContent("Size") { DiffStat(pr: pr) }
+            LabeledContent("Opened", value: "\(Format.age(pr.createdAt)) ago").help(Format.date(pr.createdAt))
+            LabeledContent("Updated", value: "\(Format.age(pr.updatedAt)) ago").help(Format.date(pr.updatedAt))
         }
     }
 }

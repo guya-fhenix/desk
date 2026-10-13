@@ -172,10 +172,10 @@ public struct PullRequest: Codable, Sendable, Hashable, Identifiable {
     }
 }
 
-/// One check on a pull request's head commit: an Actions job, another app's check run, or a commit status. What the
-/// details panel lists under a PR's checks, fetched for the one PR on view rather than with every search.
+/// One check on a pull request's head commit: an Actions job, another app's check run, or a commit status. What a PR
+/// page's Checks card lists, fetched for the one PR on view rather than with every search.
 public struct PullRequestCheck: Sendable, Hashable, Identifiable {
-    /// Worst first, which is the order the panel lists them in.
+    /// Worst first, which is the order the Checks card lists them in.
     public enum Outcome: Int, Sendable, Comparable {
         case failed, running, cancelled, passed, neutral, skipped
 
@@ -209,20 +209,64 @@ public struct PullRequestCheck: Sendable, Hashable, Identifiable {
         self.failedStep = failedStep
         self.errors = errors
     }
+}
 
-    /// One workflow's checks, worst first.
-    public struct Group: Sendable, Hashable, Identifiable {
-        public var workflow: String
-        public var checks: [PullRequestCheck]
-        public var id: String { workflow }
-        public var outcome: Outcome { checks.map(\.outcome).min() ?? .passed }
+/// Where one reviewer stands on a PR, as the PR page's Reviewers card lists them.
+public struct ReviewerStatus: Sendable, Hashable, Identifiable {
+    public enum State: Sendable, Hashable { case approved, changesRequested, commented, dismissed, pending }
+
+    public var name: String
+    public var state: State
+    public var id: String { name }
+
+    public init(name: String, state: State) {
+        self.name = name
+        self.state = state
+    }
+}
+
+extension PullRequest {
+    /// Everyone who reviewed, by where they last stood — an approval or a change request outweighs a later comment,
+    /// as GitHub counts it — then everyone asked who has not answered since, as pending. A re-request puts a reviewer
+    /// back to pending. The author's own replies are not a review.
+    public var reviewerStatuses: [ReviewerStatus] {
+        var standing: [String: ReviewerStatus.State] = [:]
+        var order: [String] = []
+        for review in reviews.sorted(by: { $0.submittedAt < $1.submittedAt }) where review.author != author {
+            let state: ReviewerStatus.State
+            switch review.state {
+            case "APPROVED": state = .approved
+            case "CHANGES_REQUESTED": state = .changesRequested
+            case "DISMISSED": state = .dismissed
+            case "COMMENTED":
+                if let held = standing[review.author], held != .commented { continue }
+                state = .commented
+            default: continue
+            }
+            if standing[review.author] == nil { order.append(review.author) }
+            standing[review.author] = state
+        }
+        let asked = Set(requestedReviewers)
+        return order.filter { !asked.contains($0) }.compactMap { name in standing[name].map { ReviewerStatus(name: name, state: $0) } }
+            + requestedReviewers.map { ReviewerStatus(name: $0, state: .pending) }
     }
 
-    /// Grouped by workflow — the ones with no workflow together under "Other checks" — the worst group first, and
-    /// the worst check first inside each.
-    public static func grouped(_ checks: [PullRequestCheck]) -> [Group] {
-        Dictionary(grouping: checks) { $0.workflow ?? "Other checks" }
-            .map { Group(workflow: $0.key, checks: $0.value.sorted { ($0.outcome, $0.name) < ($1.outcome, $1.name) }) }
-            .sorted { ($0.outcome, $0.workflow) < ($1.outcome, $1.workflow) }
+    /// Why GitHub would refuse a squash merge now, in the words the Merge button shows under it; nil when it would
+    /// take one. Clean, unstable (a check that is not required failed) and hooks-pending all merge.
+    public var mergeBlocker: String? {
+        if isDraft || mergeState == .draft { return "A draft: mark it ready for review first" }
+        switch mergeState {
+        case .clean, .unstable, .hasHooks: return nil
+        case .dirty: return "Conflicts with \(baseRef)"
+        case .behind: return "Behind \(baseRef): update the branch first"
+        case .unknown: return "GitHub is still working out whether it can merge"
+        case .draft: return "A draft: mark it ready for review first"
+        case .blocked:
+            switch reviewDecision {
+            case .changesRequested: return "Changes requested"
+            case .reviewRequired: return "Needs an approving review"
+            default: return checks.isRed ? "Required checks are failing" : "Blocked by the rules on \(baseRef)"
+            }
+        }
     }
 }

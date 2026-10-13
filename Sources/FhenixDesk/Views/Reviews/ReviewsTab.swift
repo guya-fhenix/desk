@@ -88,7 +88,7 @@ struct ReviewsTab: View {
             ScrollViewReader { proxy in
                 List(selection: $selection) {
                     ForEach(rows, id: \.url) { pr in
-                        ListRow(selected: selection == pr.url) {
+                        ListRow(selected: selection == pr.url, open: { open(pr.url) }) {
                             QueueRow(pr: pr, model: model, onMe: onMe.contains(pr.url))
                         }
                     }
@@ -99,10 +99,10 @@ struct ReviewsTab: View {
                 .onAppear { listFocused = true }
                 .onKeyPress(.rightArrow) {
                     guard let selection else { return .ignored }
-                    opened = selection
+                    open(selection)
                     return .handled
                 }
-                // Return, → or a double-click opens the PR's page; GitHub is a press on the page or in this menu.
+                // A click, Return or → opens the PR's page; GitHub is a press on the page or in this menu.
                 .contextMenu(forSelectionType: String.self) { urls in
                     if let pr = rows.first(where: { urls.contains($0.url) }) {
                         PullRequestMenu(pr: pr, model: model)
@@ -114,13 +114,19 @@ struct ReviewsTab: View {
                         }
                     }
                 } primaryAction: { urls in
-                    if let url = urls.first { opened = url }
+                    if let url = urls.first { open(url) }
                 }
                 .onChange(of: selection, initial: true) { _, url in
                     if let url { withAnimation(reduceMotion ? nil : .default) { proxy.scrollTo(url, anchor: .center) } }
                 }
             }
         }
+    }
+
+    /// Its page, with its row selected behind it for the way back.
+    private func open(_ url: String) {
+        selection = url
+        opened = url
     }
 
     private var emptyText: String {
@@ -173,6 +179,13 @@ struct ReviewDays: DynamicProperty {
 
     /// The day limit in force, or nil for all time. A typed 0 or less reads as one day.
     var window: Int? { limited ? max(days, 1) : nil }
+
+    /// The same, read where no view is, as the menu bar's menu is.
+    static var current: Int? {
+        let defaults = UserDefaults.standard
+        guard defaults.bool(forKey: "reviews.limited") else { return nil }
+        return max(defaults.object(forKey: "reviews.days") as? Int ?? 14, 1)
+    }
 }
 
 /// How far back the queue reaches, drawn like the sort menu beside it: every PR, or only the ones opened in the
@@ -196,8 +209,8 @@ private struct DaysFilter: View {
         } label: {
             MenuBox(title: "Opened", value: limited ? Self.title(max(days, 1)) : "All time")
         }
-        .menuStyle(.button)
-        .buttonStyle(.plain)
+        .menuStyle(.button).handCursor()
+        .buttonStyle(.plain).handCursor()
         .menuIndicator(.hidden)
         .fixedSize()
         .help("Show every pull request, or only the ones opened in the last few days")
@@ -221,7 +234,7 @@ private struct DaysFilter: View {
 
 /// One PR in the queue: the author's picture, where the review stands and the title, a monospaced line with
 /// number, repo, author, branches, size and checks, the presses on the right, and how long it has waited.
-private struct QueueRow: View {
+struct QueueRow: View {
     var pr: PullRequest
     var model: AppModel
     var onMe: Bool
@@ -318,50 +331,55 @@ private struct QueueActions: View {
     }
 }
 
-/// A PR in the queue on its own page: what it is and every press on it at the top — Review first, it is what this
-/// screen is for — the description and the workflows in the wide column, where your review stands beside them.
-private struct ReviewPage: View {
+/// A PR in the queue on its own page, laid out as a PR page is: what it is and its status line — checks, whether it is
+/// on you, where your draft stands — with Review and the session on the right; the description in the wide column;
+/// the details and the checks beside it.
+struct ReviewPage: View {
     var pr: PullRequest
     var model: AppModel
     var onMe: Bool
+    /// The screen it was opened from, which its back link names and returns to.
+    var back = "Reviews"
     var onBack: () -> Void
 
     var body: some View {
         let status = model.state.reviewStatus(for: pr)
         let ran = status.draft != nil || model.state.reviewRun(for: pr) != nil
         let error = model.state.reviewRun(for: pr)?.error
-        DetailPage(back: "Reviews", onBack: onBack) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text(verbatim: "#\(pr.number) \(pr.title)").scaled(.title).fixedSize(horizontal: false, vertical: true)
-                    .textSelection(.enabled)
-                Text("\(pr.repoName) · \(pr.author) · \(pr.baseRef) ← \(pr.headRef)")
-                    .scaled(.secondary.monospaced()).foregroundStyle(.secondary).textSelection(.enabled)
-            }
+        DetailPage(back: back, onBack: onBack) {
+            // Someone else's PR: its title is theirs to change. GitHub opens on the Files tab, where your draft is.
+            PageHeadline(pr: pr, model: model, gitHub: "\(pr.url)/files", editable: false)
             HStack(spacing: 8) {
-                Button(ran ? "Review again" : "Review") { model.review(pr) }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(!model.canReview(pr))
-                    .help(ran ? "Adds only what your draft does not already have" : "Run Claude on this PR and put its comments in your draft review")
+                ChecksPill(pr: pr)
+                // Each only when it says something: GitHub asked you, and your draft's state, which is blank without one.
+                if onMe { Chip(text: "On you", color: .orange) }
+                ReviewStatusChip(status: status)
+                // The page's actions on the right, where a status line's presses go; why Review is dead, beside it.
+                Spacer(minLength: 8)
                 DisabledReason(text: model.reviewBlocker(pr))
-                Button("Open on GitHub") { model.openDraft(pr) }
-                    .help(pr.pendingReview != nil ? "Your draft review, in the PR's Files tab" : "The PR's Files tab on GitHub")
-                ClaudeSessionButton(pr: pr, model: model).fixedSize()
+                Button(ran ? "Review again" : "Review") { model.review(pr) }
+                    .buttonStyle(.borderedProminent).handCursor()
+                    .disabled(!model.canReview(pr))
+                    .help(
+                        (ran ? "Adds only what your draft does not already have" : "Run Claude on this PR and put its comments in your draft review")
+                            + ", then hands them to the PR's session to talk through"
+                    )
+                ClaudeSessionButton(pr: pr, model: model, prominent: true).fixedSize()
             }
-            .controlSize(.small)
+            if model.reviewHandoffs[pr.url] != nil {
+                Text("The review goes to the session once it is idle.").scaled(.caption).foregroundStyle(.secondary)
+            }
+            if let error = model.sessionErrors[pr.url] {
+                Text(error).scaled(.caption).foregroundStyle(.red).textSelection(.enabled)
+            }
         } main: {
-            // Workflows first: folded they are a few lines, and a description can run for screens.
-            WorkflowsSection(pr: pr, model: model)
             PanelSection("Description") { PullRequestDescription(pr: pr) }
         } side: {
-            PanelSection("Status") {
-                LabeledContent("Checks") { HStack(spacing: 4) { ChecksBadge(pr: pr); Text(pr.checksText) } }
-                LabeledContent("Your review") { ReviewStatusChip(status: status) }
-                LabeledContent("Asked of you", value: onMe ? "Yes" : "No")
-                LabeledContent("Size") { DiffStat(pr: pr) }
-                LabeledContent("Waiting", value: "\(Format.age(pr.createdAt)), since \(Format.date(pr.createdAt))")
-            }
+            DetailsCard(pr: pr)
+            WorkflowsSection(pr: pr, model: model)
+            // The review's own leftovers: why the last run failed, and the checkout it ran in.
             if ran || error != nil {
-                PanelSection("Review") {
+                SideCard(title: "Review worktree") {
                     if let error {
                         Text(error).scaled(.caption).foregroundStyle(.red).textSelection(.enabled)
                     }

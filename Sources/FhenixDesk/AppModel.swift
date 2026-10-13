@@ -45,6 +45,11 @@ final class AppModel {
     var planningTickets: Set<String> = []
     /// PR urls with a background session being started, for the same reason.
     var startingSessions: Set<String> = []
+    /// A finished review's findings waiting for the PR's session, by PR url: the session was working or waiting on you
+    /// when the review landed, and an instruction never cuts in. Sent once a scan finds it idle.
+    /// ponytail: in memory only, so quitting before the session goes idle drops the hand-off; persist it if that bites.
+    var reviewHandoffs: [String: String] = [:]
+    private var sendingHandoffs: Set<String> = []
     /// Flows with an instruction going out or a GitHub write in flight, by job id.
     var busyFlows: Set<String> = []
     /// Set to have the Pull Requests or Reviews screen open this PR's page; the screen clears it. Search, Up Next
@@ -76,18 +81,14 @@ final class AppModel {
         set { state.config = newValue }
     }
 
-    var urgentCount: Int { state.nudges.filter { $0.severity >= .warning }.count }
-
     /// The tickets whose automatic move failed. The rest the app moves on its own, so only these need you.
     var failedDrifts: [TicketDrift] { state.ticketDrifts.filter { ticketMoveErrors[$0.ticket.key] != nil } }
 
-    /// Every row Up Next lists. The sidebar badge and the menu panel show this same number, so no two places
-    /// disagree about how much is waiting there.
-    var upNextCount: Int { state.nudges.count + failedDrifts.count }
-
-    /// Set by the menu bar item, which lives outside every SwiftUI scene and so cannot observe the
-    /// model the way a view does.
-    var onUrgentCountChange: ((Int) -> Void)?
+    /// What Up Next has waiting on you: every section but Waiting, and the Jira moves that failed. `reviewDays` is the
+    /// Reviews screen's day filter, which Up Next's reviews follow.
+    func upNextCount(reviewDays: Int?) -> Int {
+        state.upNext(reviewDays: reviewDays).filter { $0.section != .waiting }.reduce(0) { $0 + $1.pullRequests.count } + failedDrifts.count
+    }
 
     func start() async {
         jiraAccount = await service.jiraAccount()
@@ -154,9 +155,9 @@ final class AppModel {
         await mergeReviews()
         state.recompute()
         advanceFlows()
+        deliverReviewHandoffs()
         syncTickets()
         notifier.deliver(state.nudges, post: config.notificationsEnabled && allSourcesReported)
-        onUrgentCountChange?(urgentCount)
     }
 
     private func mergeReviews() async {
@@ -252,11 +253,59 @@ final class AppModel {
         busyReviews.insert(pr.url)
         Task {
             defer { busyReviews.remove(pr.url) }
-            await service.review(pr: pr, gitScan: gitScan)
+            let run = await service.review(pr: pr, gitScan: gitScan)
             await mergeReviews()
             state.recompute()
             // The draft is on GitHub now, and the row reads it from there.
             await refresh(.github)
+            if run.phase == .posted { handOff(run, of: pr) }
+        }
+    }
+
+    /// Gives a review's findings to the PR's session to talk through: at once if it is idle, once it is if it is busy,
+    /// and in a new session when the PR has none. The review itself stays the locked-down run that wrote the draft.
+    private func handOff(_ run: ReviewRun, of pr: PullRequest) {
+        guard !run.findings.isEmpty || !run.summary.isEmpty else { return }
+        let text = DeskService.reviewHandoffPrompt(for: pr, run: run, config: config)
+        if state.claudeJobs(for: pr).isEmpty {
+            startSession(for: pr, opening: text)
+        } else {
+            reviewHandoffs[pr.url] = text
+            deliverReviewHandoffs()
+        }
+    }
+
+    /// Sends each waiting hand-off whose session is idle, by the flow's rule: never while it works or asks you
+    /// something. A session with no id recorded yet cannot be resumed, so it waits too. Runs after every refresh.
+    private func deliverReviewHandoffs() {
+        for (url, text) in reviewHandoffs where !sendingHandoffs.contains(url) {
+            guard let pr = state.github?.allOpen.first(where: { $0.url == url }) else {
+                reviewHandoffs[url] = nil  // Closed or merged: nothing left to talk through.
+                continue
+            }
+            guard let job = state.claudeJobs(for: pr).first else {
+                // Its session went while the review waited: a new one opens with the findings instead.
+                reviewHandoffs[url] = nil
+                startSession(for: pr, opening: text)
+                continue
+            }
+            guard job.sessionId != nil, FlowEngine.canSend(job, automatic: false, now: Date()) else { continue }
+            let root = state.localRepo(for: pr)?.root ?? job.cwd
+            let candidates = state.worktrees.filter { $0.repoRoot == root }.map(\.path) + [job.cwd, root].filter { !$0.isEmpty }
+            let cwd = job.sessionId.flatMap { DeskService.resumeDirectory(sessionId: $0, candidates: candidates) } ?? root
+            sendingHandoffs.insert(url)
+            Task {
+                defer { sendingHandoffs.remove(url) }
+                do {
+                    try await service.send(text, to: job, cwd: cwd)
+                    sessionErrors[url] = nil
+                } catch {
+                    sessionErrors[url] = "Couldn't hand the review to the session: \(error)"
+                    Self.log.error("review hand-off: \(String(describing: error), privacy: .public)")
+                }
+                reviewHandoffs[url] = nil
+                await refresh(.git)
+            }
         }
     }
 
@@ -361,6 +410,42 @@ final class AppModel {
         NSWorkspace.shared.open(parsed)
     }
 
+    /// Renames your PR on GitHub and shows the new title at once rather than on the next poll. Why it failed, or nil.
+    func retitle(_ pr: PullRequest, to title: String) async -> String? {
+        do {
+            try await service.retitle(pr, to: title)
+        } catch {
+            return "Couldn't rename it: \(error)"
+        }
+        if let index = state.github?.mine.firstIndex(where: { $0.url == pr.url }) { state.github?.mine[index].title = title }
+        state.recompute()
+        Task { await refresh(.github) }
+        return nil
+    }
+
+    /// Squash-merges a PR from its page, in a flow or not: a flow sees it merged on the next poll, as it does when its
+    /// own Merge does it. Why it failed, or nil.
+    func squashMerge(_ pr: PullRequest) async -> String? {
+        do {
+            try await service.squashMerge(pr)
+        } catch {
+            return "Couldn't merge it: \(error)"
+        }
+        await refresh(.github)
+        return nil
+    }
+
+    /// Closes a PR from its page without merging it. Why it failed, or nil.
+    func close(_ pr: PullRequest) async -> String? {
+        do {
+            try await service.close(pr)
+        } catch {
+            return "Couldn't close it: \(error)"
+        }
+        await refresh(.github)
+        return nil
+    }
+
     /// A PR's checks in full, for its page. Not kept: the page asks again each time it shows the PR.
     func checks(for pr: PullRequest) async throws -> [PullRequestCheck] { try await service.checks(for: pr) }
 
@@ -390,7 +475,8 @@ final class AppModel {
 
     /// Starts a background Claude session on the PR's branch. The button that calls this is the one shown
     /// when no session mentions the PR yet; the row flips to Attach as soon as this one lands.
-    func startSession(for pr: PullRequest) {
+    /// `opening` goes after the usual brief: a review's findings, for one started to talk them through.
+    func startSession(for pr: PullRequest, opening: String? = nil) {
         guard let repo = state.localRepo(for: pr), !startingSessions.contains(pr.url) else { return }
         startingSessions.insert(pr.url)
         // A checkout the user already has on that branch is the session's home; nothing else touches git.
@@ -398,7 +484,7 @@ final class AppModel {
         Task {
             defer { startingSessions.remove(pr.url) }
             do {
-                let job = try await service.startClaudeSession(pr: pr, repoRoot: repo.root, worktree: existing)
+                let job = try await service.startClaudeSession(pr: pr, repoRoot: repo.root, worktree: existing, opening: opening)
                 // Held until the next scan reads the same session off disk.
                 state.claudeJobs.insert(job, at: 0)
                 // Only your own PRs have a flow; a session on a teammate's, from Reviews, is just a session.

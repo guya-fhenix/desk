@@ -27,7 +27,7 @@ struct FlowSection: View {
             sessionLine(job)
             stageContent
             Toggle("Pause", isOn: Binding(get: { flow.paused }, set: { model.setPaused(flow, $0) }))
-                .toggleStyle(.switch)
+                .toggleStyle(.switch).handCursor()
                 .controlSize(.small)
                 .help("While paused the app sends this session nothing, and you drive it yourself.")
             if let note = flow.note {
@@ -81,7 +81,7 @@ struct FlowSection: View {
                 let blocker = model.approveBlocker(flow, pr)
                 DisabledReason(text: blocker)
                 Button("Approve") { model.approveDraft(flow) }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.borderedProminent).handCursor()
                     .disabled(blocker != nil)
             }
         case .fixesToCheck:
@@ -94,7 +94,7 @@ struct FlowSection: View {
                 Spacer()
                 if busy { ProgressView().controlSize(.mini) }
                 Button("Approve") { model.approveFixes(flow) }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.borderedProminent).handCursor()
                     .disabled(busy || flow.paused)
                     .help("Marks the PR ready for review and asks \(model.config.reviewTeam) to review it")
             }
@@ -111,7 +111,7 @@ struct FlowSection: View {
                     .scaled(.caption).foregroundStyle(.secondary)
                 Spacer()
                 Button(applying == 0 ? "Skip all" : "Apply \(applying) \(applying == 1 ? "fix" : "fixes")") { model.applyProposals(flow) }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.borderedProminent).handCursor()
                     .disabled(undecided > 0 || flow.paused)
             }
         case .approved:
@@ -122,7 +122,7 @@ struct FlowSection: View {
                 let blocker = model.mergeBlocker(flow, pr)
                 if !busy { DisabledReason(text: blocker) }
                 Button("Merge") { model.merge(flow) }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.borderedProminent).handCursor()
                     .disabled(blocker != nil)
                     .help(blocker ?? "Squash-merges the PR into \(pr.baseRef)")
             }
@@ -159,7 +159,7 @@ private struct ProposalCard: View {
                     Toggle("Resolve after fixing", isOn: Binding(
                         get: { proposal.resolve }, set: { model.setResolve(flow, proposal: index, $0) }
                     ))
-                    .toggleStyle(.checkbox)
+                    .toggleStyle(.checkbox).handCursor()
                     .scaled(.caption)
                     .disabled(proposal.apply == false)
                     .help("On: the thread is resolved once the fix is pushed. Off: it stays open for the reviewer.")
@@ -171,7 +171,7 @@ private struct ProposalCard: View {
                     Text("Apply").tag(Bool?.some(true))
                     Text("Skip").tag(Bool?.some(false))
                 }
-                .pickerStyle(.segmented)
+                .pickerStyle(.segmented).handCursor()
                 .labelsHidden()
                 .fixedSize()
             }

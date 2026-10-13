@@ -109,4 +109,10 @@ public struct StackedPullRequest: Identifiable, Sendable, Hashable {
     public var stackSize: Int
 
     public var id: String { pullRequest.url }
+
+    public init(pullRequest: PullRequest, depth: Int = 0, stackSize: Int = 1) {
+        self.pullRequest = pullRequest
+        self.depth = depth
+        self.stackSize = stackSize
+    }
 }

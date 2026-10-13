@@ -35,7 +35,7 @@ struct TicketsTab: View {
                         GroupHeader(title: group.status, count: group.tickets.count).plainListRow().selectionDisabled()
                         ForEach(group.tickets) { ticket in
                             ListRow(selected: selection == ticket.key) {
-                                TicketRow(ticket: ticket, model: model) { plan(ticket, $0) }
+                                TicketRow(ticket: ticket, model: model)
                             }
                         }
                     }
@@ -125,12 +125,10 @@ struct TicketsTab: View {
 }
 
 /// One ticket in its status group: the status colour, the summary, and a monospaced line with key, priority and
-/// how many open PRs name it; where its PRs say Jira should move it, and the Start press, on the right.
-private struct TicketRow: View {
+/// how many open PRs name it; where its PRs say Jira should move it, on the right.
+struct TicketRow: View {
     var ticket: Ticket
     var model: AppModel
-    /// Picking a repository from Start opens the sheet that asks what the plan is for.
-    var plan: (RepoRef) -> Void
 
     var body: some View {
         let linked = model.state.pullRequests(forTicket: ticket.key).count
@@ -145,10 +143,10 @@ private struct TicketRow: View {
                     + (linked > 0 ? [Text("\(linked) open \(linked == 1 ? "PR" : "PRs")")] : []))
             }
             Spacer(minLength: 8)
+            // Start in… is on the ticket's details panel and page, not repeated on every row.
             if let drift = model.state.drift(forKey: ticket.key) {
                 DriftBadge(drift: drift, model: model)
             }
-            PlanButton(ticket: ticket, model: model, onPick: plan)
         }
     }
 }
@@ -208,13 +206,13 @@ private struct TicketInspector: View {
                 }
                 HStack {
                     Button("Open in Jira") { model.open(ticket.url) }
-                    planMenu
+                    StartInMenu(ticket: ticket, model: model, plan: plan)
                 }
                 .controlSize(.small)
             }
             if let drift = model.state.drift(forKey: ticket.key) {
                 PanelSection("Jira is behind") {
-                    Text(reason(drift)).scaled(.caption)
+                    Text(driftReason(drift)).scaled(.caption)
                     if let error = model.ticketMoveErrors[ticket.key] {
                         Text("The move failed: \(error)").scaled(.caption).foregroundStyle(.red).textSelection(.enabled)
                     }
@@ -237,7 +235,7 @@ private struct TicketInspector: View {
                     HStack(spacing: 6) {
                         ChecksBadge(pr: pr)
                         Button { model.open(pr.url) } label: { Text(verbatim: "\(pr.repoName)#\(pr.number) \(pr.title)").lineLimit(1) }
-                            .buttonStyle(.link)
+                            .buttonStyle(.link).handCursor()
                     }
                 }
             }
@@ -251,67 +249,128 @@ private struct TicketInspector: View {
         }
     }
 
-    @ViewBuilder private var planMenu: some View {
-        let repos = (model.state.gitScan?.repos ?? []).sorted { $0.name < $1.name }
-        if model.planningTickets.contains(ticket.key) {
-            ProgressView().controlSize(.mini)
-        } else if !repos.isEmpty {
-            Menu("Start in…") {
-                ForEach(repos, id: \.root) { repo in RepoMenuItem(repo: repo, model: model) { plan(ticket, repo) } }
-            }
-            .fixedSize()
-            .help(model.sessionErrors[ticket.key] ?? "Start \(ticket.key) in a background Claude session")
-        }
-    }
-
-    private func reason(_ drift: TicketDrift) -> String {
-        let prs = drift.pullRequests.map { "\($0.repoName)#\($0.number)" }.joined(separator: ", ")
-        let because = drift.stage == .done ? "\(prs) merged" : "\(prs) open for review"
-        return "Jira says “\(drift.ticket.status)”. \(because), so it should be “\(drift.target)”."
-    }
 }
 
-/// Starts a background Claude session to plan this ticket, in a repository you pick — a ticket names no
-/// repository, and a plan is worth little without the code it is about.
-///
-/// Nothing binds the session to the ticket, so this stays a plain press rather than a state: the session
-/// is expected to reach a pull request, and that is what the app follows from then on.
-private struct PlanButton: View {
+/// Why the app is moving a ticket, in a sentence.
+private func driftReason(_ drift: TicketDrift) -> String {
+    let prs = drift.pullRequests.map { "\($0.repoName)#\($0.number)" }.joined(separator: ", ")
+    let because = drift.stage == .done ? "\(prs) merged" : "\(prs) open for review"
+    return "Jira says “\(drift.ticket.status)”. \(because), so it should be “\(drift.target)”."
+}
+
+/// "Start in…": the repositories a ticket can be planned in, each opening the sheet that asks what the plan is for.
+/// Filled on a ticket's page, where it is the page's action.
+struct StartInMenu: View {
     var ticket: Ticket
     var model: AppModel
-    /// Picking the repository does not start anything: it opens the sheet that asks what the plan is for.
-    var onPick: (RepoRef) -> Void
+    var plan: (Ticket, RepoRef) -> Void
+    var prominent = false
 
     var body: some View {
         let repos = (model.state.gitScan?.repos ?? []).sorted { $0.name < $1.name }
         if model.planningTickets.contains(ticket.key) {
-            ProgressView().controlSize(.mini).help("Starting a session on \(ticket.key)")
+            ProgressView().controlSize(.mini)
         } else if !repos.isEmpty {
-            Menu {
-                ForEach(repos, id: \.root) { repo in
-                    RepoMenuItem(repo: repo, model: model) { onPick(repo) }
-                }
-            } label: {
-                // The hollow terminal the Pull Requests screen uses for "no session yet, pressing starts
-                // one", with the words beside it. It never fills here: a planning session is tied to nothing.
-                Label {
-                    Text("Start in…")
-                } icon: {
-                    Image(systemName: "terminal")
-                        .foregroundStyle(model.sessionErrors[ticket.key] == nil ? Color.secondary : .red)
-                }
+            let menu = Menu("Start in…") {
+                ForEach(repos, id: \.root) { repo in RepoMenuItem(repo: repo, model: model) { plan(ticket, repo) } }
             }
-            .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
-            .controlSize(.small)
-            .labelStyle(.titleAndIcon)
-            .help(model.sessionErrors[ticket.key] ?? help)
+            Group {
+                if prominent { menu.menuStyle(.button).buttonStyle(.borderedProminent) } else { menu }
+            }
+            .fixedSize()
+            .handCursor()
+            .help(model.sessionErrors[ticket.key] ?? "Start \(ticket.key) in a background Claude session")
         }
     }
+}
 
-    private var help: String {
-        let status = model.config.jiraInProgressStatus
-        let move = status.isEmpty ? "" : ", and move it to “\(status)”"
-        return "Start \(ticket.key) in a background Claude session\(move)"
+/// A ticket's own page, opened from Up Next and laid out as a PR's: its key set apart from its summary with Jira's
+/// mark to open it there, a status line of where it stands with Start in… on the right; the description in the wide
+/// column; its pull requests, sessions and how Jira has fallen behind beside it.
+struct TicketPage: View {
+    var ticket: Ticket
+    var model: AppModel
+    /// The screen it was opened from, which its back link names and returns to.
+    var back: String
+    var plan: (Ticket, RepoRef) -> Void
+    var onBack: () -> Void
+    @Environment(\.textScale) private var scale
+
+    var body: some View {
+        // As on a PR page: the icon's middle on the middle of the title's capitals.
+        let lift = (AppTextStyle.title.size * scale).rounded() * 0.35
+        let flows = model.state.flows(forTicket: ticket.key)
+        DetailPage(back: back, onBack: onBack) {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                (Text(verbatim: "\(ticket.key) ").foregroundStyle(.secondary) + Text(ticket.summary))
+                    .scaled(.title)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
+                Button { model.open(ticket.url) } label: {
+                    HStack(spacing: 3) {
+                        SidebarIcon(name: SidebarIcon.jira)
+                        Image(systemName: "arrow.up.right").scaled(.caption)
+                    }
+                }
+                .buttonStyle(IconButtonStyle())
+                .help("Open in Jira")
+                .accessibilityLabel("Open in Jira")
+                .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + lift }
+            }
+            HStack(spacing: 8) {
+                HStack(spacing: 6) {
+                    StatusDot(color: TicketColor.of(ticket.category))
+                    Text(ticket.status)
+                }
+                .pill()
+                if let priority = ticket.priority { PriorityMark.text(priority).pill() }
+                HStack(spacing: 6) {
+                    AssigneeAvatar(ticket: ticket, size: 16)
+                    Text(ticket.assignedToMe ? "You" : ticket.assignee ?? "Unassigned")
+                }
+                .pill()
+                if let drift = model.state.drift(forKey: ticket.key) { DriftBadge(drift: drift, model: model) }
+                // The page's action on the right, where a status line's presses go.
+                Spacer(minLength: 8)
+                StartInMenu(ticket: ticket, model: model, plan: plan, prominent: true)
+            }
+            if let error = model.sessionErrors[ticket.key] {
+                Text(error).scaled(.caption).foregroundStyle(.red).textSelection(.enabled)
+            }
+        } main: {
+            PanelSection("Description") {
+                if ticket.description.isEmpty {
+                    Text("No description.").foregroundStyle(.secondary)
+                } else {
+                    MarkdownText(text: ticket.description)
+                }
+            }
+        } side: {
+            let prs = model.state.pullRequests(forTicket: ticket.key)
+            SideCard(title: "Pull requests", count: prs.isEmpty ? nil : prs.count) {
+                if prs.isEmpty { Text("None open").foregroundStyle(.secondary) }
+                ForEach(prs) { pr in
+                    HStack(spacing: 6) {
+                        ChecksBadge(pr: pr)
+                        Button { model.open(pr.url) } label: { Text(verbatim: "\(pr.repoName)#\(pr.number) \(pr.title)").lineLimit(1) }
+                            .buttonStyle(.link).handCursor()
+                    }
+                }
+            }
+            if !flows.isEmpty {
+                SideCard(title: "Sessions") {
+                    ForEach(flows) { flow in FlowRow(flow: flow, model: model) }
+                }
+            }
+            if let drift = model.state.drift(forKey: ticket.key) {
+                SideCard(title: "Jira is behind") {
+                    Text(driftReason(drift)).scaled(.caption)
+                    if let error = model.ticketMoveErrors[ticket.key] {
+                        Text("The move failed: \(error)").scaled(.caption).foregroundStyle(.red).textSelection(.enabled)
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -329,7 +388,7 @@ private struct FlowRow: View {
             HStack(spacing: 6) {
                 StageChip(stage: flow.stage).fixedSize()
                 if let pr {
-                    Button { model.open(pr.url) } label: { Text(verbatim: "\(pr.repoName)#\(pr.number)") }.buttonStyle(.link)
+                    Button { model.open(pr.url) } label: { Text(verbatim: "\(pr.repoName)#\(pr.number)") }.buttonStyle(.link).handCursor()
                 } else {
                     Text(URL(fileURLWithPath: flow.repoRoot).lastPathComponent)
                 }
@@ -372,7 +431,7 @@ private struct RepoMenuItem: View {
 }
 
 /// A plan asked for but not yet started: the repository is chosen, the note is not yet written.
-private struct PlanRequest: Identifiable {
+struct PlanRequest: Identifiable {
     var ticket: Ticket
     var repo: RepoRef
 
@@ -382,7 +441,7 @@ private struct PlanRequest: Identifiable {
 /// The last step before a planning session starts. The ticket and its description go along whatever
 /// happens here; this is for the part the ticket does not say — what to focus on, what to leave alone,
 /// how far to take it.
-private struct PlanSheet: View {
+struct PlanSheet: View {
     var request: PlanRequest
     var model: AppModel
     @Binding var note: String
@@ -419,7 +478,7 @@ private struct PlanSheet: View {
                     model.planTicket(request.ticket, in: request.repo, note: note)
                     dismiss()
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.borderedProminent).handCursor()
                 // Return belongs to the editor, so the press that starts it is ⌘-Return.
                 .keyboardShortcut(.return, modifiers: .command)
             }
@@ -459,7 +518,7 @@ private struct AssigneeFilter: View {
                 if people.count > Self.shown { more }
             }
             if !selection.isEmpty {
-                Button("Clear filters") { selection = [] }.buttonStyle(.link).fixedSize()
+                Button("Clear filters") { selection = [] }.buttonStyle(.link).handCursor().fixedSize()
             }
         }
     }
@@ -479,7 +538,7 @@ private struct AssigneeFilter: View {
                         Toggle(isOn: Binding(get: { selection.contains(.person(person.name)) }, set: { _ in toggle(.person(person.name)) })) {
                             HStack(spacing: 8) { Avatar(login: person.name, url: person.avatar, size: 20); Text(person.name) }
                         }
-                        .toggleStyle(.checkbox)
+                        .toggleStyle(.checkbox).handCursor()
                     }
                 }
                 .padding(12)
@@ -513,7 +572,7 @@ private struct FilterFace<Face: View>: View {
                 .offset(y: hovering && !reduceMotion ? -3 : 0)
                 .contentShape(Circle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.plain).handCursor()
         .zIndex(hovering ? 2 : on ? 1 : 0)
         .onHover { hovering = $0 }
         .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: hovering)
