@@ -192,7 +192,13 @@ private struct TicketInspector: View {
             PanelSection {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(ticket.key).scaled(.caption.monospaced()).foregroundStyle(.secondary).textSelection(.enabled)
-                    Text(ticket.summary).scaled(.title3.weight(.semibold)).fixedSize(horizontal: false, vertical: true)
+                    EditableTitle(
+                        prefix: "", title: ticket.summary, what: "the ticket", editable: true, style: .title3.weight(.semibold)
+                    ) {
+                        await model.editTicket(ticket, summary: $0)
+                    } trailing: {
+                        EmptyView()
+                    }
                 }
                 LabeledContent("Status") {
                     HStack(spacing: 6) { StatusDot(color: TicketColor.of(ticket.category)); Text(ticket.status) }
@@ -239,13 +245,7 @@ private struct TicketInspector: View {
                     }
                 }
             }
-            PanelSection("Description") {
-                if ticket.description.isEmpty {
-                    Text("No description.").foregroundStyle(.secondary)
-                } else {
-                    MarkdownText(text: ticket.description)
-                }
-            }
+            TicketDescription(ticket: ticket, model: model)
         }
     }
 
@@ -294,18 +294,14 @@ struct TicketPage: View {
     var back: String
     var plan: (Ticket, RepoRef) -> Void
     var onBack: () -> Void
-    @Environment(\.textScale) private var scale
 
     var body: some View {
         // As on a PR page: the icon's middle on the middle of the title's capitals.
-        let lift = (AppTextStyle.title.size * scale).rounded() * 0.35
         let flows = model.state.flows(forTicket: ticket.key)
         DetailPage(back: back, onBack: onBack) {
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                (Text(verbatim: "\(ticket.key) ").foregroundStyle(.secondary) + Text(ticket.summary))
-                    .scaled(.title)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .textSelection(.enabled)
+            EditableTitle(prefix: ticket.key, title: ticket.summary, what: "the ticket", editable: true) {
+                await model.editTicket(ticket, summary: $0)
+            } trailing: {
                 Button { model.open(ticket.url) } label: {
                     HStack(spacing: 3) {
                         SidebarIcon(name: SidebarIcon.jira)
@@ -315,7 +311,6 @@ struct TicketPage: View {
                 .buttonStyle(IconButtonStyle())
                 .help("Open in Jira")
                 .accessibilityLabel("Open in Jira")
-                .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + lift }
             }
             HStack(spacing: 8) {
                 HStack(spacing: 6) {
@@ -338,13 +333,7 @@ struct TicketPage: View {
                 Text(error).scaled(.caption).foregroundStyle(.red).textSelection(.enabled)
             }
         } main: {
-            PanelSection("Description") {
-                if ticket.description.isEmpty {
-                    Text("No description.").foregroundStyle(.secondary)
-                } else {
-                    MarkdownText(text: ticket.description)
-                }
-            }
+            TicketDescription(ticket: ticket, model: model)
         } side: {
             let prs = model.state.pullRequests(forTicket: ticket.key)
             SideCard(title: "Pull requests", count: prs.isEmpty ? nil : prs.count) {

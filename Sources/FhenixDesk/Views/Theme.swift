@@ -24,6 +24,11 @@ enum Theme {
             : NSColor(red: 0.86, green: 0.91, blue: 0.98, alpha: 1)
     })
 
+    /// GitHub's purple for a merged PR (#8250DF) and its red for one closed unmerged (#CF222E): the light-mode shades in
+    /// both appearances, the ones white text clears 4.5:1 on.
+    static let merged = Color(red: 0.51, green: 0.31, blue: 0.87)
+    static let closed = Color(red: 0.81, green: 0.13, blue: 0.18)
+
     /// A grey that resolves per appearance: light, dark, and each with Increase Contrast on.
     private static func gray(light: CGFloat, dark: CGFloat, lightContrast: CGFloat, darkContrast: CGFloat) -> Color {
         Color(nsColor: NSColor(name: nil) { appearance in

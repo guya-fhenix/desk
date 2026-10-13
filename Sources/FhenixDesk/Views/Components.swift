@@ -679,15 +679,54 @@ struct PullRequestDescription: View {
     }
 }
 
-/// A PR page's headline: the number set apart from the title, a pencil beside it on hover — on your own PR — that
-/// turns the title into a field, where Return saves it to GitHub and Esc puts it back; then GitHub's mark to open it
-/// there. Under it the repo, author and branches, with a copy button for the branch.
+/// A PR page's headline: its title, editable on your own PR, with GitHub's mark beside it to open it there — on the
+/// Files tab for a review, where your draft is; under it the repo, author and branches, with a copy button for the
+/// branch.
 struct PageHeadline: View {
     var pr: PullRequest
     var model: AppModel
     /// Where GitHub's mark goes: the PR, or for a review its Files tab, where your draft is.
     var gitHub: String
     var editable: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            EditableTitle(prefix: "#\(pr.number)", title: pr.title, what: "the PR", editable: editable) {
+                await model.retitle(pr, to: $0)
+            } trailing: {
+                Button { model.open(gitHub) } label: {
+                    HStack(spacing: 3) {
+                        GitHubMark()
+                        Image(systemName: "arrow.up.right").scaled(.caption)
+                    }
+                }
+                .buttonStyle(IconButtonStyle())
+                .help("Open on GitHub")
+                .accessibilityLabel("Open on GitHub")
+            }
+            HStack(spacing: 6) {
+                Text("\(pr.repoName) · \(pr.author) · \(pr.baseRef) ← \(pr.headRef)")
+                    .scaled(.secondary.monospaced()).foregroundStyle(.secondary).textSelection(.enabled)
+                CopyButton(text: pr.headRef, what: "the branch name")
+            }
+        }
+    }
+}
+
+/// A page's title with the number or key it goes by set apart before it, and, when `editable`, a pencil on hover that
+/// turns it into a field: Return saves it through `save`, Esc puts it back, the error if any under it. `trailing` is
+/// what sits beside it, such as the mark that opens it on GitHub or in Jira.
+struct EditableTitle<Trailing: View>: View {
+    var prefix: String
+    var title: String
+    /// What it is the title of, for the pencil's tooltip: "the PR", "the ticket".
+    var what: String
+    var editable: Bool
+    /// A page's title size, or a panel's smaller one.
+    var style: AppTextStyle = .title
+    /// Saves the new title; why it failed, or nil.
+    var save: (String) async -> String?
+    @ViewBuilder var trailing: Trailing
     @Environment(\.focusPage) private var focusPage
     @Environment(\.textScale) private var scale
     @State private var hovering = false
@@ -701,22 +740,17 @@ struct PageHeadline: View {
         VStack(alignment: .leading, spacing: 6) {
             if editing { field } else { headline }
             if let error { Text(error).scaled(.caption).foregroundStyle(.red).textSelection(.enabled) }
-            HStack(spacing: 6) {
-                Text("\(pr.repoName) · \(pr.author) · \(pr.baseRef) ← \(pr.headRef)")
-                    .scaled(.secondary.monospaced()).foregroundStyle(.secondary).textSelection(.enabled)
-                CopyButton(text: pr.headRef, what: "the branch name")
-            }
         }
     }
 
     private var headline: some View {
         // Puts an icon's middle on the middle of the title's capitals, half a cap height above its baseline; on the
         // baseline itself, as an icon's own baseline is, it hung low. SF's capitals are 0.7 of the point size.
-        let lift = (AppTextStyle.title.size * scale).rounded() * 0.35
+        let lift = (style.size * scale).rounded() * 0.35
         return HStack(alignment: .firstTextBaseline, spacing: 6) {
-            // The number is GitHub's, not part of the title, so it reads as a label beside it.
-            (Text(verbatim: "#\(pr.number) ").foregroundStyle(.secondary) + Text(pr.title))
-                .scaled(.title)
+            // The number or key is GitHub's or Jira's, not part of the title, so it reads as a label beside it.
+            (Text(verbatim: prefix.isEmpty ? "" : "\(prefix) ").foregroundStyle(.secondary) + Text(title))
+                .scaled(style)
                 .fixedSize(horizontal: false, vertical: true)
                 .textSelection(.enabled)
             if editable {
@@ -725,21 +759,15 @@ struct PageHeadline: View {
                     // Kept in place while hidden, so the title does not shift when the pointer arrives; VoiceOver
                     // still finds it.
                     .opacity(hovering ? 1 : 0)
-                    .help("Rename the PR")
-                    .accessibilityLabel("Rename the PR")
+                    .help("Rename \(what)")
+                    .accessibilityLabel("Rename \(what)")
                     .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + lift }
             }
-            Button { model.open(gitHub) } label: {
-                HStack(spacing: 3) {
-                    GitHubMark()
-                    Image(systemName: "arrow.up.right").scaled(.caption)
-                }
-            }
-            .buttonStyle(IconButtonStyle())
-            .help("Open on GitHub")
-            .accessibilityLabel("Open on GitHub")
-            .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + lift }
+            trailing.alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + lift }
         }
+        // The whole row, gaps included: without it the space between the title's end and the pencil was outside, the
+        // pencil faded on the way to it, and a faded button takes no click.
+        .contentShape(Rectangle())
         .onHover { hovering = $0 }
     }
 
@@ -747,9 +775,9 @@ struct PageHeadline: View {
         HStack(spacing: 6) {
             TextField("Title", text: $draft)
                 .textFieldStyle(.plain)
-                .scaled(.title)
+                .scaled(style)
                 .focused($fieldFocused)
-                .onSubmit(save)
+                .onSubmit(commit)
                 .onExitCommand(perform: cancel)
                 .disabled(saving)
                 .padding(.horizontal, 8)
@@ -759,14 +787,14 @@ struct PageHeadline: View {
             if saving {
                 ProgressView().controlSize(.small)
             } else {
-                Button(action: save) { KeyCap(key: "↩") }.buttonStyle(.plain).handCursor().help("Save (Return)")
+                Button(action: commit) { KeyCap(key: "↩") }.buttonStyle(.plain).handCursor().help("Save (Return)")
                 Button(action: cancel) { KeyCap(key: "Esc") }.buttonStyle(.plain).handCursor().help("Cancel (Esc)")
             }
         }
     }
 
     private func start() {
-        draft = pr.title
+        draft = title
         error = nil
         editing = true
         // Once the field is on screen; focusing it selects the whole title, ready to be typed over.
@@ -782,12 +810,95 @@ struct PageHeadline: View {
         focusPage()
     }
 
-    private func save() {
-        let title = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !title.isEmpty, title != pr.title else { return cancel() }
+    private func commit() {
+        let new = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !new.isEmpty, new != title else { return cancel() }
         saving = true
         Task {
-            error = await model.retitle(pr, to: title)
+            error = await save(new)
+            saving = false
+            if error == nil {
+                editing = false
+                focusPage()
+            }
+        }
+    }
+}
+
+/// A ticket's description, with Edit beside its heading: a box holding the markdown it reads as, where ⌘↩ or Save
+/// writes it to Jira and Esc or Cancel puts it back. Not offered for a description holding what that markdown cannot
+/// carry — mentions, images, panels — since saving would drop them; Jira is the place to edit those.
+struct TicketDescription: View {
+    var ticket: Ticket
+    var model: AppModel
+    @Environment(\.focusPage) private var focusPage
+    @State private var editing = false
+    @State private var draft = ""
+    @State private var saving = false
+    @State private var error: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Theme.Space.s) {
+            HStack {
+                Text("Description").scaled(.callout.weight(.medium)).foregroundStyle(.secondary)
+                Spacer()
+                if !editing {
+                    Button("Edit", action: start)
+                        .controlSize(.small)
+                        .handCursor()
+                        .disabled(!ticket.descriptionEditable)
+                        .help(ticket.descriptionEditable
+                            ? "Edit the description; saving writes it to Jira"
+                            : "It has mentions, images or panels that saving from here would drop: edit it in Jira")
+                }
+            }
+            if editing {
+                TextEditor(text: $draft)
+                    .scaled(.body)
+                    .scrollContentBackground(.hidden)
+                    .disabled(saving)
+                    .frame(minHeight: 260)
+                    .padding(8)
+                    .background(Theme.raised, in: RoundedRectangle(cornerRadius: 8))
+                    .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Theme.accent, lineWidth: 1.5))
+                HStack(spacing: 8) {
+                    // Verbatim: the hint shows the syntax, so it must not be rendered as markdown itself.
+                    Text(verbatim: "Markdown: # headings, - lists, **bold**, `code`, [links](https://…)")
+                        .scaled(.caption.monospaced()).foregroundStyle(.secondary)
+                    Spacer()
+                    if saving { ProgressView().controlSize(.small) }
+                    Button("Cancel", action: cancel).keyboardShortcut(.cancelAction).disabled(saving)
+                    Button("Save", action: commit)
+                        .buttonStyle(.borderedProminent).handCursor()
+                        .keyboardShortcut(.return, modifiers: .command)
+                        .disabled(saving || draft == ticket.description)
+                }
+                if let error { Text(error).scaled(.caption).foregroundStyle(.red).textSelection(.enabled) }
+            } else if ticket.description.isEmpty {
+                Text("No description.").foregroundStyle(.secondary)
+            } else {
+                MarkdownText(text: ticket.description)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func start() {
+        draft = ticket.description
+        error = nil
+        editing = true
+    }
+
+    private func cancel() {
+        editing = false
+        error = nil
+        focusPage()
+    }
+
+    private func commit() {
+        saving = true
+        Task {
+            error = await model.editTicket(ticket, description: draft)
             saving = false
             if error == nil {
                 editing = false

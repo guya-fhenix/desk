@@ -38,4 +38,11 @@ import Testing
         #expect(JiraDecoding.transitionFailure(in: "   \n") == "acli did not confirm the transition")
         #expect(JiraDecoding.transitionFailure(in: #"{"totalCount": 1, "successCount": 0}"#) == "acli did not confirm the transition")
     }
+
+    /// An edit is read the same way: acli says FAILURE in a body it exits 0 with.
+    @Test func aRefusedEditIsAFailure() {
+        let text = #"{"results":[{"status":"FAILURE","message":"Issue does not exist or you do not have permission to see it.","id":"PRO-1"}],"totalCount":1,"successCount":0}"#
+        #expect(JiraDecoding.writeFailure(in: text, unconfirmed: "x") == "Issue does not exist or you do not have permission to see it.")
+        #expect(JiraDecoding.writeFailure(in: #"{"results":[{"status":"SUCCESS","id":"PRO-1"}],"successCount":1}"#, unconfirmed: "x") == nil)
+    }
 }

@@ -162,9 +162,7 @@ struct PullRequestsTab: View {
         opened = url
     }
 
-    private func pullRequest(_ url: String) -> PullRequest? {
-        (model.state.mine + model.state.recentlyMerged()).first { $0.url == url }
-    }
+    private func pullRequest(_ url: String) -> PullRequest? { model.yourPullRequest(url) }
 }
 
 /// One open PR of yours: its status chips in aligned columns, then its title, and a monospaced line with
@@ -311,10 +309,12 @@ struct PullRequestPage: View {
 
     var body: some View {
         DetailPage(back: back, onBack: onBack) {
-            PageHeadline(pr: pr, model: model, gitHub: pr.url, editable: pr.state != .merged)
+            PageHeadline(pr: pr, model: model, gitHub: pr.url, editable: pr.state == .open)
             HStack(spacing: 8) {
-                // A merged PR has no state left to show and no branch left to work on; its ticket is what is left.
-                if pr.state != .merged {
+                // How it ended, first and in GitHub's colours: a merge or close from this page shows here the moment it lands.
+                EndedPill(pr: pr)
+                // An ended PR has no state left to show and no branch left to work on; its ticket is what is left.
+                if pr.state == .open {
                     // Side by side, not in the list's columns: there is only the one PR to line up.
                     ChecksPill(pr: pr)
                     ReviewBadge(pr: pr)
@@ -323,7 +323,7 @@ struct PullRequestPage: View {
                 JiraStatus(pr: pr, model: model)
                 // The page's action on the right, where a status line's presses go.
                 Spacer(minLength: 8)
-                if pr.state != .merged { SessionStatus(pr: pr, model: model) }
+                if pr.state == .open { SessionStatus(pr: pr, model: model) }
             }
             if let error = model.sessionErrors[pr.url] {
                 Text(error).scaled(.caption).foregroundStyle(.red).textSelection(.enabled)
@@ -331,13 +331,11 @@ struct PullRequestPage: View {
         } main: {
             PanelSection("Description") { PullRequestDescription(pr: pr) }
         } side: {
-            if pr.state == .merged {
-                SideCard(title: "Merged") {
-                    LabeledContent("Merged", value: "\(Format.age(pr.mergedAt)) ago into \(pr.baseRef)")
-                    LabeledContent("Size") { DiffStat(pr: pr) }
-                    LabeledContent("Opened", value: "\(Format.age(pr.createdAt)) ago")
-                }
+            // An ended PR has nothing left to act on or check: who reviewed it and its facts. How it ended is on the
+            // status line.
+            if pr.state != .open {
                 ReviewersCard(pr: pr)
+                DetailsCard(pr: pr)
             } else {
                 ActionsCard(pr: pr, model: model)
                 if let flow = model.state.flow(for: pr) { FlowSection(flow: flow, pr: pr, model: model).sideCard() }
@@ -526,5 +524,38 @@ private struct ReviewersCard: View {
         case .commented: return .orange
         case .dismissed, .pending: return .secondary
         }
+    }
+}
+
+/// How a PR ended, on its status line: "Merged into master · 2h ago" on GitHub's purple, or "Closed" on its red; nothing
+/// while it is open.
+private struct EndedPill: View {
+    var pr: PullRequest
+
+    var body: some View {
+        switch pr.state {
+        case .merged:
+            pill("arrow.triangle.merge", "Merged", "into \(pr.baseRef) · \(Format.age(pr.mergedAt)) ago", Theme.merged)
+                .help(pr.mergedAt.map { "Merged \(Format.date($0))" } ?? "Merged")
+        case .closed:
+            pill("xmark.circle", "Closed", "without merging", Theme.closed).help("Closed unmerged; it can be reopened on GitHub")
+        case .open:
+            EmptyView()
+        }
+    }
+
+    private func pill(_ symbol: String, _ word: String, _ detail: String, _ color: Color) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: symbol)
+            Text(word).fontWeight(.medium)
+            Text(detail).opacity(0.85)
+        }
+        .scaled(.secondary)
+        .foregroundStyle(.white)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 4)
+        .background(color, in: Capsule())
+        .fixedSize()
+        .accessibilityElement(children: .combine)
     }
 }

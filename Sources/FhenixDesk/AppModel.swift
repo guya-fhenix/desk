@@ -50,6 +50,10 @@ final class AppModel {
     /// ponytail: in memory only, so quitting before the session goes idle drops the hand-off; persist it if that bites.
     var reviewHandoffs: [String: String] = [:]
     private var sendingHandoffs: Set<String> = []
+    /// Your PRs this app merged or closed, by url, as they now stand and when. GitHub's search lags a write by up to a
+    /// minute or so, and until it agrees each refresh is corrected by these, so a PR's page and the lists show how it
+    /// ended at once instead of on some later poll.
+    private var landed: [String: (pr: PullRequest, at: Date)] = [:]
     /// Flows with an instruction going out or a GitHub write in flight, by job id.
     var busyFlows: Set<String> = []
     /// Set to have the Pull Requests or Reviews screen open this PR's page; the screen clears it. Search, Up Next
@@ -128,6 +132,7 @@ final class AppModel {
             case .github:
                 let snapshot = try await service.refreshGitHub()
                 state.github = snapshot
+                applyLanded()
                 await service.cleanupClosedReviews(
                     github: snapshot, reviewWorktrees: state.reviewWorktrees, repos: state.gitScan?.repos ?? []
                 )
@@ -431,8 +436,58 @@ final class AppModel {
         } catch {
             return "Couldn't merge it: \(error)"
         }
-        await refresh(.github)
+        land(pr, as: .merged)
+        Task { await refresh(.github) }
         return nil
+    }
+
+    /// Saves an edit to a ticket's summary or description and shows it at once, the next Jira poll confirming it. Why it
+    /// failed, or nil.
+    func editTicket(_ ticket: Ticket, summary: String? = nil, description: String? = nil) async -> String? {
+        do {
+            try await service.editTicket(key: ticket.key, summary: summary, description: description)
+        } catch {
+            return "\(error)"
+        }
+        if let index = state.tickets.firstIndex(where: { $0.key == ticket.key }) {
+            if let summary { state.tickets[index].summary = summary }
+            if let description { state.tickets[index].description = description }
+        }
+        state.recompute()
+        Task { await refresh(.jira) }
+        return nil
+    }
+
+    /// One of your PRs by url: open, merged this month, or closed from here a moment ago.
+    func yourPullRequest(_ url: String) -> PullRequest? {
+        (state.mine + state.recentlyMerged()).first { $0.url == url } ?? landed[url]?.pr
+    }
+
+    /// Records a merge or close this app made and shows it at once.
+    private func land(_ pr: PullRequest, as outcome: PullRequestState) {
+        var ended = pr
+        ended.state = outcome
+        if outcome == .merged { ended.mergedAt = Date() }
+        landed[pr.url] = (ended, Date())
+        applyLanded()
+        state.recompute()
+    }
+
+    /// Takes what this app merged or closed out of the open lists, and puts a merge into the merged one, until GitHub's
+    /// search says the same; after ten minutes it long has.
+    private func applyLanded() {
+        let now = Date()
+        landed = landed.filter { now.timeIntervalSince($0.value.at) < 600 }
+        guard var github = state.github, !landed.isEmpty else { return }
+        for (url, entry) in landed {
+            github.mine.removeAll { $0.url == url }
+            github.reviewRequests.removeAll { $0.url == url }
+            github.openForReview.removeAll { $0.url == url }
+            if entry.pr.state == .merged, !github.mergedRecent.contains(where: { $0.url == url }) {
+                github.mergedRecent.insert(entry.pr, at: 0)
+            }
+        }
+        state.github = github
     }
 
     /// Closes a PR from its page without merging it. Why it failed, or nil.
@@ -442,7 +497,8 @@ final class AppModel {
         } catch {
             return "Couldn't close it: \(error)"
         }
-        await refresh(.github)
+        land(pr, as: .closed)
+        Task { await refresh(.github) }
         return nil
     }
 
@@ -694,6 +750,7 @@ final class AppModel {
             defer { busyFlows.remove(flow.id) }
             do {
                 try await service.squashMerge(pr)
+                land(pr, as: .merged)
                 updateFlow(flow.id) { $0.note = nil }
             } catch {
                 updateFlow(flow.id) { $0.note = "Could not merge: \(error)" }

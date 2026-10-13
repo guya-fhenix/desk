@@ -7,6 +7,8 @@ public enum JiraError: Error, CustomStringConvertible, Sendable {
     /// The workflow has no way from where the ticket stands to the status asked for. acli names the ones
     /// it does have, which is the whole diagnostic.
     case transitionRefused(key: String, status: String, detail: String)
+    /// Jira would not save an edit to the ticket's summary or description; acli says why.
+    case editRefused(key: String, detail: String)
 
     public var description: String {
         switch self {
@@ -15,6 +17,8 @@ public enum JiraError: Error, CustomStringConvertible, Sendable {
         case .badOutput(let detail): return "Jira: unexpected acli output — \(detail)"
         case .transitionRefused(let key, let status, let detail):
             return "Jira: could not move \(key) to “\(status)” — \(detail)"
+        case .editRefused(let key, let detail):
+            return "Jira: could not save \(key) — \(detail)"
         }
     }
 }
@@ -161,7 +165,8 @@ public enum JiraDecoding {
             assignee: issue.fields.assignee?.displayName,
             assigneeAvatar: issue.fields.assignee?.avatarUrls?["48x48"],
             placement: placement,
-            description: JiraDescription.markdown(issue.fields.description)
+            description: JiraDescription.markdown(issue.fields.description),
+            descriptionEditable: JiraDescription.roundTrips(issue.fields.description)
         )
     }
 

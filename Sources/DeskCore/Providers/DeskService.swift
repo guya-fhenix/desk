@@ -297,6 +297,12 @@ public actor DeskService {
         try await jira.transition(key: key, to: status)
     }
 
+    /// Saves your edit to a ticket's summary or description.
+    public func editTicket(key: String, summary: String? = nil, description: String? = nil) async throws {
+        guard let jira else { throw DeskError.jiraNotConfigured }
+        try await jira.edit(key: key, summary: summary, description: description)
+    }
+
     public func jiraProjectKeys() async throws -> [String] {
         guard let jira else { throw DeskError.jiraNotConfigured }
         return try await jira.projectKeys()

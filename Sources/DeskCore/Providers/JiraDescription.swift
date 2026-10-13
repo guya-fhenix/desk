@@ -19,7 +19,10 @@ public struct ADFMark: Decodable, Sendable, Hashable {
 /// optional and only the ones that belong to a given node are ever read.
 public struct ADFAttrs: Decodable, Sendable, Hashable {
     public var level: Int?
+    /// An inline card's address.
     public var url: String?
+    /// A link mark's address: links carry `href`, cards `url`.
+    public var href: String?
     public var language: String?
 }
 
@@ -109,7 +112,10 @@ public enum JiraDescription {
         // CommonMark's hard break, which `Markdown` keeps as a line of its own rather than running it on.
         case "hardBreak": return "\\\n"
         case "inlineCard": return node.attrs?.url ?? ""
-        case "text": return marked(node.text ?? "", by: node.marks ?? [])
+        case "text":
+            // Text Jira stores as plain must stay plain when the markdown is read back: an asterisk is not emphasis.
+            let code = node.marks?.contains { $0.type == "code" } == true
+            return marked(code ? node.text ?? "" : escaped(node.text ?? ""), by: node.marks ?? [])
         default:
             let nested = inline(node.content ?? [])
             return nested.isEmpty ? (node.text ?? "") : nested
@@ -124,10 +130,177 @@ public enum JiraDescription {
             case "code": result = "`\(result)`"
             case "strong": result = "**\(result)**"
             case "em": result = "*\(result)*"
-            case "link": if let url = mark.attrs?.url { result = "[\(result)](\(url))" }
+            case "strike": result = "~~\(result)~~"
+            case "link": if let url = mark.attrs?.href ?? mark.attrs?.url { result = "[\(result)](\(url))" }
             default: break
             }
         }
         return result
+    }
+
+    /// Markdown's inline markers, backslashed, so plain text reads back as itself.
+    private static func escaped(_ text: String) -> String {
+        var out = ""
+        for character in text {
+            if "\\`*_~[]".contains(character) { out.append("\\") }
+            out.append(character)
+        }
+        return out
+    }
+
+    // MARK: Writing back
+
+    /// Whether `markdown(_:)` says everything this description holds, so writing that markdown back loses nothing:
+    /// every node and mark is one converted both ways. Mentions, images, panels, task lists, emoji, status lozenges,
+    /// dates, colours and underlines are not, and a description with any of them is edited in Jira, not here.
+    public static func roundTrips(_ node: ADFNode?) -> Bool {
+        guard let node else { return true }
+        guard let type = node.type, Self.nodes.contains(type) else { return false }
+        if node.marks?.contains(where: { !Self.marks.contains($0.type ?? "") }) == true { return false }
+        return (node.content ?? []).allSatisfy(roundTrips)
+    }
+
+    private static let nodes: Set<String> = [
+        "doc", "paragraph", "heading", "codeBlock", "blockquote", "bulletList", "orderedList", "listItem", "table", "tableRow",
+        "tableHeader", "tableCell", "rule", "text", "hardBreak", "inlineCard",
+    ]
+    private static let marks: Set<String> = ["code", "strong", "em", "strike", "link"]
+
+    /// Markdown, as the edit box holds it, into the ADF Jira stores: the nodes `markdown(_:)` reads, so a description
+    /// goes back the way it came. A bare address becomes a link, as an inline card read as one.
+    public static func adf(fromMarkdown text: String) -> [String: Any] {
+        var content: [[String: Any]] = []
+        var items: [ListEntry] = []
+        func flushList() {
+            if !items.isEmpty { content += lists(items[...]) }
+            items = []
+        }
+        for block in Markdown.blocks(text) {
+            switch block {
+            case .bullet(let indent, let text): items.append(ListEntry(indent: indent, ordered: false, number: nil, text: text))
+            case .numbered(let indent, let number, let text):
+                items.append(ListEntry(indent: indent, ordered: true, number: Int(number), text: text))
+            case .task(let indent, let done, let text):
+                items.append(ListEntry(indent: indent, ordered: false, number: nil, text: (done ? "[x] " : "[ ] ") + text))
+            default:
+                flushList()
+                content += node(block)
+            }
+        }
+        flushList()
+        return ["type": "doc", "version": 1, "content": content]
+    }
+
+    private struct ListEntry {
+        var indent: Int
+        var ordered: Bool
+        var number: Int?
+        var text: String
+    }
+
+    private static func node(_ block: MarkdownBlock) -> [[String: Any]] {
+        switch block {
+        case .heading(let level, let text):
+            return [["type": "heading", "attrs": ["level": level], "content": inline(text)]]
+        case .paragraph(let text):
+            return [paragraph(text)]
+        case .code(let language, let text):
+            var code: [String: Any] = ["type": "codeBlock", "content": text.isEmpty ? [] : [["type": "text", "text": text]]]
+            if let language { code["attrs"] = ["language": language] }
+            return [code]
+        case .quote(let text):
+            let paragraphs = text.components(separatedBy: "\n\n").filter { !$0.isEmpty }.map(paragraph)
+            return [["type": "blockquote", "content": paragraphs]]
+        case .table(let header, let rows):
+            func row(_ cells: [String], header: Bool) -> [String: Any] {
+                ["type": "tableRow", "content": cells.map { ["type": header ? "tableHeader" : "tableCell", "content": [paragraph($0)]] }]
+            }
+            return [["type": "table", "content": (header.map { [row($0, header: true)] } ?? []) + rows.map { row($0, header: false) }]]
+        case .rule:
+            return [["type": "rule"]]
+        case .bullet, .numbered, .task:
+            return []
+        }
+    }
+
+    /// Consecutive list lines as lists, nested by indent: a deeper line belongs to the item above it, and a change
+    /// of kind at one level starts a new list.
+    private static func lists(_ items: ArraySlice<ListEntry>) -> [[String: Any]] {
+        guard let level = items.map(\.indent).min() else { return [] }
+        var nodes: [[String: Any]] = []
+        var index = items.startIndex
+        while index < items.endIndex {
+            let ordered = items[index].ordered
+            let first = items[index].number
+            var entries: [[String: Any]] = []
+            while index < items.endIndex, items[index].indent <= level, items[index].ordered == ordered {
+                var nested = index + 1
+                while nested < items.endIndex, items[nested].indent > level { nested += 1 }
+                var itemContent = [paragraph(items[index].text)]
+                if nested > index + 1 { itemContent += lists(items[(index + 1)..<nested]) }
+                entries.append(["type": "listItem", "content": itemContent])
+                index = nested
+            }
+            if entries.isEmpty {
+                // Deeper than any line before it at this level: a list of its own.
+                var nested = index
+                while nested < items.endIndex, items[nested].indent > level { nested += 1 }
+                nodes += lists(items[index..<nested])
+                index = nested
+                continue
+            }
+            var list: [String: Any] = ["type": ordered ? "orderedList" : "bulletList", "content": entries]
+            if ordered, let first, first != 1 { list["attrs"] = ["order": first] }
+            nodes.append(list)
+        }
+        return nodes
+    }
+
+    private static func paragraph(_ text: String) -> [String: Any] {
+        ["type": "paragraph", "content": inline(text)]
+    }
+
+    /// One block's text as text nodes with their marks; a line break inside it is a hard break. Code takes no other
+    /// mark than a link, as ADF allows.
+    private static func inline(_ text: String) -> [[String: Any]] {
+        let parsed = Markdown.inline(text)
+        var nodes: [[String: Any]] = []
+        for run in parsed.runs {
+            let piece = String(parsed[run.range].characters)
+            var marks: [[String: Any]] = []
+            let intent = run.inlinePresentationIntent ?? []
+            if intent.contains(.code) {
+                marks.append(["type": "code"])
+            } else {
+                if intent.contains(.stronglyEmphasized) { marks.append(["type": "strong"]) }
+                if intent.contains(.emphasized) { marks.append(["type": "em"]) }
+                if intent.contains(.strikethrough) { marks.append(["type": "strike"]) }
+            }
+            if let link = run.link { marks.append(["type": "link", "attrs": ["href": link.absoluteString]]) }
+            for (offset, line) in piece.components(separatedBy: "\n").enumerated() {
+                if offset > 0 { nodes.append(["type": "hardBreak"]) }
+                if line.isEmpty { continue }
+                nodes += run.link == nil && !intent.contains(.code) ? linkingAddresses(line, marks: marks) : [textNode(line, marks)]
+            }
+        }
+        return nodes
+    }
+
+    private static func textNode(_ text: String, _ marks: [[String: Any]]) -> [String: Any] {
+        marks.isEmpty ? ["type": "text", "text": text] : ["type": "text", "text": text, "marks": marks]
+    }
+
+    /// Plain text with each bare http(s) address in it made a link.
+    private static func linkingAddresses(_ line: String, marks: [[String: Any]]) -> [[String: Any]] {
+        var nodes: [[String: Any]] = []
+        var rest = Substring(line)
+        while let match = rest.firstMatch(of: /https?:\/\/[^\s<>()]+/) {
+            if match.range.lowerBound > rest.startIndex { nodes.append(textNode(String(rest[..<match.range.lowerBound]), marks)) }
+            let address = String(match.output)
+            nodes.append(textNode(address, marks + [["type": "link", "attrs": ["href": address]]]))
+            rest = rest[match.range.upperBound...]
+        }
+        if !rest.isEmpty { nodes.append(textNode(String(rest), marks)) }
+        return nodes
     }
 }

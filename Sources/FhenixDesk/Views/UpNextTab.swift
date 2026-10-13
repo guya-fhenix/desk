@@ -28,7 +28,7 @@ struct UpNextTab: View {
         Group {
             if let key = opened, let ticket = model.state.ticket(key) {
                 TicketPage(ticket: ticket, model: model, back: "Up Next", plan: startPlan) { opened = nil }
-            } else if let url = opened, let pr = (model.state.mine + model.state.recentlyMerged()).first(where: { $0.url == url }) {
+            } else if let url = opened, let pr = model.yourPullRequest(url) {
                 PullRequestPage(pr: pr, model: model, back: "Up Next") { opened = nil }
             } else if let url = opened, let pr = model.state.github?.allOpen.first(where: { $0.url == url }) {
                 ReviewPage(pr: pr, model: model, onMe: onMe(pr), back: "Up Next") { opened = nil }

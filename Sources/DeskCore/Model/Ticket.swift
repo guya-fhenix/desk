@@ -44,12 +44,15 @@ public struct Ticket: Codable, Sendable, Hashable, Identifiable {
     /// The Jira description as markdown. Jira sends it as a node tree; `JiraDescription` flattens it so
     /// the same renderer that draws a pull request body can draw this.
     public var description: String
+    /// Whether `description` holds everything Jira's does, so editing it here and saving loses nothing. False for one
+    /// with mentions, images, panels and the like, which is then edited in Jira.
+    public var descriptionEditable: Bool
 
     public init(
         key: String, summary: String, status: String, category: TicketStatusCategory,
         priority: String? = nil, url: String, assignedToMe: Bool, assignee: String? = nil, assigneeAvatar: String? = nil,
         placement: TicketPlacement = .unknown,
-        description: String = ""
+        description: String = "", descriptionEditable: Bool = true
     ) {
         self.key = key
         self.summary = summary
@@ -62,6 +65,7 @@ public struct Ticket: Codable, Sendable, Hashable, Identifiable {
         self.assigneeAvatar = assigneeAvatar
         self.placement = placement
         self.description = description
+        self.descriptionEditable = descriptionEditable
     }
 }
 
