@@ -36,15 +36,13 @@ public enum ReviewCommand {
     ]
 
     /// One headless run. The prompt is the first argument because `--allowedTools` and `--disallowedTools`
-    /// are variadic and would swallow a prompt placed after them. `--max-budget-usd` is the cost control —
-    /// it is enforced by Claude and still returns the work already done, unlike the wall clock, which
-    /// kills the process and loses everything it was paid for.
+    /// are variadic and would swallow a prompt placed after them. No `--max-budget-usd`: on a subscription it caps
+    /// an API-price estimate nobody pays, so the review time limit is the one cap.
     public static func reviewArguments(pr: PullRequest, otherRepos: [OtherRepo], config: DeskConfig) -> [String] {
         var arguments = [
             prompt(pr, otherRepos: otherRepos, config: config), "-p",
             "--output-format", "json",
             "--permission-mode", "dontAsk",
-            "--max-budget-usd", String(format: "%.2f", config.reviewBudgetUSD),
             "--tools", tools.joined(separator: ","),
             "--allowedTools", allowedTools.joined(separator: ","),
             "--disallowedTools", disallowedTools.joined(separator: ","),
@@ -72,7 +70,6 @@ public enum ReviewCommand {
             config.prompt(.reviewReformat), "-p",
             "--output-format", "json",
             "--permission-mode", "dontAsk",
-            "--max-budget-usd", "0.50",
             // "" disables every built-in tool: this pass reads nothing and runs nothing.
             "--tools", "",
             "--disallowedTools", (disallowedTools + tools).joined(separator: ","),

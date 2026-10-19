@@ -39,7 +39,7 @@ final class AppModel {
     var busyReviews: Set<String> = []
     /// Ticket keys with a transition in flight, so a poll that lands mid-move does not start another.
     var movingTickets: Set<String> = []
-    /// Why the automatic move of a ticket failed, by key. Nothing retries it, so this is what says so.
+    /// Why Jira refused the last move of a ticket, by key; cleared by a move that works or a dismissal.
     var ticketMoveErrors: [String: String] = [:]
     /// Ticket keys with a planning session starting, for the button that must not fire twice.
     var planningTickets: Set<String> = []
@@ -47,8 +47,11 @@ final class AppModel {
     var startingSessions: Set<String> = []
     /// A finished review's findings waiting for the PR's session, by PR url: the session was working or waiting on you
     /// when the review landed, and an instruction never cuts in. Sent once a scan finds it idle.
-    /// ponytail: in memory only, so quitting before the session goes idle drops the hand-off; persist it if that bites.
-    var reviewHandoffs: [String: String] = [:]
+    /// Saved in `handoffs.json`, so a quit or a relaunch before the session goes idle does not drop it.
+    private(set) var reviewHandoffs: [String: String] = [:]
+    /// Why a waiting hand-off could not go out, by PR url: no session would start, or the session refused it. It waits
+    /// for Try again on the review page rather than retrying every poll.
+    var handoffErrors: [String: String] = [:]
     private var sendingHandoffs: Set<String> = []
     /// Your PRs this app merged or closed, by url, as they now stand and when. GitHub's search lags a write by up to a
     /// minute or so, and until it agrees each refresh is corrected by these, so a PR's page and the lists show how it
@@ -59,6 +62,8 @@ final class AppModel {
     /// Set to have the Pull Requests or Reviews screen open this PR's page; the screen clears it. Search, Up Next
     /// and a notification's Show use it.
     var selectPullRequest: String?
+    /// Set to have the Jira screen select this ticket, by key, in its details panel; the screen clears it. Search uses it.
+    var selectTicket: String?
     /// Why the session button last failed, per PR url or ticket key. It is the button's own tooltip: a press that
     /// does nothing is the one thing this must not be.
     var sessionErrors: [String: String] = [:]
@@ -66,8 +71,6 @@ final class AppModel {
     private let service: DeskService
     private let notifier: Notifier
     private var loops: [Source: Task<Void, Never>] = [:]
-    /// "key→status" for every ticket move tried this launch.
-    private var attemptedMoves: Set<String> = []
     private nonisolated static let log = Logger(subsystem: "io.fhenix.desk", category: "refresh")
 
     init() {
@@ -76,6 +79,8 @@ final class AppModel {
         service = DeskService(config: config, support: support)
         notifier = Notifier(support: support)
         state.flows = Self.loadFlows(support: support)
+        state.dismissedMoves = Set(UserDefaults.standard.stringArray(forKey: Self.dismissedMovesKey) ?? [])
+        reviewHandoffs = (try? support.load([String: String].self, from: Self.handoffsFile)) ?? [:]
         Task { await self.start() }
         Notifier.onShow = { [weak self] url in self?.show(url) }
     }
@@ -85,13 +90,11 @@ final class AppModel {
         set { state.config = newValue }
     }
 
-    /// The tickets whose automatic move failed. The rest the app moves on its own, so only these need you.
-    var failedDrifts: [TicketDrift] { state.ticketDrifts.filter { ticketMoveErrors[$0.ticket.key] != nil } }
-
-    /// What Up Next has waiting on you: every section but Waiting, and the Jira moves that failed. `reviewDays` is the
+    /// What Up Next has waiting on you: every section but Waiting, and the Jira moves it suggests. `reviewDays` is the
     /// Reviews screen's day filter, which Up Next's reviews follow.
-    func upNextCount(reviewDays: Int?) -> Int {
-        state.upNext(reviewDays: reviewDays).filter { $0.section != .waiting }.reduce(0) { $0 + $1.pullRequests.count } + failedDrifts.count
+    func upNextCount(reviewDays: Int?, hiding: Set<String>) -> Int {
+        state.upNext(reviewDays: reviewDays, hiding: hiding).filter { $0.section != .waiting }.reduce(0) { $0 + $1.pullRequests.count }
+            + state.ticketDrifts.count
     }
 
     func start() async {
@@ -140,6 +143,7 @@ final class AppModel {
                 let scan = await service.refreshGit()
                 state.gitScan = scan
                 state.claudeJobs = await service.claudeJobs(keeping: Set(state.flows.map(\.jobId)))
+                state.claudeLimits = await service.claudeLimits()
                 state.reviewSkills = await service.reviewSkills(repos: scan.repos)
                 state.errors[.git] = scan.errors.isEmpty ? nil : scan.errors.joined(separator: "\n")
                 for error in scan.errors { Self.log.error("git: \(error, privacy: .public)") }
@@ -161,7 +165,6 @@ final class AppModel {
         state.recompute()
         advanceFlows()
         deliverReviewHandoffs()
-        syncTickets()
         notifier.deliver(state.nudges, post: config.notificationsEnabled && allSourcesReported)
     }
 
@@ -233,7 +236,7 @@ final class AppModel {
     /// Why Review is dead for this PR, in the words its button shows beside it; nil when it may be pressed.
     func reviewBlocker(_ pr: PullRequest) -> String? {
         if state.localRepo(for: pr) == nil { return "No local clone" }
-        if busyReviews.contains(pr.url) || state.reviewRun(for: pr)?.phase.isBusy == true { return "Reviewing…" }
+        if busyReviews.contains(pr.url) || state.reviewRun(for: pr)?.phase.isBusy == true { return "Reviewing" }
         if !canStartReview { return "\(busyReviews.count) reviews running" }
         return nil
     }
@@ -271,26 +274,45 @@ final class AppModel {
     /// and in a new session when the PR has none. The review itself stays the locked-down run that wrote the draft.
     private func handOff(_ run: ReviewRun, of pr: PullRequest) {
         guard !run.findings.isEmpty || !run.summary.isEmpty else { return }
-        let text = DeskService.reviewHandoffPrompt(for: pr, run: run, config: config)
-        if state.claudeJobs(for: pr).isEmpty {
-            startSession(for: pr, opening: text)
-        } else {
-            reviewHandoffs[pr.url] = text
-            deliverReviewHandoffs()
+        handoffErrors[pr.url] = nil
+        setHandoff(pr.url, DeskService.reviewHandoffPrompt(for: pr, run: run, config: config))
+        deliverReviewHandoffs()
+    }
+
+    /// Sends a hand-off that failed once more, on your press.
+    func retryHandoff(_ pr: PullRequest) {
+        handoffErrors[pr.url] = nil
+        deliverReviewHandoffs()
+    }
+
+    private static let handoffsFile = "handoffs.json"
+
+    private func setHandoff(_ url: String, _ text: String?) {
+        reviewHandoffs[url] = text
+        do {
+            try support.save(reviewHandoffs, to: Self.handoffsFile)
+        } catch {
+            Self.log.error("handoffs: \(String(describing: error), privacy: .public)")
         }
     }
 
     /// Sends each waiting hand-off whose session is idle, by the flow's rule: never while it works or asks you
     /// something. A session with no id recorded yet cannot be resumed, so it waits too. Runs after every refresh.
     private func deliverReviewHandoffs() {
-        for (url, text) in reviewHandoffs where !sendingHandoffs.contains(url) {
-            guard let pr = state.github?.allOpen.first(where: { $0.url == url }) else {
-                reviewHandoffs[url] = nil  // Closed or merged: nothing left to talk through.
+        // Not before GitHub has answered: until then every PR would look closed, and every hand-off would be dropped.
+        guard let github = state.github else { return }
+        for (url, text) in reviewHandoffs where !sendingHandoffs.contains(url) && handoffErrors[url] == nil {
+            guard let pr = github.allOpen.first(where: { $0.url == url }) else {
+                setHandoff(url, nil)  // Closed or merged: nothing left to talk through.
                 continue
             }
             guard let job = state.claudeJobs(for: pr).first else {
-                // Its session went while the review waited: a new one opens with the findings instead.
-                reviewHandoffs[url] = nil
+                // No session on the PR, or its session went while the review waited: a new one opens with the
+                // findings, and the hand-off is done once it has started.
+                guard state.localRepo(for: pr) != nil else {
+                    handoffErrors[url] = "No local clone of \(pr.repo) to start a session in"
+                    continue
+                }
                 startSession(for: pr, opening: text)
                 continue
             }
@@ -303,12 +325,11 @@ final class AppModel {
                 defer { sendingHandoffs.remove(url) }
                 do {
                     try await service.send(text, to: job, cwd: cwd)
-                    sessionErrors[url] = nil
+                    setHandoff(url, nil)
                 } catch {
-                    sessionErrors[url] = "Couldn't hand the review to the session: \(error)"
+                    handoffErrors[url] = "Couldn't hand the review to the session: \(error)"
                     Self.log.error("review hand-off: \(String(describing: error), privacy: .public)")
                 }
-                reviewHandoffs[url] = nil
                 await refresh(.git)
             }
         }
@@ -334,28 +355,21 @@ final class AppModel {
 
     // MARK: Jira
 
-    /// Moves every ticket that has fallen behind its pull requests to where they say it belongs. Not before
-    /// every source has answered once: a half-loaded state is no basis for a write. The refresh after each
-    /// move is what makes the board right: Jira decides what the status became, not this.
-    /// ponytail: one try per ticket and target per launch, so a transition the workflow refuses is not
-    /// re-sent every poll and a ticket you move back by hand stays put; a timed retry would need a backoff
-    /// per ticket.
-    private func syncTickets() {
-        guard allSourcesReported else { return }
-        for drift in state.ticketDrifts
-        where !movingTickets.contains(drift.ticket.key) && attemptedMoves.insert("\(drift.ticket.key)→\(drift.target)").inserted {
-            moveTicket(drift)
-        }
-    }
-
-    private func moveTicket(_ drift: TicketDrift) {
+    /// Moves a ticket to where its pull requests say it belongs, on your press. Shown moved at once, the Jira refresh
+    /// after it confirming; why Jira refused, if it did, stays on the suggestion until a retry works.
+    func moveTicket(_ drift: TicketDrift) {
         let key = drift.ticket.key
-        movingTickets.insert(key)
+        guard movingTickets.insert(key).inserted else { return }
         Task {
             defer { movingTickets.remove(key) }
             do {
                 try await service.transitionTicket(key: key, to: drift.target)
                 ticketMoveErrors[key] = nil
+                if let index = state.tickets.firstIndex(where: { $0.key == key }) {
+                    state.tickets[index].status = drift.target
+                    if drift.stage == .done { state.tickets[index].category = .done }
+                }
+                state.recompute()
                 Self.log.info("jira \(key, privacy: .public) moved to \(drift.target, privacy: .public)")
             } catch {
                 ticketMoveErrors[key] = "\(error)"
@@ -364,6 +378,16 @@ final class AppModel {
             await refresh(.jira)
         }
     }
+
+    /// Hides a suggested move for good, or until the ticket's pull requests point it somewhere else.
+    func dismissMove(_ drift: TicketDrift) {
+        state.dismissedMoves.insert(drift.moveKey)
+        UserDefaults.standard.set(state.dismissedMoves.sorted(), forKey: Self.dismissedMovesKey)
+        ticketMoveErrors[drift.ticket.key] = nil
+        state.recompute()
+    }
+
+    private static let dismissedMovesKey = "jira.dismissedMoves"
 
     /// Starts a background Claude session to plan a ticket, then moves the ticket to in progress so a
     /// later glance says somebody is already on it. The session is tied to nothing: press again and you
@@ -423,6 +447,19 @@ final class AppModel {
             return "Couldn't rename it: \(error)"
         }
         if let index = state.github?.mine.firstIndex(where: { $0.url == pr.url }) { state.github?.mine[index].title = title }
+        state.recompute()
+        Task { await refresh(.github) }
+        return nil
+    }
+
+    /// Rewrites your PR's description on GitHub and shows it at once, the next poll confirming it. Why it failed, or nil.
+    func editDescription(_ pr: PullRequest, body: String) async -> String? {
+        do {
+            try await service.editDescription(pr, body: body)
+        } catch {
+            return "Couldn't save it: \(error)"
+        }
+        if let index = state.github?.mine.firstIndex(where: { $0.url == pr.url }) { state.github?.mine[index].body = body }
         state.recompute()
         Task { await refresh(.github) }
         return nil
@@ -505,6 +542,8 @@ final class AppModel {
     /// A PR's checks in full, for its page. Not kept: the page asks again each time it shows the PR.
     func checks(for pr: PullRequest) async throws -> [PullRequestCheck] { try await service.checks(for: pr) }
 
+    func draftComments(for pr: PullRequest) async throws -> [DraftReviewComment] { try await service.draftComments(for: pr) }
+
     /// Opens the window on the screen a PR lives on, its row selected — your own in Pull Requests, one in the queue in
     /// Reviews — and GitHub for one on no screen here. A finished review's url points at its Files tab; the PR is the
     /// part before it.
@@ -546,9 +585,15 @@ final class AppModel {
                 // Only your own PRs have a flow; a session on a teammate's, from Reviews, is just a session.
                 if state.mine.contains(where: { $0.url == pr.url }) { joinFlow(job, pr) }
                 sessionErrors[pr.url] = nil
+                // Opened with a review's findings: that hand-off is done.
+                if opening != nil, reviewHandoffs[pr.url] == opening { setHandoff(pr.url, nil) }
                 if existing == nil { Task { await refresh(.git) } }
             } catch {
-                sessionErrors[pr.url] = "\(error)"
+                if opening != nil, reviewHandoffs[pr.url] == opening {
+                    handoffErrors[pr.url] = "Couldn't start a session for the review: \(error)"
+                } else {
+                    sessionErrors[pr.url] = "\(error)"
+                }
                 Self.log.error("session: \(String(describing: error), privacy: .public)")
             }
         }

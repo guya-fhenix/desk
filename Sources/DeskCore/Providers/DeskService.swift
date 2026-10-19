@@ -92,6 +92,9 @@ public actor DeskService {
     /// with the git scan.
     public func claudeJobs(keeping ids: Set<String> = []) -> [ClaudeJob] { ClaudeJobs.scan(keeping: ids) }
 
+    /// Your Claude plan's limits, for the sidebar. A local file too, read with the git scan.
+    public func claudeLimits() -> [ClaudeLimit] { ClaudeLimits.read() }
+
     /// Whether each clone's sessions can run the team review skill, by repo root. A few small files per repo.
     public func reviewSkills(repos: [RepoRef]) -> [String: ReviewSkill] {
         Dictionary(repos.map { ($0.root, ClaudePlugins.reviewSkill(repoRoot: $0.root)) }, uniquingKeysWith: { first, _ in first })
@@ -165,8 +168,10 @@ public actor DeskService {
     public static func reviewHandoffPrompt(for pr: PullRequest, run: ReviewRun, config: DeskConfig = DeskConfig()) -> String {
         let findings = run.findings.map { finding in
             let place = finding.line.map { "\(finding.path):\($0)" } ?? finding.path
-            // A body over several lines stays one item of the list.
-            return "- \(place) — " + finding.body.replacingOccurrences(of: "\n", with: "\n  ")
+            // The comment as it reads, without the app's marker; a body over several lines stays one item of the list.
+            let read = DraftThreads.read(finding.body)
+            let severity = read.severity.map { " (\($0.title))" } ?? ""
+            return "- \(place)\(severity) — " + read.text.replacingOccurrences(of: "\n", with: "\n  ")
         }
         let summary = run.summary.trimmingCharacters(in: .whitespacesAndNewlines)
         let values = [
@@ -260,9 +265,19 @@ public actor DeskService {
         return try await github.checks(repo: pr.repo, number: pr.number)
     }
 
+    public func draftComments(for pr: PullRequest) async throws -> [DraftReviewComment] {
+        guard let github else { throw DeskError.ghNotFound }
+        return try await github.draftComments(repo: pr.repo, number: pr.number)
+    }
+
     public func retitle(_ pr: PullRequest, to title: String) async throws {
         guard let github else { throw DeskError.ghNotFound }
         try await github.retitle(repo: pr.repo, number: pr.number, title: title)
+    }
+
+    public func editDescription(_ pr: PullRequest, body: String) async throws {
+        guard let github else { throw DeskError.ghNotFound }
+        try await github.editBody(repo: pr.repo, number: pr.number, body: body)
     }
 
     public func close(_ pr: PullRequest) async throws {

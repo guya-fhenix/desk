@@ -288,7 +288,7 @@ private struct TicketMark: View {
                 .disabled(ticket == nil)
             if let drift {
                 Image(systemName: "arrow.right.circle.fill").scaled(.caption2).foregroundStyle(.orange)
-                    .help("Jira says “\(drift.ticket.status)”; this PR says “\(drift.target)”, so Desk moves it")
+                    .help("Jira says “\(drift.ticket.status)”; this PR says “\(drift.target)”. A suggested move: press Move on the ticket")
             }
         }
         .fixedSize()
@@ -329,7 +329,15 @@ struct PullRequestPage: View {
                 Text(error).scaled(.caption).foregroundStyle(.red).textSelection(.enabled)
             }
         } main: {
-            PanelSection("Description") { PullRequestDescription(pr: pr) }
+            // Yours to rewrite while it is open; a review's description is the author's, so the Reviews page only reads it.
+            EditableDescription(
+                text: pr.body, editable: pr.state == .open,
+                editHelp: "Edit the description; saving writes it to GitHub", lockedHelp: "It has ended: edit it on GitHub"
+            ) {
+                await model.editDescription(pr, body: $0)
+            } rendered: {
+                PullRequestDescription(pr: pr)
+            }
         } side: {
             // An ended PR has nothing left to act on or check: who reviewed it and its facts. How it ended is on the
             // status line.

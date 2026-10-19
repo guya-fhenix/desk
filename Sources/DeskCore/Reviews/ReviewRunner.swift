@@ -114,7 +114,7 @@ public actor ReviewRunner {
             }
             run.phase = .posted
             if envelope.isError {
-                // It answered, but not cleanly — a budget cap mid-review, say. What it found is posted.
+                // It answered, but not cleanly — an error mid-review, say. What it found is posted.
                 run.error = "claude stopped early (\(envelope.subtype)); this review may be incomplete"
             }
         } catch {

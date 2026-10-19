@@ -59,8 +59,8 @@ import Testing
         #expect(value(after: "--tools", in: arguments) == "Read,Grep,Glob,Bash")
         #expect(value(after: "--append-system-prompt", in: arguments) == PromptID.reviewSystem.defaultText)
         #expect(arguments.contains("--strict-mcp-config"))
-        // The cost cap Claude enforces itself, which still returns the work already done.
-        #expect(value(after: "--max-budget-usd", in: arguments) == "10.00")
+        // No dollar cap: on a subscription it would cut a review off on a price nobody pays.
+        #expect(!arguments.contains("--max-budget-usd"))
 
         let denied = try! #require(value(after: "--disallowedTools", in: arguments))
         for rule in ["Bash(gh pr comment:*)", "Bash(gh pr review:*)", "Bash(gh api:*)", "Bash(git fetch:*)",
@@ -82,11 +82,9 @@ import Testing
         var config = DeskConfig()
         config.reviewModel = "opus"
         config.reviewEffort = "high"
-        config.reviewBudgetUSD = 4.5
         let arguments = ReviewCommand.reviewArguments(pr: pr, otherRepos: [], config: config)
         #expect(value(after: "--model", in: arguments) == "opus")
         #expect(value(after: "--effort", in: arguments) == "high")
-        #expect(value(after: "--max-budget-usd", in: arguments) == "4.50")
     }
 
     @Test func noAllowedRuleIsAlsoDenied() {
@@ -132,7 +130,6 @@ import Testing
         #expect(value(after: "--tools", in: arguments) == "")
         let denied = try! #require(value(after: "--disallowedTools", in: arguments))
         for tool in ReviewCommand.tools { #expect(denied.contains(tool)) }
-        // A formatting fix must never cost what a whole review costs.
-        #expect(value(after: "--max-budget-usd", in: arguments) == "0.50")
+        #expect(!arguments.contains("--max-budget-usd"))
     }
 }

@@ -98,13 +98,15 @@ import Testing
     @Test func aReviewHandsItsFindingsToTheSession() {
         let pr = Fixtures.pr(number: 9, head: "h")
         let run = ReviewRun(phase: .posted, posted: 2, summary: "Mostly fine.", findings: [
-            DraftThread(path: "src/a.rs", line: 12, body: "Unchecked unwrap.\nIt panics on empty input."),
+            DraftThread(path: "src/a.rs", line: 12, body: "**Major** · Unchecked unwrap.\nIt panics on empty input.\n\n<!-- fhenix-desk -->"),
             DraftThread(path: "README.md", line: nil, body: "Typo in the title."),
         ])
         let text = DeskService.reviewHandoffPrompt(for: pr, run: run)
         #expect(text.contains("put 2 comments into my pending review"))
         #expect(text.contains("Its summary: Mostly fine."))
-        #expect(text.contains("- src/a.rs:12 — Unchecked unwrap.\n  It panics on empty input."))
+        // The severity in words and the marker gone: the session reads the comment as it reads on GitHub.
+        #expect(text.contains("- src/a.rs:12 (Major) — Unchecked unwrap.\n  It panics on empty input."))
+        #expect(!text.contains("fhenix-desk"))
         #expect(text.contains("- README.md — Typo in the title."))
         #expect(text.contains("Don't post, comment, approve or push anything"))
         // Nothing found: no empty heading.

@@ -46,6 +46,8 @@ public struct DeskState: Sendable {
     /// Claude Code's background sessions that mention a PR. Local files, so they ride the git poll
     /// rather than being a polled `Source` of their own.
     public var claudeJobs: [ClaudeJob] = []
+    /// Your Claude plan's limits, for the sidebar. Rides the git poll as well.
+    public var claudeLimits: [ClaudeLimit] = []
     /// Sessions carried from a ticket to the merge, saved in `flows.json`.
     public var flows: [Flow] = []
     /// Whether each clone's sessions can run the team review skill, by repo root. Read with the git poll.
@@ -60,9 +62,11 @@ public struct DeskState: Sendable {
     /// Ticket keys each of my pull requests names, by PR url. Precomputed because the tables read it per
     /// row and the matcher compiles a regex.
     public private(set) var ticketKeys: [String: [String]] = [:]
-    /// Tickets whose Jira status has fallen behind their pull requests. The app moves each one as it
-    /// appears; this is what it moves.
+    /// Tickets whose Jira status has fallen behind their pull requests, less the moves you dismissed: the moves the app
+    /// suggests. None happens until you press Move.
     public private(set) var ticketDrifts: [TicketDrift] = []
+    /// The suggested moves you dismissed, by `TicketDrift.moveKey`.
+    public var dismissedMoves: Set<String> = []
     public private(set) var defaultBranches: [String: String] = [:]
     /// Which queued PRs are waiting for you to run a review, and why. Nothing acts on this: it is what
     /// the Reviews tab shows so the press is an informed one.
@@ -74,10 +78,6 @@ public struct DeskState: Sendable {
 
     public var login: String { github?.login ?? "" }
 
-    /// What waits on you on one screen. The sidebar badge is this number; Up Next lists the nudges themselves.
-    public func waiting(on screen: NudgeScreen) -> Int {
-        nudges.count { $0.kind.screen == screen }
-    }
     public var mine: [PullRequest] { github?.mine ?? [] }
     /// PRs that wait on the user. GitHub keeps a review request on a PR its author turns back into a
     /// draft, but the author is still working: the PR joins the queue once it is marked ready again.
@@ -107,13 +107,15 @@ public struct DeskState: Sendable {
 
     /// Everything the Reviews queue can show, in the order the scopes are offered. `days` keeps the PRs
     /// opened within that many days, which is what the Waiting column measures; nil keeps them all.
-    public func reviewQueue(_ scope: ReviewScope, days: Int? = nil, now: Date = Date()) -> [PullRequest] {
-        let rows: [PullRequest]
+    /// `hiding` leaves out the PRs of authors you filtered out.
+    public func reviewQueue(_ scope: ReviewScope, days: Int? = nil, hiding: Set<String> = [], now: Date = Date()) -> [PullRequest] {
+        var rows: [PullRequest]
         switch scope {
         case .onMe: rows = reviewRequests
         case .open: rows = openForReview
         case .all: rows = reviewRequests + openForReview
         }
+        if !hiding.isEmpty { rows.removeAll { hiding.contains($0.author) } }
         guard let days else { return rows }
         let cutoff = now.addingTimeInterval(-TimeInterval(days) * 86_400)
         return rows.filter { $0.createdAt > cutoff }
@@ -191,7 +193,7 @@ public struct DeskState: Sendable {
         ticketDrifts = TicketSync.drifts(TicketSyncInput(
             tickets: tickets, open: mine, merged: merged, defaultBranches: defaultBranches,
             projectKeys: config.jiraProjectKeys, reviewStatus: config.jiraReviewStatus, doneStatus: config.jiraDoneStatus
-        ))
+        )).filter { !dismissedMoves.contains($0.moveKey) }
         nudges = NudgeEngine.nudges(NudgeInput(
             now: now, login: login, config: config, mine: mine, reviewRequests: reviewRequests,
             openHeadsByRepo: Linker.openHeadsByRepo(openAll), defaultBranches: defaultBranches, readyReviews: readyReviews,
@@ -273,12 +275,13 @@ public struct DeskState: Sendable {
 /// Up Next's sections, in the order the screen lists them: what you can finish now, what is yours to fix, the reviews
 /// waiting on you, and your PRs that wait on someone else.
 public enum UpNextSection: Int, CaseIterable, Sendable, Hashable {
-    case readyToMerge, yourMove, toReview, waiting
+    case readyToMerge, yourMove, draftsToSubmit, toReview, waiting
 
     public var title: String {
         switch self {
         case .readyToMerge: return "Ready to merge"
         case .yourMove: return "Your move"
+        case .draftsToSubmit: return "Drafts to submit"
         case .toReview: return "To review"
         case .waiting: return "Waiting"
         }
@@ -286,12 +289,13 @@ public enum UpNextSection: Int, CaseIterable, Sendable, Hashable {
 }
 
 extension DeskState {
-    /// Up Next's new work: your tickets in the open sprint that are still to do, with no PR open for them and no session
-    /// started on them, in Jira's order, most recently updated first.
+    /// Up Next's new work: your tickets in the open sprint that are still to do, with no PR of yours naming them, open or
+    /// merged, and no session started on them, in Jira's order, most recently updated first. One whose PR merged is
+    /// finished work Jira is behind on, which Jira moves suggests, not new work.
     public var ticketsToStart: [Ticket] {
-        openTickets.filter { ticket in
-            ticket.placement == .sprint && ticket.category == .todo
-                && pullRequests(forTicket: ticket.key).isEmpty && flows(forTicket: ticket.key).isEmpty
+        let named = Set(ticketKeys.values.joined())
+        return openTickets.filter { ticket in
+            ticket.placement == .sprint && ticket.category == .todo && !named.contains(ticket.key) && flows(forTicket: ticket.key).isEmpty
         }
     }
 }
@@ -306,10 +310,12 @@ public struct UpNextGroup: Sendable, Identifiable {
 extension DeskState {
     /// Up Next: every PR of yours under one section — your move when it is red, conflicts, has changes requested,
     /// needs a rebase or a flow or session waits on you; ready to merge when its nudge says so; otherwise waiting on
-    /// others — most recently updated first; then the review queue's PRs that need your review, inside the Reviews
-    /// screen's day filter (`reviewDays`, nil for all time), oldest first as the queue lists them. Empty sections are
+    /// others — most recently updated first; then the reviews you have a draft on that is not submitted yet, whatever
+    /// the day filter, since you started them; then the review queue's PRs that need your review, inside the Reviews
+    /// screen's day filter (`reviewDays`, nil for all time), oldest first as the queue lists them. Both leave out the
+    /// authors the Reviews screen hides (`hiding`). Empty sections are
     /// left out. The PR's own state decides a fix, not its nudge: drafts get no nudges, and a red draft is still yours.
-    public func upNext(reviewDays: Int?, now: Date = Date()) -> [UpNextGroup] {
+    public func upNext(reviewDays: Int?, hiding: Set<String> = [], now: Date = Date()) -> [UpNextGroup] {
         let yours: Set<NudgeKind> = [.sessionNeedsYou, .flowWaiting]
         var kinds: [String: Set<NudgeKind>] = [:]
         for nudge in nudges { if let url = nudge.url { kinds[url, default: []].insert(nudge.kind) } }
@@ -321,7 +327,9 @@ extension DeskState {
                 : found.contains(.readyToMerge) ? .readyToMerge : .waiting
             sections[section, default: []].append(pr)
         }
-        sections[.toReview] = reviewQueue(.all, days: reviewDays, now: now).filter { reviewNeed(for: $0) != nil }
+        sections[.draftsToSubmit] = reviewQueue(.all, hiding: hiding).filter { $0.pendingReview != nil }
+        sections[.toReview] = reviewQueue(.all, days: reviewDays, hiding: hiding, now: now)
+            .filter { $0.pendingReview == nil && reviewNeed(for: $0) != nil }
         return UpNextSection.allCases.compactMap { section in
             guard let prs = sections[section], !prs.isEmpty else { return nil }
             return UpNextGroup(section: section, pullRequests: prs)

@@ -87,7 +87,7 @@ enum Doctor {
             if let reason = state.rebaseReason(pr) { print("  \(pr.repoName)#\(pr.number) needs rebase: \(reason.text)") }
         }
 
-        section("Ticket sync (\(state.ticketDrifts.count))")
+        section("Suggested Jira moves (\(state.ticketDrifts.count))")
         print("review: \(config.jiraReviewStatus.isEmpty ? "off" : config.jiraReviewStatus)  done: \(config.jiraDoneStatus.isEmpty ? "off" : config.jiraDoneStatus)")
         if state.ticketDrifts.isEmpty { print("  every ticket agrees with its pull requests") }
         for drift in state.ticketDrifts {

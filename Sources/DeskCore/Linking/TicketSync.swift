@@ -15,6 +15,8 @@ public struct TicketDrift: Sendable, Hashable, Identifiable {
     /// The pull requests that put it there, highest number first. The badge names these: a move nobody
     /// can explain is one nobody should make.
     public var pullRequests: [PullRequest]
+    /// "key→target": what a dismissal remembers, so a ticket whose target changes is suggested again.
+    public var moveKey: String { "\(ticket.key)→\(target)" }
 
     public init(ticket: Ticket, stage: TicketStage, target: String, pullRequests: [PullRequest]) {
         self.ticket = ticket

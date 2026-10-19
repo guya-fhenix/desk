@@ -158,7 +158,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             menu.addItem(.sectionHeader(title: "Pull Requests"))
             for pr in mine { menu.addItem(Self.item(for: pr, model: model, tab: .pullRequests)) }
         }
-        let reviews = model.state.reviewQueue(.all, days: ReviewDays.current)
+        let reviews = model.state.reviewQueue(.all, days: ReviewFilters.currentWindow, hiding: ReviewFilters.currentHidden)
         if !reviews.isEmpty {
             menu.addItem(.separator())
             menu.addItem(.sectionHeader(title: "Reviews"))

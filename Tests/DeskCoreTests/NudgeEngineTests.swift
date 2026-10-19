@@ -3,11 +3,7 @@ import Foundation
 import Testing
 
 @Suite struct NudgeEngineTests {
-    var config: DeskConfig {
-        var config = DeskConfig()
-        config.stalePullRequestDays = 3
-        return config
-    }
+    var config: DeskConfig { DeskConfig() }
 
     func input(mine: [PullRequest] = [], reviews: [PullRequest] = []) -> NudgeInput {
         NudgeInput(
@@ -51,12 +47,6 @@ import Testing
         let pr = Fixtures.pr(number: 2, head: "b", review: .approved, merge: .clean)
         let kinds = NudgeEngine.nudges(input(mine: [pr])).map(\.kind)
         #expect(kinds == [.readyToMerge])
-    }
-
-    @Test func stalePullRequestAfterConfiguredDays() {
-        let old = Fixtures.pr(number: 3, head: "c", updated: Fixtures.t0.addingTimeInterval(-4 * 86_400))
-        let nudges = NudgeEngine.nudges(input(mine: [old]))
-        #expect(nudges.map(\.kind) == [.stalePullRequest])
     }
 
     @Test func finishedReviewNudgesWithItsCommentCount() {

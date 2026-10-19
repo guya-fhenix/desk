@@ -3,11 +3,12 @@ import Foundation
 import Testing
 
 @Suite struct DeskConfigTests {
+    /// A config.json from before a setting went away still loads: the key it names is ignored.
     @Test func missingKeysFallBackToDefaults() throws {
-        let json = #"{"githubOrg":"Other","reviewBudgetUSD":2.5}"#
+        let json = #"{"githubOrg":"Other","reviewTimeoutMinutes":45,"reviewBudgetUSD":2.5,"stalePullRequestDays":3}"#
         let config = try JSON.decoder().decode(DeskConfig.self, from: Data(json.utf8))
         #expect(config.githubOrg == "Other")
-        #expect(config.reviewBudgetUSD == 2.5)
+        #expect(config.reviewTimeoutMinutes == 45)
         #expect(config.repoRoots == DeskConfig().repoRoots)
         #expect(config.reviewRoot == "~/Repos/.reviews")
         #expect(config.cleanupReviewsOnMerge)

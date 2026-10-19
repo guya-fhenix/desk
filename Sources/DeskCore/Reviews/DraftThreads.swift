@@ -26,7 +26,8 @@ public enum DraftThreads {
         return (threads, unplaced)
     }
 
-    /// The severity leads, so the draft reads as triage on GitHub, where the app's chips are not.
+    /// The severity leads, so the draft reads as triage on GitHub, where the app's chips are not — on the comment's
+    /// first line rather than one of its own, which keeps a comment to the three lines it is asked to fit.
     public static func body(_ comment: DraftComment, onLine: Bool) -> String {
         var header = "**\(comment.severity.title)**"
         if !onLine {
@@ -34,6 +35,41 @@ public enum DraftThreads {
         } else if comment.isUnverified {
             header += " · line not verified"
         }
-        return "\(header)\n\n\(comment.body)\n\n\(marker)"
+        return "\(header) · \(comment.body)\n\n\(marker)"
+    }
+
+    /// A draft comment read back: the severity it leads with, if it leads with one, and the rest of what it says,
+    /// without the marker. Reads the comments of earlier versions too, whose severity stood on a line of its own.
+    public static func read(_ body: String) -> (severity: CommentSeverity?, text: String, isClaude: Bool) {
+        let isClaude = body.contains(marker)
+        var text = body.replacingOccurrences(of: marker, with: "").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let match = text.firstMatch(of: /^\*\*(\w+)\*\*/),
+              let severity = CommentSeverity.allCases.first(where: { $0.title == String(match.output.1) })
+        else { return (nil, text, isClaude) }
+        text = String(text[match.range.upperBound...])
+        // " · body", or the older "\n\nbody"; a header note ("line 900") stays at the front of the text.
+        if text.hasPrefix(" · ") { text = String(text.dropFirst(3)) }
+        return (severity, text.trimmingCharacters(in: .whitespacesAndNewlines), isClaude)
+    }
+}
+
+/// One comment of your pending review, read back from GitHub for the review page: where it sits, what it says, and
+/// whether it is one Claude wrote.
+public struct DraftReviewComment: Sendable, Hashable, Identifiable {
+    public var id: String
+    public var path: String
+    /// Nil for a comment on the file as a whole.
+    public var line: Int?
+    public var severity: CommentSeverity?
+    public var text: String
+    public var isClaude: Bool
+
+    public init(id: String, path: String, line: Int?, severity: CommentSeverity?, text: String, isClaude: Bool) {
+        self.id = id
+        self.path = path
+        self.line = line
+        self.severity = severity
+        self.text = text
+        self.isClaude = isClaude
     }
 }

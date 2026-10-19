@@ -166,6 +166,11 @@ extension GitHubProvider {
         try await Shell.output(ghPath, ["pr", "edit", String(number), "--repo", repo, "--title", title])
     }
 
+    /// Replaces a PR's description. On stdin, so a body of any length or character goes exactly as written.
+    public func editBody(repo: String, number: Int, body: String) async throws {
+        try await Shell.output(ghPath, ["pr", "edit", String(number), "--repo", repo, "--body-file", "-"], stdin: Data(body.utf8))
+    }
+
     /// Closes one of your PRs without merging it; it can be reopened on GitHub.
     public func close(repo: String, number: Int) async throws {
         try await Shell.output(ghPath, ["pr", "close", String(number), "--repo", repo])

@@ -336,11 +336,33 @@ private struct ChoiceField: View {
     var label: String
     @Binding var value: String
     var choices: [String]
+    var defaultLabel = "Default"
 
     var body: some View {
         Picker(label, selection: $value) {
-            Text("Default").tag("")
+            Text(defaultLabel).tag("")
             ForEach(choices + (value.isEmpty || choices.contains(value) ? [] : [value]), id: \.self) { Text($0).tag($0) }
+        }
+        .labelsHidden()
+        .handCursor()
+        .frame(maxWidth: 300, alignment: .leading)
+    }
+}
+
+/// The review's model, from Claude Code's own list: its default, the main models, then the rest under More models, as
+/// `/model` groups them. A saved model the list no longer has stays on offer, so opening Settings never changes it.
+private struct ModelField: View {
+    @Binding var value: String
+    var catalog: ClaudeModelCatalog?
+
+    var body: some View {
+        let models = catalog?.models ?? []
+        let defaultName = catalog?.defaultModel.flatMap { catalog?.model($0)?.name }
+        Picker("Model", selection: $value) {
+            Text(defaultName.map { "Default · \($0)" } ?? "Default").tag("")
+            Section { ForEach(models.filter(\.isMain)) { Text($0.name).tag($0.id) } }
+            Section("More models") { ForEach(models.filter { !$0.isMain }) { Text($0.name).tag($0.id) } }
+            if !value.isEmpty, catalog?.model(value) == nil { Text(value).tag(value) }
         }
         .labelsHidden()
         .handCursor()
@@ -384,11 +406,6 @@ private struct GeneralSettings: View {
             }
             Field(label: "Jira poll interval") {
                 BoxedStepper(label: "Jira poll interval", value: $draft.config.jiraPollSeconds, range: 60...3_600, step: 60, text: interval(draft.config.jiraPollSeconds))
-            }
-        }
-        FieldGroup(title: "Thresholds") {
-            Field(label: "Stale PR after") {
-                BoxedStepper(label: "Stale PR after", value: $draft.config.stalePullRequestDays, range: 1...30, step: 1, text: "\(draft.config.stalePullRequestDays) days")
             }
         }
         FieldGroup(title: "Alerts") {
@@ -459,7 +476,7 @@ private struct JiraSettings: View {
         }
         FieldGroup(
             title: "Tickets",
-            note: "Status names exactly as Jira spells them, emoji and all; empty turns that half off. Desk moves a ticket of yours on its own once its pull requests say it has fallen behind, never backwards."
+            note: "Status names exactly as Jira spells them, emoji and all; empty turns that half off. Desk suggests moving a ticket of yours once its pull requests say it has fallen behind, never backwards; it moves when you press Move."
         ) {
             Field(label: "Project keys", hint: "One Jira project key per line, such as PRO; type it and press Return.") {
                 TokenField(placeholder: "Add a key", text: $draft.projectKeysText) { key in
@@ -494,9 +511,12 @@ private struct JiraSettings: View {
 
 private struct ReviewsSettings: View {
     @Environment(AppModel.self) private var model
+    /// What Claude Code's `/model` offers this account; nil until read, or when Claude Code has not cached it.
+    @State private var catalog: ClaudeModelCatalog?
 
     var body: some View {
         @Bindable var draft = model.settings
+        let chosen = catalog?.model(draft.config.reviewModel.isEmpty ? catalog?.defaultModel ?? "" : draft.config.reviewModel)
         FieldGroup(title: "Claude") {
             Field(label: "claude path", hint: "Leave empty to find claude on your PATH.") {
                 VStack(alignment: .leading, spacing: 4) {
@@ -505,9 +525,29 @@ private struct ReviewsSettings: View {
                         .scaled(.caption).foregroundStyle(draft.config.resolvedClaudePath == nil ? .red : .secondary)
                 }
             }
-            Field(label: "Model") { ChoiceField(label: "Model", value: $draft.config.reviewModel, choices: ["opus", "sonnet", "haiku"]) }
+            Field(
+                label: "Model",
+                hint: catalog == nil ? "Claude Code's model list was not found; run claude once to fetch it." : "The models Claude Code's /model offers you."
+            ) {
+                ModelField(value: $draft.config.reviewModel, catalog: catalog)
+            }
             Field(label: "Effort") {
-                ChoiceField(label: "Effort", value: $draft.config.reviewEffort, choices: ["low", "medium", "high", "xhigh", "max"])
+                if let chosen, chosen.efforts.isEmpty {
+                    Text("\(chosen.name) takes no effort level.").scaled(.callout).foregroundStyle(.secondary)
+                } else {
+                    ChoiceField(
+                        label: "Effort", value: $draft.config.reviewEffort,
+                        choices: chosen?.efforts ?? ["low", "medium", "high", "xhigh", "max"],
+                        defaultLabel: chosen?.defaultEffort.map { "Default · \($0)" } ?? "Default"
+                    )
+                }
+            }
+        }
+        .task { catalog = ClaudeModelCatalog.read() }
+        // An effort the new model does not take would be refused: back to the model's own default.
+        .onChange(of: draft.config.reviewModel) {
+            if let chosen, !draft.config.reviewEffort.isEmpty, !chosen.efforts.contains(draft.config.reviewEffort) {
+                draft.config.reviewEffort = ""
             }
         }
         FieldGroup(title: "Limits") {
@@ -516,9 +556,6 @@ private struct ReviewsSettings: View {
             }
             Field(label: "Review time limit") {
                 BoxedStepper(label: "Review time limit", value: $draft.config.reviewTimeoutMinutes, range: 5...90, step: 5, text: "\(draft.config.reviewTimeoutMinutes) min")
-            }
-            Field(label: "Budget per run") {
-                BoxedStepper(label: "Budget per run", value: $draft.config.reviewBudgetUSD, range: 1...100, step: 1, text: Format.usd(draft.config.reviewBudgetUSD))
             }
         }
         FieldGroup(

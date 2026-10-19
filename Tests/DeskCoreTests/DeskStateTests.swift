@@ -22,6 +22,24 @@ import Testing
         }
     }
 
+    /// A dismissed move stays hidden; the same ticket's next one, once its PR merges, is suggested again.
+    @Test func aDismissedMoveStaysHiddenUntilItsTargetChanges() {
+        var state = state
+        state.github?.mine = [Fixtures.pr(number: 1, head: "feat/pro-391-gauge")]
+        state.tickets = [Fixtures.ticket("PRO-391")]
+        state.recompute()
+        #expect(state.ticketDrifts.map(\.moveKey) == ["PRO-391→👀 Review Ready"])
+
+        state.dismissedMoves = ["PRO-391→👀 Review Ready"]
+        state.recompute()
+        #expect(state.ticketDrifts.isEmpty)
+
+        state.github?.mine = []
+        state.github?.mergedRecent = [Fixtures.pr(number: 1, head: "feat/pro-391-gauge", merged: Fixtures.hours(3))]
+        state.recompute()
+        #expect(state.ticketDrifts.map(\.target) == ["Done"])
+    }
+
     @Test func recentlyMergedIsTheLastThirtyDaysNewestFirst() {
         var state = state
         let day: TimeInterval = 86_400
@@ -116,13 +134,19 @@ import Testing
         state.github?.mine = [failing, ready, inReview, redDraft]
         let recent = Fixtures.pr(number: 10, head: "x", author: "alice", created: Fixtures.t0 - 2 * 86_400)
         let old = Fixtures.pr(number: 11, head: "y", author: "alice", created: Fixtures.t0 - 30 * 86_400)
-        state.github?.reviewRequests = [recent, old]
+        // Reviewed, and its draft not submitted yet: outside the day filter, still listed, since you started it.
+        var drafted = Fixtures.pr(number: 12, head: "z", author: "alice", created: Fixtures.t0 - 40 * 86_400)
+        drafted.pendingReview = Fixtures.pending()
+        state.github?.reviewRequests = [recent, old, drafted]
         state.recompute(now: Fixtures.t0)
         let plan = state.upNext(reviewDays: 14, now: Fixtures.t0)
-        #expect(plan.map(\.section) == [.readyToMerge, .yourMove, .toReview, .waiting])
-        #expect(plan.map { $0.pullRequests.map(\.number) } == [[2], [1, 4], [10], [3]])
+        #expect(plan.map(\.section) == [.readyToMerge, .yourMove, .draftsToSubmit, .toReview, .waiting])
+        #expect(plan.map { $0.pullRequests.map(\.number) } == [[2], [1, 4], [12], [10], [3]])
         // All time takes the old one in too.
         #expect(state.upNext(reviewDays: nil, now: Fixtures.t0).first { $0.section == .toReview }?.pullRequests.count == 2)
+        // A hidden author's PRs leave the review sections, drafts included; your own PRs stay.
+        let hidden = state.upNext(reviewDays: nil, hiding: ["alice"], now: Fixtures.t0)
+        #expect(hidden.map(\.section) == [.readyToMerge, .yourMove, .waiting])
     }
 
     /// Up Next offers your sprint's to-do tickets that nothing has started yet.
@@ -131,8 +155,8 @@ import Testing
         config.jiraProjectKeys = ["PRO"]
         var state = DeskState(config: config)
         state.github = GitHubSnapshot(
-            login: "me", mine: [Fixtures.pr(number: 1, title: "PRO-2 the fix", head: "x")], reviewRequests: [], mergedRecent: [],
-            fetchedAt: Fixtures.t0
+            login: "me", mine: [Fixtures.pr(number: 1, title: "PRO-2 the fix", head: "x")], reviewRequests: [],
+            mergedRecent: [Fixtures.pr(number: 2, title: "PRO-6 done already", head: "y", merged: Fixtures.t0)], fetchedAt: Fixtures.t0
         )
         state.tickets = [
             Fixtures.ticket("PRO-1", category: .todo, status: "To Do"),
@@ -140,9 +164,10 @@ import Testing
             Fixtures.ticket("PRO-3", category: .inProgress),
             Fixtures.ticket("PRO-4", category: .todo, status: "To Do", placement: .backlog),
             Fixtures.ticket("PRO-5", category: .todo, status: "To Do", assignedToMe: false),
+            Fixtures.ticket("PRO-6", category: .todo, status: "To Do"),
         ]
         state.recompute(now: Fixtures.t0)
-        // PRO-2 has a PR, PRO-3 is underway, PRO-4 waits in the backlog, PRO-5 is someone else's.
+        // PRO-2 has a PR, PRO-3 is underway, PRO-4 waits in the backlog, PRO-5 is someone else's, PRO-6's PR merged.
         #expect(state.ticketsToStart.map(\.key) == ["PRO-1"])
     }
 
@@ -216,6 +241,7 @@ import Testing
         #expect(state.reviewQueue(.onMe, days: 14, now: Fixtures.t0).map(\.number) == [1])
         #expect(state.reviewQueue(.onMe, days: 31, now: Fixtures.t0).map(\.number) == [1, 2])
         #expect(state.reviewQueue(.onMe, now: Fixtures.t0).map(\.number) == [1, 2])
+        #expect(state.reviewQueue(.onMe, hiding: ["alice"], now: Fixtures.t0).isEmpty)
     }
 }
 

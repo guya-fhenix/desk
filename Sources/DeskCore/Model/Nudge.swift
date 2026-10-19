@@ -1,17 +1,17 @@
 import Foundation
 
 public enum NudgeKind: String, Codable, Sendable {
-    case ciFailed, changesRequested, readyToMerge, needsRebase, stalePullRequest
+    case ciFailed, changesRequested, readyToMerge, needsRebase
     case reviewRequested, reviewReady
     /// A flow stage that moves only when you press something.
     case flowWaiting
     /// A flow's session is asking you something, or the flow hit a problem it will not retry on its own.
     case sessionNeedsYou
 
-    /// Which screen handles this one. The sidebar badges count what waits on each.
+    /// Which screen handles this one.
     public var screen: NudgeScreen {
         switch self {
-        case .ciFailed, .changesRequested, .readyToMerge, .needsRebase, .stalePullRequest, .flowWaiting, .sessionNeedsYou:
+        case .ciFailed, .changesRequested, .readyToMerge, .needsRebase, .flowWaiting, .sessionNeedsYou:
             return .pullRequests
         case .reviewRequested, .reviewReady: return .reviews
         }

@@ -2,13 +2,13 @@ import DeskCore
 import SwiftUI
 
 /// The landing screen: what waits on you, your PRs and the reviews alike, under the section that says what to do —
-/// ready to merge, your move, to review — then the sprint's tickets nothing has started, your PRs that wait on someone
-/// else, and the Jira moves that failed. The rows are the Pull Requests, Reviews and Jira screens' own; a click, Return
-/// or → opens the PR's or the ticket's page here, and its back link, or ←, returns here. The reviews follow the Reviews
-/// screen's day filter.
+/// ready to merge, your move, drafts to submit, to review — then the Jira moves the app suggests, the sprint's tickets nothing has
+/// started, and your PRs that wait on someone else. The rows are the Pull Requests, Reviews and Jira screens' own; a
+/// click, Return or → opens the PR's or the ticket's page here, and its back link, or ←, returns here. The reviews
+/// follow the Reviews screen's day filter.
 struct UpNextTab: View {
     @Environment(AppModel.self) private var model
-    /// A PR's url, or a ticket's key: one to start, or one whose Jira move failed.
+    /// A PR's url, or a ticket's key: one to start, or one with a suggested move.
     @State private var selection: String?
     /// The PR whose page is showing in place of the list; nil shows the list.
     @State private var opened: String?
@@ -18,13 +18,16 @@ struct UpNextTab: View {
     @State private var planNote = ""
     /// With Reduce Motion on, the list jumps to the selected row instead of sliding there.
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    private var reviewDays = ReviewDays()
+    private var filters = ReviewFilters()
 
     var body: some View {
-        let plan = model.state.upNext(reviewDays: reviewDays.window)
+        let plan = model.state.upNext(reviewDays: filters.window, hiding: filters.hidden)
         let tickets = model.state.ticketsToStart
-        let drifts = model.failedDrifts
-        let rows = plan.flatMap(\.pullRequests).map(\.url) + tickets.map(\.key) + drifts.map(\.id)
+        let drifts = model.state.ticketDrifts
+        // In the order the sections show, so the first row selected is the top one.
+        let early = plan.filter { $0.section != .waiting }.flatMap(\.pullRequests).map(\.url)
+        let waiting = plan.filter { $0.section == .waiting }.flatMap(\.pullRequests).map(\.url)
+        let rows = early + drifts.map(\.id) + tickets.map(\.key) + waiting
         Group {
             if let key = opened, let ticket = model.state.ticket(key) {
                 TicketPage(ticket: ticket, model: model, back: "Up Next", plan: startPlan) { opened = nil }
@@ -46,8 +49,8 @@ struct UpNextTab: View {
         // Starting something new comes after what is already under way, and before what waits on others.
         let early = plan.filter { $0.section != .waiting }
         let waiting = plan.first { $0.section == .waiting }
-        let titles = early.map(\.section.title) + (tickets.isEmpty ? [] : [Self.start]) + [waiting?.section.title].compactMap { $0 }
-            + (drifts.isEmpty ? [] : [Self.jira])
+        let titles = early.map(\.section.title) + (drifts.isEmpty ? [] : [Self.jira]) + (tickets.isEmpty ? [] : [Self.start])
+            + [waiting?.section.title].compactMap { $0 }
         Screen {
             PageHeader(title: "Up Next") {}
         } content: {
@@ -60,9 +63,15 @@ struct UpNextTab: View {
                 .padding(.vertical, 20)
             }
             ScrollViewReader { proxy in
-                // Arrow keys walk the rows; a click, Return or → opens a PR's page, Return on a Jira row opens Jira.
+                // Arrow keys walk the rows; a click, Return or → opens the PR's or the ticket's page.
                 List(selection: $selection) {
                     ForEach(early) { group in pullRequests(group, first: titles.first) }
+                    if !drifts.isEmpty {
+                        header(Self.jira, drifts.count, first: titles.first)
+                        ForEach(drifts) { drift in
+                            ListRow(selected: selection == drift.id, open: { open(drift.id) }) { MoveRow(drift: drift, model: model) }
+                        }
+                    }
                     if !tickets.isEmpty {
                         header(Self.start, tickets.count, first: titles.first)
                         ForEach(tickets) { ticket in
@@ -72,19 +81,13 @@ struct UpNextTab: View {
                         }
                     }
                     if let waiting { pullRequests(waiting, first: titles.first) }
-                    if !drifts.isEmpty {
-                        header(Self.jira, drifts.count, first: titles.first)
-                        ForEach(drifts) { drift in
-                            ListRow(selected: selection == drift.id) { DriftRow(drift: drift, model: model) }
-                        }
-                    }
                 }
                 .deskList()
                 // Focused on arrival and on the way back from a page, so the keys work without a click first.
                 .focused($listFocused)
                 .onAppear { listFocused = true }
                 .onKeyPress(.rightArrow) {
-                    guard let selection, !drifts.contains(where: { $0.id == selection }) else { return .ignored }
+                    guard let selection else { return .ignored }
                     open(selection)
                     return .handled
                 }
@@ -96,8 +99,7 @@ struct UpNextTab: View {
                         PullRequestMenu(pr: pr, model: model)
                     }
                 } primaryAction: { ids in
-                    guard let id = ids.first else { return }
-                    if let drift = drifts.first(where: { $0.id == id }) { model.open(drift.ticket.url) } else { open(id) }
+                    if let id = ids.first { open(id) }
                 }
                 .onChange(of: selection, initial: true) { _, id in
                     if let id { withAnimation(reduceMotion ? nil : .default) { proxy.scrollTo(id, anchor: .center) } }
@@ -107,7 +109,7 @@ struct UpNextTab: View {
     }
 
     private static let start = "Ready to start"
-    private static let jira = "Jira out of sync"
+    private static let jira = "Jira moves"
 
     /// A section's heading, with room above it to set it off from the one before.
     private func header(_ title: String, _ count: Int, first: String?) -> some View {
@@ -121,7 +123,7 @@ struct UpNextTab: View {
     @ViewBuilder private func pullRequests(_ group: UpNextGroup, first: String?) -> some View {
         header(group.section.title, group.pullRequests.count, first: first)
         ForEach(group.pullRequests, id: \.url) { pr in
-            if group.section == .toReview {
+            if group.section == .toReview || group.section == .draftsToSubmit {
                 ListRow(selected: selection == pr.url, open: { open(pr.url) }) {
                     QueueRow(pr: pr, model: model, onMe: onMe(pr))
                 }
@@ -147,30 +149,4 @@ struct UpNextTab: View {
 
     /// GitHub put it on you, as opposed to its being open for anyone to review.
     private func onMe(_ pr: PullRequest) -> Bool { model.state.reviewRequests.contains { $0.url == pr.url } }
-}
-
-/// A ticket whose Jira status has fallen behind its pull requests and that the app could not move, and why.
-private struct DriftRow: View {
-    var drift: TicketDrift
-    var model: AppModel
-
-    var body: some View {
-        HStack(spacing: 10) {
-            StatusDot(color: .blue)
-            VStack(alignment: .leading, spacing: 1) {
-                Text("\(drift.ticket.key) should be “\(drift.target)”").scaled(.rowTitle).lineLimit(1)
-                Text("Jira says “\(drift.ticket.status)” · \(reason)").scaled(.caption).foregroundStyle(.secondary).lineLimit(1)
-                Text(model.ticketMoveErrors[drift.ticket.key] ?? "").scaled(.caption).foregroundStyle(.red).lineLimit(1)
-                    .help(model.ticketMoveErrors[drift.ticket.key] ?? "")
-            }
-            Spacer(minLength: 8)
-            Button("Open in Jira") { model.open(drift.ticket.url) }.controlSize(.small)
-        }
-        .padding(.vertical, 2)
-    }
-
-    private var reason: String {
-        let prs = drift.pullRequests.map { "\($0.repoName)#\($0.number)" }.joined(separator: ", ")
-        return drift.stage == .done ? "\(prs) merged" : "\(prs) open for review"
-    }
 }

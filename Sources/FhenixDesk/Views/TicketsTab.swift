@@ -3,7 +3,8 @@ import SwiftUI
 
 /// Jira tickets as a list: the running sprint or the backlog, one group per status in workflow order, yours unless
 /// the assignee filter picks others. Done is left out: the list is about what is still open. Selecting a row opens it in the details panel, which is
-/// where its description is read.
+/// where its description is read. Above the groups, the moves the app suggests for your tickets, each waiting for
+/// your Move or Dismiss.
 struct TicketsTab: View {
     @Environment(AppModel.self) private var model
     /// Remembered, so a trip to another screen does not drop you back on the sprint.
@@ -16,21 +17,39 @@ struct TicketsTab: View {
     /// The ticket and repository a plan has been asked for, while the note is still being written.
     @State private var planning: PlanRequest?
     @State private var planNote = ""
+    /// The details panel's flag, which `deskInspector` reads too: a ticket picked in Search opens it.
+    @AppStorage("inspector.tickets") private var inspectorShown = true
+    /// A row to bring into view: the ticket Search picked, which may sit far down the list.
+    @State private var scrollTarget: String?
 
     var body: some View {
         let groups = filtered(model.state.ticketGroups(placement, assignees: assignees))
+        let moves = suggestedMoves
         Screen {
             PageHeader(title: "Jira") { HeaderControls(inspector: "tickets") }
             header
         } content: {
             Hairline()
-            if groups.isEmpty {
+            if groups.isEmpty && moves.isEmpty {
                 emptyState.padding(.vertical, 20)
                 Spacer()
             } else {
                 StaleBanner(source: .jira)
                 // Arrow keys move the selection; Return or a double-click opens the ticket in Jira.
+                ScrollViewReader { proxy in
                 List(selection: $selection) {
+                    if !moves.isEmpty {
+                        GroupHeader(title: "Suggested moves", count: moves.count) {
+                            Button("Move all") { moves.forEach(model.moveTicket) }
+                                .controlSize(.small).handCursor()
+                                .disabled(moves.allSatisfy { model.movingTickets.contains($0.ticket.key) })
+                        }
+                        .plainListRow().selectionDisabled()
+                        // Tagged by the move, not the ticket: the ticket has its own row in its status group below.
+                        ForEach(moves, id: \.moveKey) { drift in
+                            ListRow(selected: selection == drift.moveKey) { MoveRow(drift: drift, model: model) }
+                        }
+                    }
                     ForEach(groups) { group in
                         GroupHeader(title: group.status, count: group.tickets.count).plainListRow().selectionDisabled()
                         ForEach(group.tickets) { ticket in
@@ -42,20 +61,41 @@ struct TicketsTab: View {
                 }
                 .deskList()
                 .contextMenu(forSelectionType: String.self) { keys in
-                    if let key = keys.first, let ticket = model.state.ticket(key) {
+                    if let ticket = keys.first.flatMap(ticket(for:)) {
                         Button("Open in Jira") { model.open(ticket.url) }
                         Button("Copy Link") { Clipboard.copy(ticket.url) }
                         Button("Copy Key") { Clipboard.copy(ticket.key) }
                     }
                 } primaryAction: { keys in
-                    if let key = keys.first { model.open(model.state.ticket(key)?.url) }
+                    model.open(keys.first.flatMap(ticket(for:))?.url)
+                }
+                .onChange(of: scrollTarget, initial: true) { _, key in
+                    guard let key else { return }
+                    proxy.scrollTo(key, anchor: .center)
+                    scrollTarget = nil
+                }
                 }
             }
         }
-        .selectsFirstRow(groups.first?.tickets.first?.key, selection: $selection)
+        // Search lands here with a ticket: shown wherever it is — its sprint or backlog, your tickets in the filter, the
+        // search box cleared — selected, and in the details panel.
+        .onChange(of: model.selectTicket, initial: true) { _, key in
+            guard let key, let ticket = model.state.ticket(key) else { return }
+            // One Jira places in neither has no row, but the details panel still shows it.
+            if ticket.placement != .unknown { placement = ticket.placement }
+            if !assignees.isEmpty, !assignees.contains(.me) {
+                storedAssignees = assignees.union([.me]).map(\.rawValue).sorted().joined(separator: "\n")
+            }
+            search = ""
+            selection = key
+            inspectorShown = true
+            scrollTarget = key
+            model.selectTicket = nil
+        }
+        .selectsFirstRow(moves.first?.moveKey ?? groups.first?.tickets.first?.key, selection: $selection)
         // Wider than the others: this one is for reading a description, tables and all.
         .deskInspector("tickets", width: 420) {
-            if let key = selection, let ticket = model.state.ticket(key) {
+            if let ticket = selection.flatMap(ticket(for:)) {
                 TicketInspector(ticket: ticket, model: model, plan: plan)
             } else {
                 EmptyState(text: "Select a ticket to read it.").padding()
@@ -65,6 +105,19 @@ struct TicketsTab: View {
         .sheet(item: $planning) { request in
             PlanSheet(request: request, model: model, note: $planNote) { planning = nil }
         }
+    }
+
+    /// A row's ticket, from its key or, on a suggested move's row, its move.
+    private func ticket(for id: String) -> Ticket? {
+        model.state.ticket(id) ?? model.state.ticketDrifts.first { $0.moveKey == id }?.ticket
+    }
+
+    /// The suggested moves, when the assignee filter takes in your tickets (they are only ever yours), and the search
+    /// matches.
+    private var suggestedMoves: [TicketDrift] {
+        guard assignees.isEmpty || assignees.contains(.me) else { return [] }
+        let needle = search.trimmingCharacters(in: .whitespaces).lowercased()
+        return model.state.ticketDrifts.filter { needle.isEmpty || "\($0.ticket.key) \($0.ticket.summary)".lowercased().contains(needle) }
     }
 
     private var assignees: Set<TicketAssignee> {
@@ -217,13 +270,7 @@ private struct TicketInspector: View {
                 .controlSize(.small)
             }
             if let drift = model.state.drift(forKey: ticket.key) {
-                PanelSection("Jira is behind") {
-                    Text(driftReason(drift)).scaled(.caption)
-                    if let error = model.ticketMoveErrors[ticket.key] {
-                        Text("The move failed: \(error)").scaled(.caption).foregroundStyle(.red).textSelection(.enabled)
-                    }
-                    HStack { Spacer(); DriftBadge(drift: drift, model: model) }
-                }
+                PanelSection("Suggested move") { MoveSuggestion(drift: drift, model: model) }
             }
             let flows = model.state.flows(forTicket: ticket.key)
             if !flows.isEmpty {
@@ -251,11 +298,74 @@ private struct TicketInspector: View {
 
 }
 
-/// Why the app is moving a ticket, in a sentence.
-private func driftReason(_ drift: TicketDrift) -> String {
-    let prs = drift.pullRequests.map { "\($0.repoName)#\($0.number)" }.joined(separator: ", ")
-    let because = drift.stage == .done ? "\(prs) merged" : "\(prs) open for review"
-    return "Jira says “\(drift.ticket.status)”. \(because), so it should be “\(drift.target)”."
+/// A move the app suggests, as a row of the Jira screen's Suggested moves and Up Next's Jira moves: whose ticket and
+/// what it is, the move and the pull requests behind it, why Jira refused it if it did, and the two presses.
+struct MoveRow: View {
+    var drift: TicketDrift
+    var model: AppModel
+
+    var body: some View {
+        let error = model.ticketMoveErrors[drift.ticket.key]
+        HStack(alignment: .center, spacing: 12) {
+            AssigneeAvatar(ticket: drift.ticket)
+            VStack(alignment: .leading, spacing: 5) {
+                Text(drift.ticket.summary).scaled(.rowTitle).lineLimit(1)
+                MetaLine(parts: [Text(drift.ticket.key), Text("\(drift.ticket.status) → \(drift.target)"), Text(drift.because)])
+                if let error {
+                    Text("Jira refused: \(error)").scaled(.caption).foregroundStyle(.red).lineLimit(1).help(error)
+                }
+            }
+            Spacer(minLength: 8)
+            MoveButtons(drift: drift, model: model)
+        }
+    }
+}
+
+/// Dismiss, then Move — Retry once Jira has refused it — or a spinner while it moves. Dismiss is remembered: the
+/// suggestion comes back only if the ticket's pull requests point it somewhere else.
+struct MoveButtons: View {
+    var drift: TicketDrift
+    var model: AppModel
+    /// The page's and the details panel's: the target spelled out, filled.
+    var prominent = false
+
+    var body: some View {
+        HStack(spacing: 6) {
+            if model.movingTickets.contains(drift.ticket.key) {
+                ProgressView().controlSize(.small).help("Moving \(drift.ticket.key) to “\(drift.target)”")
+            } else {
+                Button("Dismiss") { model.dismissMove(drift) }
+                    .help("Hide this suggestion; it comes back only if the ticket's pull requests point somewhere else")
+                let title = model.ticketMoveErrors[drift.ticket.key] != nil ? "Retry" : prominent ? "Move to “\(drift.target)”" : "Move"
+                if prominent {
+                    Button(title) { model.moveTicket(drift) }.buttonStyle(.borderedProminent)
+                } else {
+                    Button(title) { model.moveTicket(drift) }
+                }
+            }
+        }
+        .controlSize(prominent ? .regular : .small)
+        .fixedSize()
+        .handCursor()
+    }
+}
+
+/// The ticket page's and details panel's card for a suggested move: why, in a sentence, why Jira refused it if it did,
+/// and the presses.
+struct MoveSuggestion: View {
+    var drift: TicketDrift
+    var model: AppModel
+
+    var body: some View {
+        Text("Jira says “\(drift.ticket.status)”. \(drift.because), so it should be “\(drift.target)”.").scaled(.caption)
+        if let error = model.ticketMoveErrors[drift.ticket.key] {
+            Text("Jira refused: \(error)").scaled(.caption).foregroundStyle(.red).textSelection(.enabled)
+        }
+        HStack {
+            Spacer()
+            MoveButtons(drift: drift, model: model, prominent: true)
+        }
+    }
 }
 
 /// "Start in…": the repositories a ticket can be planned in, each opening the sheet that asks what the plan is for.
@@ -352,12 +462,7 @@ struct TicketPage: View {
                 }
             }
             if let drift = model.state.drift(forKey: ticket.key) {
-                SideCard(title: "Jira is behind") {
-                    Text(driftReason(drift)).scaled(.caption)
-                    if let error = model.ticketMoveErrors[ticket.key] {
-                        Text("The move failed: \(error)").scaled(.caption).foregroundStyle(.red).textSelection(.enabled)
-                    }
-                }
+                SideCard(title: "Suggested move") { MoveSuggestion(drift: drift, model: model) }
             }
         }
     }

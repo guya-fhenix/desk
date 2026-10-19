@@ -5,9 +5,14 @@ import SwiftUI
 struct Chip: View {
     var text: String
     var color: Color = .secondary
+    /// A spinner before the text, for a state still under way.
+    var spinning = false
 
     var body: some View {
-        Text(text)
+        HStack(spacing: 5) {
+            if spinning { ProgressView().controlSize(.mini).tint(color) }
+            Text(text)
+        }
             .scaled(.secondary)
             .padding(.horizontal, Theme.Space.s)
             .padding(.vertical, Theme.Space.xs / 2)
@@ -340,23 +345,15 @@ struct AddDeleteCounts: View {
 /// draft, or the review you sent — and what changed since.
 struct ReviewStatusChip: View {
     var status: ReviewStatus
+    /// False where the Review button shows the run's progress itself.
+    var showsRun = true
 
     var body: some View {
         HStack(spacing: 4) {
-            switch status.run?.phase {
-            case .preparing:
-                ProgressView().controlSize(.mini)
-                Text("Starting").scaled(.caption2).foregroundStyle(.secondary)
-            case .running:
-                ProgressView().controlSize(.mini)
-                Text("Reviewing").scaled(.caption2).foregroundStyle(.secondary)
-            case .posting:
-                ProgressView().controlSize(.mini)
-                Text("Posting draft").scaled(.caption2).foregroundStyle(.secondary)
-            case .failed:
-                Chip(text: "Failed", color: .red).help(status.run?.error ?? "")
-            case .posted, nil:
+            if !showsRun && status.isBusy {
                 github
+            } else {
+                run
             }
             if status.headMoved {
                 Chip(text: "New commits", color: .orange)
@@ -365,6 +362,23 @@ struct ReviewStatusChip: View {
             if status.reRequested {
                 Chip(text: "Re-requested", color: .orange).help("Your review was requested again after you last submitted one")
             }
+        }
+    }
+
+    /// This session's run while it goes, then what GitHub says.
+    @ViewBuilder private var run: some View {
+        switch status.run?.phase {
+        // Chips like the states after them, so a run under way reads as plainly as a draft or a failure.
+        case .preparing:
+            Chip(text: "Starting", color: .teal, spinning: true)
+        case .running:
+            Chip(text: "Reviewing", color: .teal, spinning: true)
+        case .posting:
+            Chip(text: "Posting draft", color: .teal, spinning: true)
+        case .failed:
+            Chip(text: "Failed", color: .red).help(status.run?.error ?? "")
+        case .posted, nil:
+            github
         }
     }
 
@@ -463,8 +477,8 @@ struct ClaudeSessionButton: View {
     }
 }
 
-/// Where a ticket's pull requests say it should be. The app moves it there on its own, so this only shows
-/// the move in flight, or in red why it did not happen — nothing tries again. It names the pull requests
+/// Where a ticket's pull requests say it should be: a suggested move, which waits for your Move on the Jira screen,
+/// the ticket's page or Up Next. A spinner while the move runs, red when Jira refused it. It names the pull requests
 /// it is arguing from: a move nobody can explain is one nobody should make.
 struct DriftBadge: View {
     var drift: TicketDrift
@@ -483,9 +497,15 @@ struct DriftBadge: View {
 
     private var help: String {
         if let failure { return "Could not move \(drift.ticket.key) to “\(drift.target)”: \(failure)" }
-        let prs = drift.pullRequests.map { "\($0.repoName)#\($0.number)" }.joined(separator: ", ")
-        let because = drift.stage == .done ? "\(prs) merged" : "\(prs) open for review"
-        return "\(because) — moving \(drift.ticket.key) to “\(drift.target)”"
+        return "\(drift.because), so \(drift.ticket.key) should be “\(drift.target)”. Suggested: it moves when you press Move."
+    }
+}
+
+extension TicketDrift {
+    /// The pull requests behind the suggestion and where they stand: "cofhe#1082 open for review".
+    var because: String {
+        let prs = pullRequests.map { "\($0.repoName)#\($0.number)" }.joined(separator: ", ")
+        return stage == .done ? "\(prs) merged" : "\(prs) open for review"
     }
 }
 
@@ -825,12 +845,40 @@ struct EditableTitle<Trailing: View>: View {
     }
 }
 
-/// A ticket's description, with Edit beside its heading: a box holding the markdown it reads as, where ⌘↩ or Save
-/// writes it to Jira and Esc or Cancel puts it back. Not offered for a description holding what that markdown cannot
-/// carry — mentions, images, panels — since saving would drop them; Jira is the place to edit those.
+/// A ticket's description, editable in place: Jira takes the markdown it reads as. Not offered for a description
+/// holding what that markdown cannot carry — mentions, images, panels — since saving would drop them; Jira is the
+/// place to edit those.
 struct TicketDescription: View {
     var ticket: Ticket
     var model: AppModel
+
+    var body: some View {
+        EditableDescription(
+            text: ticket.description, editable: ticket.descriptionEditable,
+            editHelp: "Edit the description; saving writes it to Jira",
+            lockedHelp: "It has mentions, images or panels that saving from here would drop: edit it in Jira"
+        ) {
+            await model.editTicket(ticket, description: $0)
+        } rendered: {
+            if ticket.description.isEmpty {
+                Text("No description.").foregroundStyle(.secondary)
+            } else {
+                MarkdownText(text: ticket.description)
+            }
+        }
+    }
+}
+
+/// A description with Edit beside its heading: a box holding its markdown, where ⌘↩ or Save writes it and Esc or
+/// Cancel puts it back. A ticket's, and your own PR's.
+struct EditableDescription<Rendered: View>: View {
+    var text: String
+    var editable: Bool
+    var editHelp: String
+    var lockedHelp: String
+    /// Writes the edit; why it failed, or nil.
+    var save: (String) async -> String?
+    @ViewBuilder var rendered: Rendered
     @Environment(\.focusPage) private var focusPage
     @State private var editing = false
     @State private var draft = ""
@@ -846,10 +894,8 @@ struct TicketDescription: View {
                     Button("Edit", action: start)
                         .controlSize(.small)
                         .handCursor()
-                        .disabled(!ticket.descriptionEditable)
-                        .help(ticket.descriptionEditable
-                            ? "Edit the description; saving writes it to Jira"
-                            : "It has mentions, images or panels that saving from here would drop: edit it in Jira")
+                        .disabled(!editable)
+                        .help(editable ? editHelp : lockedHelp)
                 }
             }
             if editing {
@@ -857,7 +903,9 @@ struct TicketDescription: View {
                     .scaled(.body)
                     .scrollContentBackground(.hidden)
                     .disabled(saving)
-                    .frame(minHeight: 260)
+                    // A fixed height, the text scrolling inside: left to grow, the editor measures its text only on the
+                    // first click and jumps taller, which carries Cancel out from under that very click.
+                    .frame(height: 400)
                     .padding(8)
                     .background(Theme.raised, in: RoundedRectangle(cornerRadius: 8))
                     .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Theme.accent, lineWidth: 1.5))
@@ -871,25 +919,24 @@ struct TicketDescription: View {
                     Button("Save", action: commit)
                         .buttonStyle(.borderedProminent).handCursor()
                         .keyboardShortcut(.return, modifiers: .command)
-                        .disabled(saving || draft == ticket.description)
+                        .disabled(saving || draft == text)
                 }
                 if let error { Text(error).scaled(.caption).foregroundStyle(.red).textSelection(.enabled) }
-            } else if ticket.description.isEmpty {
-                Text("No description.").foregroundStyle(.secondary)
             } else {
-                MarkdownText(text: ticket.description)
+                rendered
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func start() {
-        draft = ticket.description
+        draft = text
         error = nil
         editing = true
     }
 
     private func cancel() {
+        guard !saving else { return }
         editing = false
         error = nil
         focusPage()
@@ -898,7 +945,7 @@ struct TicketDescription: View {
     private func commit() {
         saving = true
         Task {
-            error = await model.editTicket(ticket, description: draft)
+            error = await save(draft)
             saving = false
             if error == nil {
                 editing = false

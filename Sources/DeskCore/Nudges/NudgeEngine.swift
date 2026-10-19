@@ -48,7 +48,6 @@ public struct NudgeInput: Sendable {
 public enum NudgeEngine {
     public static func nudges(_ input: NudgeInput) -> [Nudge] {
         var nudges: [Nudge] = []
-        let staleAfter = TimeInterval(input.config.stalePullRequestDays) * 86_400
         // A flow that is not paused fixes red CI itself, proposes fixes for change requests and offers Merge, so those
         // three would only repeat what its own nudges say.
         let carried = Set(input.flows.filter { !$0.paused && $0.stage != .merged }.compactMap(\.prURL))
@@ -70,10 +69,6 @@ public enum NudgeEngine {
             }
             if pr.reviewDecision == .approved && pr.mergeState == .clean && !pr.checks.isRed && !pr.checks.isPending && !inFlow {
                 nudges.append(Nudge(id: "ready:\(pr.url):\(pr.headSha)", kind: .readyToMerge, severity: .info, title: "\(label) is approved and green", detail: "Merge it.", url: pr.url))
-            }
-            if input.now.timeIntervalSince(pr.updatedAt) > staleAfter && pr.reviewDecision != .approved {
-                let days = Int(input.now.timeIntervalSince(pr.updatedAt) / 86_400)
-                nudges.append(Nudge(id: "stale:\(pr.url)", kind: .stalePullRequest, severity: .info, title: "\(label) is quiet for \(days) days", detail: "Ping a reviewer or close it.", url: pr.url))
             }
         }
 

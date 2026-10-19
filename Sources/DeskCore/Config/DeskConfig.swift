@@ -24,7 +24,6 @@ public struct DeskConfig: Codable, Sendable, Equatable {
     public var githubPollSeconds: Int = 180
     public var gitPollSeconds: Int = 60
     public var jiraPollSeconds: Int = 300
-    public var stalePullRequestDays: Int = 3
     public var notificationsEnabled: Bool = true
     public var claudePath: String = ""
     /// The Atlassian CLI. It owns the Jira credentials, the way `gh` owns the GitHub ones.
@@ -33,9 +32,6 @@ public struct DeskConfig: Codable, Sendable, Equatable {
     public var reviewRoot: String = "~/Repos/.reviews"
     public var reviewModel: String = ""
     public var reviewEffort: String = ""
-    /// `--max-budget-usd` for one review run: a hard cap Claude enforces itself, which still returns the
-    /// work it had already done. Also the basis of the per-PR ceiling, which is a few runs of this.
-    public var reviewBudgetUSD: Double = 10
     public var cleanupReviewsOnMerge: Bool = true
     /// How many reviews may run at once. `Shell` allows 8 processes and `GitProvider.scanRepo` wants 6 of
     /// them, so 2 is what is left; more and every git scan and gh call queues behind a review that runs
@@ -53,8 +49,8 @@ public struct DeskConfig: Codable, Sendable, Equatable {
         case repoRoots, githubOrg, reviewTeam, trackedRepos, ghPath, botLogins, automatedTitlePrefixes, jiraProjectKeys
         case jiraInProgressStatus, jiraReviewStatus, jiraDoneStatus
         case githubPollSeconds, gitPollSeconds, jiraPollSeconds
-        case stalePullRequestDays, notificationsEnabled
-        case claudePath, acliPath, reviewRoot, reviewModel, reviewEffort, reviewBudgetUSD, cleanupReviewsOnMerge
+        case notificationsEnabled
+        case claudePath, acliPath, reviewRoot, reviewModel, reviewEffort, cleanupReviewsOnMerge
         case reviewConcurrency, reviewTimeoutMinutes, prompts
     }
 
@@ -77,14 +73,12 @@ public struct DeskConfig: Codable, Sendable, Equatable {
         githubPollSeconds = try c.decodeIfPresent(Int.self, forKey: .githubPollSeconds) ?? d.githubPollSeconds
         gitPollSeconds = try c.decodeIfPresent(Int.self, forKey: .gitPollSeconds) ?? d.gitPollSeconds
         jiraPollSeconds = try c.decodeIfPresent(Int.self, forKey: .jiraPollSeconds) ?? d.jiraPollSeconds
-        stalePullRequestDays = try c.decodeIfPresent(Int.self, forKey: .stalePullRequestDays) ?? d.stalePullRequestDays
         notificationsEnabled = try c.decodeIfPresent(Bool.self, forKey: .notificationsEnabled) ?? d.notificationsEnabled
         claudePath = try c.decodeIfPresent(String.self, forKey: .claudePath) ?? d.claudePath
         acliPath = try c.decodeIfPresent(String.self, forKey: .acliPath) ?? d.acliPath
         reviewRoot = try c.decodeIfPresent(String.self, forKey: .reviewRoot) ?? d.reviewRoot
         reviewModel = try c.decodeIfPresent(String.self, forKey: .reviewModel) ?? d.reviewModel
         reviewEffort = try c.decodeIfPresent(String.self, forKey: .reviewEffort) ?? d.reviewEffort
-        reviewBudgetUSD = try c.decodeIfPresent(Double.self, forKey: .reviewBudgetUSD) ?? d.reviewBudgetUSD
         cleanupReviewsOnMerge = try c.decodeIfPresent(Bool.self, forKey: .cleanupReviewsOnMerge) ?? d.cleanupReviewsOnMerge
         reviewConcurrency = try c.decodeIfPresent(Int.self, forKey: .reviewConcurrency) ?? d.reviewConcurrency
         reviewTimeoutMinutes = try c.decodeIfPresent(Int.self, forKey: .reviewTimeoutMinutes) ?? d.reviewTimeoutMinutes

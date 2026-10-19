@@ -182,9 +182,11 @@ struct FilterBar<Leading: View, Trailing: View>: View {
 }
 
 /// A group's name and count over its rows, the way the reference app heads "Ready to merge".
-struct GroupHeader: View {
+struct GroupHeader<Trailing: View>: View {
     var title: String
     var count: Int?
+    /// A press for the whole group, after its count.
+    @ViewBuilder var trailing: Trailing
 
     var body: some View {
         VStack(spacing: 0) {
@@ -192,12 +194,19 @@ struct GroupHeader: View {
                 Text(title).scaled(.callout.weight(.medium)).foregroundStyle(.secondary)
                 Spacer()
                 if let count { Text("\(count)").scaled(.callout).monospacedDigit().foregroundStyle(.secondary) }
+                trailing
             }
             .padding(.horizontal, Theme.Space.m)
             .padding(.top, Theme.Space.m)
             .padding(.bottom, Theme.Space.s)
             Hairline()
         }
+    }
+}
+
+extension GroupHeader where Trailing == EmptyView {
+    init(title: String, count: Int? = nil) {
+        self.init(title: title, count: count) { EmptyView() }
     }
 }
 
@@ -615,34 +624,117 @@ extension SidebarItem where Trailing == EmptyView {
     }
 }
 
-/// Pinned under the sidebar: the sync pill, which refreshes every source at once, what is running, and one dot
-/// per source, which says on its own whether each answered.
+/// Pinned under the sidebar, three cards alike: where your Claude plan stands, whether each source answered, and the
+/// sync row, which refreshes every source at once.
 struct SidebarStatus: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ClaudeUsageCard()
+            SourcesCard()
+            SyncRow()
+        }
+    }
+}
+
+/// One source a row: green once it answered, with how long ago; red and "Failed" with the error as its tooltip; a
+/// spinner while it loads; grey before the first poll.
+struct SourcesCard: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            SyncRow()
-            VStack(alignment: .leading, spacing: 8) {
-                if let running {
-                    HStack(spacing: 6) {
+        VStack(alignment: .leading, spacing: Theme.Space.s) {
+            Text("Sources").fontWeight(.semibold)
+            ForEach(Source.allCases, id: \.self) { source in
+                let error = model.state.errors[source]
+                let updated = model.state.lastRefresh[source]
+                HStack(spacing: Theme.Space.s) {
+                    StatusDot(color: error != nil ? .red : updated == nil ? .gray : .green)
+                    Text(source.title).foregroundStyle(.secondary)
+                    Spacer(minLength: Theme.Space.xs)
+                    if model.refreshing.contains(source) {
                         ProgressView().controlSize(.mini)
-                        Text(running).scaled(.caption.monospaced()).foregroundStyle(.secondary)
+                    } else if error != nil {
+                        Text("Failed").foregroundStyle(.red)
+                    } else if let updated {
+                        Text(Date().timeIntervalSince(updated) < 60 ? "now" : "\(Format.age(updated)) ago").monospacedDigit()
                     }
                 }
-                SourceDots()
+                .help(error ?? updated.map { "Updated \(Format.date($0))" } ?? "Not synced yet")
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(error != nil ? "\(source.title) failed"
+                    : updated == nil ? "\(source.title) not synced yet" : "\(source.title) synced")
             }
-            .padding(.horizontal, Theme.Space.m)
+        }
+        .sidebarCard()
+    }
+}
+
+/// Where your Claude plan stands: each usage limit with how much of it is gone and when it starts over, as Claude
+/// Code last handed them to the statusline, and the reviews and sessions at work now. Left out while there is neither.
+struct ClaudeUsageCard: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        let limits = model.state.claudeLimits
+        if !limits.isEmpty || running != nil {
+            VStack(alignment: .leading, spacing: Theme.Space.s) {
+                Text("Claude").fontWeight(.semibold)
+                ForEach(limits) { LimitRow(limit: $0) }
+                if let running {
+                    HStack(spacing: Theme.Space.xs) {
+                        Text("Running").foregroundStyle(.secondary)
+                        Spacer(minLength: Theme.Space.xs)
+                        ProgressView().controlSize(.mini)
+                        Text(running)
+                    }
+                }
+            }
+            .sidebarCard()
         }
     }
 
+    /// The reviews and background sessions at work now.
     private var running: String? {
         let reviews = model.busyReviews.count
         let sessions = model.state.claudeJobs.count { $0.isRunning }
         var parts: [String] = []
         if reviews > 0 { parts.append("\(reviews) \(reviews == 1 ? "review" : "reviews")") }
         if sessions > 0 { parts.append("\(sessions) \(sessions == 1 ? "session" : "sessions")") }
-        return parts.isEmpty ? nil : parts.joined(separator: " · ") + " running"
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    private struct LimitRow: View {
+        var limit: ClaudeLimit
+
+        var body: some View {
+            // Blue while there is room, orange from 70%, red from 90%: the statusline's thresholds.
+            let color: Color = limit.percent >= 90 ? .red : limit.percent >= 70 ? .orange : Theme.accent
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: Theme.Space.xs) {
+                    Text(limit.name).foregroundStyle(.secondary).lineLimit(1)
+                    Spacer(minLength: Theme.Space.xs)
+                    Text("\(limit.percent)%").monospacedDigit().foregroundStyle(limit.percent >= 70 ? color : .primary)
+                    if let resets = limit.resetsAt {
+                        Text("· resets in \(TimeText.duration(resets.timeIntervalSinceNow))").monospacedDigit().foregroundStyle(.secondary)
+                    }
+                }
+                ProgressView(value: Double(min(limit.percent, 100)), total: 100).tint(color)
+            }
+            .help(limit.resetsAt.map { "Starts over \(Format.date($0))" } ?? "Starts over with your next session")
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("\(limit.name): \(limit.percent)% used")
+        }
+    }
+}
+
+extension View {
+    /// A card at the foot of the sidebar: a raised panel as wide as the items above it, in caption text.
+    func sidebarCard() -> some View {
+        scaled(.caption)
+            .padding(.horizontal, Theme.Space.m)
+            .padding(.vertical, Theme.Space.s + 2)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Theme.raised, in: RoundedRectangle(cornerRadius: 6))
     }
 }
 

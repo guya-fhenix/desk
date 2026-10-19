@@ -1,46 +1,27 @@
 import DeskCore
 import SwiftUI
 
-/// Search (⌘K): one box over the dimmed window that finds any open PR the app knows of by `repo#number`,
-/// title or branch, any of your tickets by key or summary, any screen by name, and the commands — each with its key.
-/// ↩ opens it here — your own PR in Pull Requests, one in the review queue in Reviews, a ticket in Jira, anything
-/// else on GitHub — or runs the command; ⌘↩ opens it on GitHub.
+/// Search (⌘K): one box over the dimmed window that finds any open PR the app knows of by `repo#number`, title or
+/// branch, and any of your tickets by key or summary. ↩ opens it here — your own PR on Pull Requests, one in the review
+/// queue on Reviews, a ticket on Jira — and a PR on none of those screens, marked so, on GitHub; ⌘↩ opens either on
+/// GitHub or Jira.
 struct FinderView: View {
     @Environment(AppModel.self) private var model
     @State private var query = ""
     @State private var index = 0
     @FocusState private var focused: Bool
 
-    /// One result: a screen to go to, a command to run, a pull request or a ticket.
+    /// One result: a pull request or a ticket.
     private enum Hit: Identifiable {
-        case page(Page)
-        case command(Command)
         case pullRequest(PullRequest)
         case ticket(Ticket)
 
         var id: String {
             switch self {
-            case .page(let page): return "page:\(page.title)"
-            case .command(let command): return "command:\(command.title)"
             case .pullRequest(let pr): return pr.url
             case .ticket(let ticket): return "ticket:\(ticket.key)"
             }
         }
-    }
-
-    /// A press the palette can make for you, with the key that makes it without the palette.
-    private struct Command {
-        var title: String
-        var keys: [String] = []
-        var run: () -> Void
-    }
-
-    /// A screen, by the name the sidebar gives it. Settings is the one that is not a tab.
-    private struct Page {
-        var title: String
-        var tab: DeskWindow.Tab?
-
-        static let all = DeskWindow.Tab.allCases.map { Page(title: $0.title, tab: $0) } + [Page(title: "Settings", tab: nil)]
     }
 
     var body: some View {
@@ -52,7 +33,7 @@ struct FinderView: View {
             VStack(spacing: 0) {
                 HStack(spacing: 10) {
                     Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-                    TextField("PR, ticket, page, command, or #", text: $query)
+                    TextField("PR, review, ticket, or #", text: $query)
                         .textFieldStyle(.plain)
                         .scaled(.title3)
                         .focused($focused)
@@ -97,7 +78,7 @@ struct FinderView: View {
                 Hairline()
                 HStack(spacing: 16) {
                     hint(["↩"], "Open")
-                    hint(["⌘", "↩"], "Open on GitHub")
+                    hint(["⌘", "↩"], "Open on GitHub or Jira")
                     hint(["Esc"], "Close")
                     Spacer()
                 }
@@ -119,20 +100,16 @@ struct FinderView: View {
         .onChange(of: query) { index = 0 }
     }
 
-    /// Screens and commands first, and only once something is typed; then the PRs, then your tickets, each ranked by
-    /// how well it matches and, for PRs, most recently updated first among equals.
+    /// The PRs, then your tickets, each ranked by how well it matches and, for PRs, most recently updated first among
+    /// equals. With nothing typed, every open PR.
     private var hits: [Hit] {
         let typed = query.trimmingCharacters(in: .whitespaces)
-        let open = model.state.github?.allOpen ?? []
-        guard !typed.isEmpty else { return open.sorted { $0.updatedAt > $1.updatedAt }.map(Hit.pullRequest) }
-        let pages = Self.ranked(Page.all) { FuzzyMatch.score($0.title, typed) }
+        let open = (model.state.github?.allOpen ?? []).sorted { $0.updatedAt > $1.updatedAt }
+        guard !typed.isEmpty else { return open.map(Hit.pullRequest) }
         // `repo#number` and branch names are matched exactly; the title loosely.
-        let prs = Self.ranked(open.sorted { $0.updatedAt > $1.updatedAt }) { pr in
-            pr.matches(search: typed) ? 500 : FuzzyMatch.score(pr.title, typed)
-        }
-        let commands = Self.ranked(commands(for: prs.first)) { FuzzyMatch.score($0.title, typed) }
+        let prs = Self.ranked(open) { pr in pr.matches(search: typed) ? 500 : FuzzyMatch.score(pr.title, typed) }
         let tickets = Self.ranked(model.state.openTickets) { FuzzyMatch.score("\($0.key) \($0.summary)", typed) }
-        return pages.map(Hit.page) + commands.map(Hit.command) + prs.map(Hit.pullRequest) + tickets.map(Hit.ticket)
+        return prs.map(Hit.pullRequest) + tickets.map(Hit.ticket)
     }
 
     /// The items that match, best first; a stable sort, so equals keep the order they came in.
@@ -143,48 +120,26 @@ struct FinderView: View {
             .map(\.item)
     }
 
-    /// What the palette can run: syncing, each Settings pane, and the presses on the PR that matches best.
-    private func commands(for pr: PullRequest?) -> [Command] {
-        var commands = [Command(title: "Sync Now", keys: ["⌘", "R"]) { model.refreshAll() }]
-        commands += SettingsPane.allCases.map { pane in
-            Command(title: "Settings: \(pane.title)", keys: pane == .general ? ["⌘", ","] : []) { model.openSettings(pane) }
-        }
-        if let pr {
-            let label = "\(pr.repoName)#\(pr.number)"
-            if model.state.reviewNeed(for: pr) != nil, model.canReview(pr) {
-                commands.append(Command(title: "Review \(label)") { model.review(pr) })
-            }
-            if let job = model.state.claudeJobs(for: pr).first {
-                commands.append(Command(title: "Attach to the session on \(label)") { model.attach(job, for: pr) })
-            }
-        }
-        return commands
-    }
-
     @ViewBuilder private func row(_ hit: Hit, selected: Bool) -> some View {
         HStack(spacing: 12) {
             switch hit {
-            case .page(let page):
-                Chip(text: "Page", color: .blue).frame(width: 68, alignment: .leading)
-                Text(page.title).lineLimit(1)
-                Spacer(minLength: 8)
-            case .command(let command):
-                Chip(text: "Command", color: .purple).frame(width: 68, alignment: .leading)
-                Text(command.title).lineLimit(1)
-                Spacer(minLength: 8)
-                HStack(spacing: 3) { ForEach(command.keys, id: \.self) { KeyCap(key: $0) } }
             case .ticket(let ticket):
                 Chip(text: "Ticket", color: .orange).frame(width: 68, alignment: .leading)
                 Text(ticket.summary).lineLimit(1).truncationMode(.tail)
                 Spacer(minLength: 8)
                 Text(ticket.key).scaled(.caption.monospaced()).foregroundStyle(.secondary)
             case .pullRequest(let pr):
-                // Which screen it opens on: yours on Pull Requests, the review queue's on Reviews.
-                let review = model.state.reviewQueue(.all).contains { $0.url == pr.url }
-                Chip(text: review ? "Review" : "PR", color: review ? .green : .teal).frame(width: 68, alignment: .leading)
+                // Which screen it opens on: yours on Pull Requests, the review queue's on Reviews, any other on GitHub.
+                let screen = screen(of: pr)
+                Chip(text: screen == .reviews ? "Review" : "PR", color: screen == .reviews ? .green : .teal).frame(width: 68, alignment: .leading)
                 Text(pr.title).lineLimit(1).truncationMode(.tail)
                 if pr.isDraft { Chip(text: "Draft", color: .secondary).fixedSize() }
                 Spacer(minLength: 8)
+                if screen == nil {
+                    Label("Opens on GitHub", systemImage: "arrow.up.right.square")
+                        .scaled(.caption).foregroundStyle(.secondary).fixedSize()
+                        .help("On none of the app's screens — reviewed already, a bot's, or someone's draft — so ↩ opens it on GitHub")
+                }
                 Text(verbatim: "\(pr.repoName)#\(pr.number)").scaled(.caption.monospaced()).foregroundStyle(.secondary)
                 ChecksBadge(pr: pr)
             }
@@ -216,25 +171,18 @@ struct FinderView: View {
         }
         guard hits.indices.contains(index) else { return }
         switch hits[index] {
-        case .page(let page):
-            if let tab = page.tab { model.pendingTab = tab } else { model.showingSettings = true }
-        case .command(let command):
-            command.run()
         case .ticket(let ticket):
-            // ⌘↩ has no GitHub to go to for a ticket, so both open it in Jira, where it is read and moved.
-            model.open(ticket.url)
-        case .pullRequest(let pr):
-            let state = model.state
             if onGitHub {
-                model.open(pr.url)
-            } else if state.mine.contains(where: { $0.url == pr.url }) {
-                model.selectPullRequest = pr.url
-                model.pendingTab = .pullRequests
-            } else if state.reviewQueue(.all).contains(where: { $0.url == pr.url }) {
-                model.selectPullRequest = pr.url
-                model.pendingTab = .reviews
+                model.open(ticket.url)
             } else {
-                // Open, but on no screen here — reviewed already, a bot's, or a draft: GitHub is where it is.
+                model.selectTicket = ticket.key
+                model.pendingTab = .tickets
+            }
+        case .pullRequest(let pr):
+            if let screen = screen(of: pr), !onGitHub {
+                model.selectPullRequest = pr.url
+                model.pendingTab = screen
+            } else {
                 model.open(pr.url)
             }
         }
@@ -242,6 +190,13 @@ struct FinderView: View {
     }
 
     private func close() { model.showingFinder = false }
+
+    /// The screen a PR has a page on: yours on Pull Requests, the review queue's on Reviews; nil for any other.
+    private func screen(of pr: PullRequest) -> DeskWindow.Tab? {
+        if model.state.mine.contains(where: { $0.url == pr.url }) { return .pullRequests }
+        if model.state.reviewQueue(.all).contains(where: { $0.url == pr.url }) { return .reviews }
+        return nil
+    }
 
     /// GitHub's own search over the org's pull requests, for a query nothing here matched.
     private func searchGitHub() {

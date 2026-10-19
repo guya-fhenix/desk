@@ -1,3 +1,4 @@
+import CryptoKit
 import DeskCore
 import SwiftUI
 
@@ -10,7 +11,7 @@ struct ReviewsTab: View {
     // The filters are remembered, not view state: the screen is rebuilt every time you come back to it,
     // and a filter that quietly resets shows a different queue than the one you left.
     @AppStorage("reviews.scope") private var scope: ReviewScope = .all
-    private var reviewDays = ReviewDays()
+    private var filters = ReviewFilters()
     @State private var selection: String?
     /// The PR whose page is showing in place of the list; nil shows the list.
     @State private var opened: String?
@@ -29,8 +30,8 @@ struct ReviewsTab: View {
         fallback: [KeyPathComparator(\PullRequest.createdAt)]
     )
 
-    private var window: Int? { reviewDays.window }
-    private func queue(_ scope: ReviewScope) -> [PullRequest] { model.state.reviewQueue(scope, days: window) }
+    private var window: Int? { filters.window }
+    private func queue(_ scope: ReviewScope) -> [PullRequest] { model.state.reviewQueue(scope, days: window, hiding: filters.hidden) }
     private var rows: [PullRequest] { queue(scope).sorted(using: sortOrder) }
     /// The ones GitHub actually put on you, so a row in the mixed list says which it is.
     private var onMe: Set<String> { Set(model.state.reviewRequests.map(\.url)) }
@@ -55,7 +56,10 @@ struct ReviewsTab: View {
             guard let url else { return }
             if !self.rows.contains(where: { $0.url == url }) {
                 scope = .all
-                reviewDays.limited = false
+                filters.limited = false
+                if let author = model.state.github?.allOpen.first(where: { $0.url == url })?.author {
+                    filters.hidden = filters.hidden.subtracting([author])
+                }
             }
             selection = url
             opened = url
@@ -76,10 +80,11 @@ struct ReviewsTab: View {
                 )
                 .padding(.vertical, 20)
             } else if rows.isEmpty {
-                // A day filter is the one thing on this screen that can hide what is there.
+                // The day and author filters are what can hide what is there; each empty list offers to lift one.
                 EmptyState(
                     icon: "checkmark.circle", text: emptyText,
-                    actionTitle: reviewDays.limited ? "Show all time" : nil, action: { reviewDays.limited = false }
+                    actionTitle: filters.limited ? "Show all time" : filters.hidden.isEmpty ? nil : "Show everyone",
+                    action: { if filters.limited { filters.limited = false } else { filters.hidden = [] } }
                 )
                 .padding(.vertical, 20)
             } else {
@@ -164,27 +169,74 @@ struct ReviewsTab: View {
             if !model.canStartReview {
                 Text("\(model.busyReviews.count) running").scaled(.caption).foregroundStyle(.secondary)
             }
-            DaysFilter(limited: reviewDays.$limited, days: reviewDays.$days)
+            AuthorsFilter(queue: model.state.reviewQueue(.all, days: window), filters: filters)
+            DaysFilter(limited: filters.$limited, days: filters.$days)
             SortMenu(sort: Self.sort, order: $sortOrder)
         }
     }
 }
 
-/// The Reviews screen's day filter. The sidebar badge and the menu panel read it too, so their count is what the
-/// screen lists.
-struct ReviewDays: DynamicProperty {
+/// The Reviews screen's filters: how far back the queue reaches, and whose PRs it leaves out. The sidebar badge, Up
+/// Next and the menu bar's menu read them too, so what they count is what the screen lists.
+struct ReviewFilters: DynamicProperty {
     /// Off by default, so the whole queue shows; on, only the PRs opened in the last `days` days.
     @AppStorage("reviews.limited") var limited = false
     @AppStorage("reviews.days") var days = 14
+    /// The authors filtered out, one login per line.
+    @AppStorage("reviews.hiddenAuthors") var hiddenText = ""
 
     /// The day limit in force, or nil for all time. A typed 0 or less reads as one day.
     var window: Int? { limited ? max(days, 1) : nil }
 
-    /// The same, read where no view is, as the menu bar's menu is.
-    static var current: Int? {
+    var hidden: Set<String> {
+        get { Self.authors(hiddenText) }
+        nonmutating set { hiddenText = newValue.sorted().joined(separator: "\n") }
+    }
+
+    /// The same two, read where no view is, as the menu bar's menu is.
+    static var currentWindow: Int? {
         let defaults = UserDefaults.standard
         guard defaults.bool(forKey: "reviews.limited") else { return nil }
         return max(defaults.object(forKey: "reviews.days") as? Int ?? 14, 1)
+    }
+
+    static var currentHidden: Set<String> { authors(UserDefaults.standard.string(forKey: "reviews.hiddenAuthors") ?? "") }
+
+    private static func authors(_ text: String) -> Set<String> { Set(text.split(separator: "\n").map(String.init)) }
+}
+
+/// Whose PRs the queue shows: every author in it, ticked while shown; unticking one filters their PRs out here and on
+/// Up Next. One already hidden stays listed, so it can be brought back while it has nothing open.
+private struct AuthorsFilter: View {
+    var queue: [PullRequest]
+    var filters: ReviewFilters
+
+    var body: some View {
+        let hidden = filters.hidden
+        let counts = Dictionary(grouping: queue, by: \.author).mapValues(\.count)
+        let authors = Set(counts.keys).union(hidden).sorted { $0.lowercased() < $1.lowercased() }
+        Menu {
+            if !hidden.isEmpty {
+                Button("Show everyone") { filters.hidden = [] }
+                Divider()
+            }
+            ForEach(authors, id: \.self) { author in
+                Toggle(
+                    counts[author].map { "\(author)  \($0)" } ?? author,
+                    isOn: Binding(
+                        get: { !hidden.contains(author) },
+                        set: { shown in filters.hidden = shown ? hidden.subtracting([author]) : hidden.union([author]) }
+                    )
+                )
+            }
+        } label: {
+            MenuBox(title: "Authors", value: hidden.isEmpty ? "Everyone" : "\(hidden.count) hidden")
+        }
+        .menuStyle(.button).handCursor()
+        .buttonStyle(.plain).handCursor()
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help(hidden.isEmpty ? "Filter out the PRs of authors you do not review" : "Hiding: " + hidden.sorted().joined(separator: ", "))
     }
 }
 
@@ -242,12 +294,10 @@ struct QueueRow: View {
     var body: some View {
         HStack(alignment: .center, spacing: 12) {
             Avatar(login: pr.author)
-            // Two lines: what it is and where its review stands, then the facts. The rest is in the details panel.
+            // Two lines: what it is, then the facts. Where its review stands is on the right, where it lines up row to
+            // row and a glance down the list reads it.
             VStack(alignment: .leading, spacing: 5) {
-                HStack(spacing: 8) {
-                    QueueTitle(pr: pr, model: model, onMe: onMe)
-                    QueueReviewCell(pr: pr, model: model).fixedSize()
-                }
+                QueueTitle(pr: pr, model: model, onMe: onMe)
                 HStack(spacing: 8) {
                     MetaLine(parts: [
                         Text(verbatim: "#\(pr.number)"), Text(pr.repoName), Text(pr.author), Text("\(pr.baseRef) ← \(pr.headRef)"),
@@ -259,7 +309,10 @@ struct QueueRow: View {
             }
             Spacer(minLength: 8)
             QueueActions(pr: pr, model: model)
+            // Against an age of fixed width, so the state's right edge is the same on every row.
+            QueueReviewCell(pr: pr, model: model).fixedSize()
             Text(Format.age(pr.createdAt)).monospacedDigit().foregroundStyle(.secondary)
+                .frame(width: 40, alignment: .trailing)
                 .help("Waiting since it was opened, \(Format.date(pr.createdAt))")
         }
     }
@@ -290,8 +343,7 @@ private struct QueueReviewCell: View {
         let need = model.state.reviewNeed(for: pr)
         HStack(spacing: 6) {
             if model.busyReviews.contains(pr.url), model.state.reviewRun(for: pr) == nil {
-                ProgressView().controlSize(.mini)
-                Text("Starting").scaled(.caption2).foregroundStyle(.secondary)
+                Chip(text: "Starting", color: .teal, spinning: true)
             } else if model.state.localRepo(for: pr) == nil {
                 Chip(text: "No local clone", color: .secondary)
                     .help("Clone \(pr.repo) under a repo root to review it here")
@@ -353,26 +405,48 @@ struct ReviewPage: View {
                 ChecksPill(pr: pr)
                 // Each only when it says something: GitHub asked you, and your draft's state, which is blank without one.
                 if onMe { Chip(text: "On you", color: .orange) }
-                ReviewStatusChip(status: status)
+                // The run's progress is on the Review button, so the chip keeps to what GitHub says.
+                ReviewStatusChip(status: status, showsRun: false)
                 // The page's actions on the right, where a status line's presses go; why Review is dead, beside it.
                 Spacer(minLength: 8)
-                DisabledReason(text: model.reviewBlocker(pr))
-                Button(ran ? "Review again" : "Review") { model.review(pr) }
-                    .buttonStyle(.borderedProminent).handCursor()
-                    .disabled(!model.canReview(pr))
-                    .help(
-                        (ran ? "Adds only what your draft does not already have" : "Run Claude on this PR and put its comments in your draft review")
-                            + ", then hands them to the PR's session to talk through"
-                    )
+                if let progress = reviewProgress {
+                    Button {} label: {
+                        HStack(spacing: 6) {
+                            ProgressView().controlSize(.small)
+                            Text(progress)
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    // At full strength, as a running state, not greyed out as a dead button; a press does nothing.
+                    .allowsHitTesting(false)
+                } else {
+                    DisabledReason(text: model.reviewBlocker(pr))
+                    Button(ran ? "Review again" : "Review") { model.review(pr) }
+                        .buttonStyle(.borderedProminent).handCursor()
+                        .disabled(!model.canReview(pr))
+                        .help(
+                            (ran ? "Adds only what your draft does not already have" : "Run Claude on this PR and put its comments in your draft review")
+                                + ", then hands them to the PR's session to talk through"
+                        )
+                }
                 ClaudeSessionButton(pr: pr, model: model, prominent: true).fixedSize()
             }
             if model.reviewHandoffs[pr.url] != nil {
-                Text("The review goes to the session once it is idle.").scaled(.caption).foregroundStyle(.secondary)
+                if let failed = model.handoffErrors[pr.url] {
+                    HStack(spacing: 8) {
+                        Text(failed).scaled(.caption).foregroundStyle(.red).textSelection(.enabled)
+                        Button("Try again") { model.retryHandoff(pr) }.controlSize(.small)
+                    }
+                } else {
+                    Text("The review goes to the session once it is idle.").scaled(.caption).foregroundStyle(.secondary)
+                }
             }
             if let error = model.sessionErrors[pr.url] {
                 Text(error).scaled(.caption).foregroundStyle(.red).textSelection(.enabled)
             }
         } main: {
+            // What the review found, first: the draft is the page's reason to be open.
+            if pr.pendingReview != nil { DraftReviewCard(pr: pr, model: model) }
             PanelSection("Description") { PullRequestDescription(pr: pr) }
         } side: {
             DetailsCard(pr: pr)
@@ -399,5 +473,141 @@ struct ReviewPage: View {
 
     private var worktreePath: String {
         ReviewPlanner.worktreePath(reviewRoot: model.config.expandedReviewRoot, pr: pr)
+    }
+
+    /// Where a running review is, in the words its button shows while it runs; nil when none is.
+    private var reviewProgress: String? {
+        let phase = model.state.reviewRun(for: pr)?.phase
+        switch phase {
+        case .preparing?: return "Starting"
+        case .running?: return "Reviewing"
+        case .posting?: return "Posting draft"
+        default: return model.busyReviews.contains(pr.url) ? (phase == nil ? "Starting" : "Reviewing") : nil
+        }
+    }
+}
+
+/// Your draft review on the page: what the last run said overall, then each comment, most severe first — its severity,
+/// the line it sits on, which opens there in GitHub's Files tab, and what it says, three lines of it until opened. Read
+/// from GitHub, so it is there after a restart too, and read again whenever the draft changes.
+private struct DraftReviewCard: View {
+    var pr: PullRequest
+    var model: AppModel
+    @State private var loaded: (key: String, comments: [DraftReviewComment])?
+    @State private var error: String?
+
+    var body: some View {
+        // The draft's id and size: a run that adds comments, or an edit on GitHub that drops some, reloads it.
+        let key = "\(pr.url) \(pr.pendingReview?.id ?? "") \(pr.pendingReview?.comments ?? 0)"
+        let summary = model.state.reviewRun(for: pr)?.summary.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        VStack(alignment: .leading, spacing: Theme.Space.s) {
+            HStack {
+                Text("Your draft review").scaled(.callout.weight(.medium)).foregroundStyle(.secondary)
+                if let loaded, loaded.key == key {
+                    Text("\(loaded.comments.count)").scaled(.callout).monospacedDigit().foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button("Open on GitHub") { model.openDraft(pr) }
+                    .controlSize(.small)
+                    .help("Your draft in the PR's Files tab: edit or drop comments, then pick the verdict and submit. Only you can see it.")
+            }
+            if !summary.isEmpty { MarkdownText(text: summary) }
+            if let loaded, loaded.key == key {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(loaded.comments) { comment in
+                        row(comment)
+                        if comment.id != loaded.comments.last?.id { Hairline() }
+                    }
+                }
+                .padding(.horizontal, Theme.Space.m)
+                .background(Theme.raised.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
+            } else if let error {
+                Text(error).scaled(.caption).foregroundStyle(.red).textSelection(.enabled)
+            } else {
+                ProgressView().controlSize(.small)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .task(id: key) {
+            error = nil
+            do {
+                loaded = (key, try await model.draftComments(for: pr))
+            } catch {
+                if !Task.isCancelled { self.error = "Couldn't load your draft: \(error)" }
+            }
+        }
+    }
+
+    private func row(_ comment: DraftReviewComment) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: Theme.Space.m) {
+            severityChip(comment).frame(width: 72, alignment: .leading)
+            VStack(alignment: .leading, spacing: 4) {
+                Button { model.open(fileLink(comment)) } label: {
+                    Text(verbatim: comment.line.map { "\(comment.path):\($0)" } ?? comment.path).scaled(.caption.monospaced())
+                }
+                .buttonStyle(.link).handCursor()
+                .help("Open this line in the PR's Files tab")
+                DraftCommentText(text: comment.text)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.vertical, Theme.Space.s + 2)
+    }
+
+    @ViewBuilder private func severityChip(_ comment: DraftReviewComment) -> some View {
+        if let severity = comment.severity {
+            let color: Color = switch severity {
+            case .blocker: .red
+            case .major: .orange
+            case .minor: .yellow
+            case .nit: .secondary
+            case .question: .blue
+            }
+            Chip(text: severity.title, color: color)
+        } else {
+            Chip(text: comment.isClaude ? "Comment" : "Yours", color: .secondary)
+        }
+    }
+
+    /// The comment's line in the Files tab: GitHub anchors a file's diff by the SHA-256 of its path, and a line on the
+    /// new side by R and its number.
+    private func fileLink(_ comment: DraftReviewComment) -> String {
+        let hash = SHA256.hash(data: Data(comment.path.utf8)).map { String(format: "%02x", $0) }.joined()
+        return "\(pr.url)/files#diff-\(hash)" + (comment.line.map { "R\($0)" } ?? "")
+    }
+}
+
+/// A draft comment's words: three lines of its first paragraph, and More when there is more — a cut line, or a
+/// suggestion block below — which opens the whole of it, markdown and all. Whether the lines are cut is measured, so
+/// More shows only where something is hidden.
+private struct DraftCommentText: View {
+    var text: String
+    @State private var open = false
+    @State private var clamped: CGFloat = 0
+    @State private var full: CGFloat = 0
+
+    var body: some View {
+        let first = Markdown.inline(String(text.split(separator: "\n", maxSplits: 1).first ?? ""))
+        let more = text.contains("\n") || full > clamped + 1
+        VStack(alignment: .leading, spacing: 4) {
+            if open {
+                MarkdownText(text: text).textSelection(.enabled)
+            } else {
+                Text(first)
+                    .lineLimit(3)
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { clamped = $0 }
+                    // The same words uncut, unseen, at the same width: taller means the three lines hide some.
+                    .background(alignment: .topLeading) {
+                        Text(first)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .hidden()
+                            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { full = $0 }
+                    }
+            }
+            if more || open {
+                Button(open ? "Less" : "More") { open.toggle() }
+                    .buttonStyle(.link).handCursor().scaled(.caption)
+            }
+        }
     }
 }

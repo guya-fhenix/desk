@@ -2,7 +2,7 @@ import Foundation
 
 /// What one `claude -p --output-format json` run reports about itself.
 public struct ClaudeResult: Sendable, Hashable {
-    /// "success", or an error kind such as "error_during_execution" or "error_max_budget".
+    /// "success", or an error kind such as "error_during_execution".
     public var subtype: String
     public var isError: Bool
     /// The model's final message: the JSON object a review is asked for.
