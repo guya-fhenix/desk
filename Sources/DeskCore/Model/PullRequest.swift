@@ -117,6 +117,8 @@ public struct PullRequest: Codable, Sendable, Hashable, Identifiable {
     public var reviewRequestEvents: [ReviewRequestEvent]
     /// Review conversations nobody has resolved yet, outdated ones included: GitHub counts them the same way.
     public var unresolvedThreads: Int
+    /// Node ids of the resolved ones, which is how a proposed fix learns its thread was dealt with elsewhere.
+    public var resolvedThreads: Set<String>
     /// Your draft review on this PR, if you have one.
     public var pendingReview: PendingReview?
 
@@ -127,7 +129,7 @@ public struct PullRequest: Codable, Sendable, Hashable, Identifiable {
         author: String, reviewDecision: ReviewDecision = .none, mergeState: MergeState = .unknown,
         checks: CheckState = .none, checkCount: Int = 0, reviews: [Review] = [],
         requestedReviewers: [String] = [], reviewRequestEvents: [ReviewRequestEvent] = [], unresolvedThreads: Int = 0,
-        pendingReview: PendingReview? = nil
+        resolvedThreads: Set<String> = [], pendingReview: PendingReview? = nil
     ) {
         self.number = number
         self.title = title
@@ -153,6 +155,7 @@ public struct PullRequest: Codable, Sendable, Hashable, Identifiable {
         self.requestedReviewers = requestedReviewers
         self.reviewRequestEvents = reviewRequestEvents
         self.unresolvedThreads = unresolvedThreads
+        self.resolvedThreads = resolvedThreads
         self.pendingReview = pendingReview
     }
 

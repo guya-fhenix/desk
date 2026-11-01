@@ -201,6 +201,32 @@ import Testing
         #expect(empty.stage == .inReview && empty.note != nil)
     }
 
+    /// Threads you resolve outside the app take their proposals with them; once none with a thread is left, the
+    /// one from a review body goes too and the PR is back in review.
+    @Test func threadsResolvedElsewhereClearTheirProposals() {
+        var proposed = flow(stage: .fixesProposed, pr: 11)
+        proposed.reviewsSince = Fixtures.hours(9)
+        proposed.proposals = [
+            Proposal(thread: "PRRT_1", comment: "A", fix: "F"), Proposal(thread: "PRRT_2", comment: "B", fix: "F", apply: true),
+            Proposal(thread: "", comment: "From the review body", fix: "F"),
+        ]
+        var pr = Fixtures.pr(number: 11, head: "worktree-pro-1", created: Fixtures.hours(3))
+        #expect(FlowEngine.advance(proposed, FlowInput(job: nil, mine: [pr], merged: [])).flow.proposals.count == 3)
+
+        pr.resolvedThreads = ["PRRT_1"]
+        let one = FlowEngine.advance(proposed, FlowInput(job: nil, mine: [pr], merged: [])).flow
+        #expect(one.stage == .fixesProposed && one.proposals.map(\.comment) == ["B", "From the review body"])
+
+        pr.resolvedThreads = ["PRRT_1", "PRRT_2"]
+        let all = FlowEngine.advance(one, FlowInput(job: nil, mine: [pr], merged: [])).flow
+        #expect(all.stage == .inReview && all.proposals.isEmpty && all.pending == nil)
+
+        // A round with nothing but review-body proposals has no thread to tell by: it waits for you.
+        var bodies = proposed
+        bodies.proposals = [Proposal(comment: "From the review body", fix: "F")]
+        #expect(FlowEngine.advance(bodies, FlowInput(job: nil, mine: [pr], merged: [])).flow.stage == .fixesProposed)
+    }
+
     /// After the fixes are in, a PR that is still not approved goes back to the review team.
     @Test func appliedFixesAskTheTeamAgainUnlessApproved() {
         var applying = flow(stage: .applying, pr: 11)

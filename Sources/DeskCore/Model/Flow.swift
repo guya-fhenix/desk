@@ -289,6 +289,7 @@ public enum FlowEngine {
         if let awaiting = flow.awaiting, let result = input.result {
             effects += finish(&flow, awaiting, result: result, pr: pr)
         }
+        if let pr, flow.stage == .fixesProposed { dropResolved(&flow, pr) }
         if let pr, flow.pending == nil, flow.awaiting == nil { effects += review(&flow, pr, input) }
         if let pr, flow.pending == nil, flow.awaiting == nil { autoFix(&flow, pr) }
         guard let pending = flow.pending, flow.awaiting == nil, !flow.paused, let job = input.job,
@@ -326,6 +327,19 @@ public enum FlowEngine {
             return [.requestTeam]
         }
         return []
+    }
+
+    /// A proposal whose thread was resolved outside the app — by the session in chat, or by you on GitHub — is done
+    /// with. Once no proposal with a thread is left, the round was dealt with that way, and the ones from review
+    /// bodies, which have no thread to show it, go too: the PR is back in review, as after Skip all.
+    private static func dropResolved(_ flow: inout Flow, _ pr: PullRequest) {
+        let resolved = { (proposal: Proposal) in proposal.thread.map(pr.resolvedThreads.contains) ?? false }
+        guard flow.proposals.contains(where: resolved) else { return }
+        flow.proposals.removeAll(where: resolved)
+        guard !flow.proposals.contains(where: { !($0.thread ?? "").isEmpty }) else { return }
+        flow.proposals = []
+        flow.stage = .inReview
+        flow.note = "Its review threads were resolved outside the app."
     }
 
     /// The session went quiet on the awaited instruction without writing its result: idle for two minutes after

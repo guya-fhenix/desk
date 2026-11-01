@@ -10,13 +10,13 @@ import Testing
           "baseRefName":"feat/base","headRefName":"feat/head","additions":208,"deletions":16,"author":{"login":"me"},
           "repository":{"nameWithOwner":"FhenixProtocol/cofhe"},"reviewDecision":"REVIEW_REQUIRED","mergeStateStatus":"BLOCKED",
           "commits":{"nodes":[{"commit":{"oid":"abc","statusCheckRollup":{"state":"SUCCESS","contexts":{"totalCount":9}}}}]},
-          "reviews":{"nodes":[{"state":"COMMENTED","submittedAt":"2026-08-27T11:12:25Z","author":{"login":"claude"}},
+          "reviews":{"nodes":[{"state":"COMMENTED","submittedAt":"2026-08-27T11:12:25Z","author":{"__typename":"Bot","login":"coderabbitai"}},
             {"state":"PENDING","submittedAt":null,"author":{"login":"me"}}]},
           "pending":{"nodes":[{"id":"PRR_1","commit":{"oid":"abc"},"comments":{"totalCount":4,
             "nodes":[{"body":"**Nit**\\n\\nx\\n\\n<!-- fhenix-desk -->"},{"body":"mine"},{"body":"**Major**\\n\\ny <!-- fhenix-desk -->"},{"body":"also mine"}]}}]},
           "reviewRequests":{"nodes":[{"requestedReviewer":{"__typename":"Team","name":"Protocol Team"}}]},
           "timelineItems":{"nodes":[{"createdAt":"2026-08-27T11:12:22Z","requestedReviewer":{"__typename":"Team","name":"Protocol Team"}},{}]},
-          "reviewThreads":{"nodes":[{"isResolved":false},{"isResolved":true},{"isResolved":false}]}}]}}}
+          "reviewThreads":{"nodes":[{"id":"PRRT_1","isResolved":false},{"id":"PRRT_2","isResolved":true},{"isResolved":false}]}}]}}}
         """
         let pr = try #require(GitHubDecoding.pullRequests(from: Data(json.utf8)).prs.first)
         #expect(pr.repoName == "cofhe")
@@ -28,6 +28,10 @@ import Testing
         #expect(pr.reviewRequestEvents.count == 1)
         #expect(pr.reviewRequestEvents[0].isTeam)
         #expect(pr.unresolvedThreads == 2)
+        #expect(pr.resolvedThreads == ["PRRT_2"])
+        // GraphQL drops a bot's `[bot]`; it is put back, so the bot checks see it.
+        #expect(pr.reviews.first?.author == "coderabbitai[bot]")
+        #expect(pr.author == "me")
         // Your own draft review: not a submitted review, but where the review's state is read from —
         // including which of its comments are Claude's, by the marker.
         #expect(pr.reviews.count == 1)

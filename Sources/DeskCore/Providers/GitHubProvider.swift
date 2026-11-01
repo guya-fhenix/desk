@@ -270,13 +270,13 @@ public enum GitHubQueries {
     }
     fragment PR on PullRequest {
       number title body url isDraft createdAt updatedAt mergedAt state baseRefName headRefName additions deletions
-      author { login }
+      author { __typename login }
       repository { nameWithOwner }
       reviewDecision
       mergeStateStatus
       baseRef { rules(first: 20) { nodes { type parameters { ... on PullRequestParameters { requiredApprovingReviewCount requireCodeOwnerReview } } } } }
       commits(last: 1) { nodes { commit { oid statusCheckRollup { state contexts(first: 0) { totalCount } } } } }
-      reviews(first: 100) { nodes { state submittedAt author { login } } }
+      reviews(first: 100) { nodes { state submittedAt author { __typename login } } }
       pending: reviews(states: PENDING, first: 1) {
         nodes { id commit { oid } comments(first: 100) { totalCount nodes { body } } }
       }
@@ -284,7 +284,7 @@ public enum GitHubQueries {
       timelineItems(itemTypes: [REVIEW_REQUESTED_EVENT], first: 50) {
         nodes { ... on ReviewRequestedEvent { createdAt requestedReviewer { __typename ... on User { login } ... on Team { name } } } }
       }
-      reviewThreads(first: 100) { nodes { isResolved } }
+      reviewThreads(first: 100) { nodes { id isResolved } }
     }
     """
 }
@@ -385,7 +385,7 @@ public enum GitHubDecoding {
         let commit = node.commits.nodes.first?.commit
         let reviews = node.reviews.nodes.compactMap { review -> Review? in
             guard let submittedAt = review.submittedAt else { return nil }
-            return Review(state: review.state, submittedAt: submittedAt, author: review.author?.login ?? "ghost")
+            return Review(state: review.state, submittedAt: submittedAt, author: review.author?.name ?? "ghost")
         }
         return PullRequest(
             number: node.number,
@@ -403,7 +403,7 @@ public enum GitHubDecoding {
             headSha: commit?.oid ?? "",
             additions: node.additions,
             deletions: node.deletions,
-            author: node.author?.login ?? "ghost",
+            author: node.author?.name ?? "ghost",
             reviewDecision: node.reviewDecision.flatMap(ReviewDecision.init) ?? decision(from: reviews, required: node.baseRef?.requiredApprovals ?? 0),
             mergeState: node.mergeStateStatus.flatMap(MergeState.init) ?? .unknown,
             checks: commit?.statusCheckRollup.flatMap { CheckState(rawValue: $0.state) } ?? .none,
@@ -415,6 +415,7 @@ public enum GitHubDecoding {
                 return ReviewRequestEvent(createdAt: createdAt, reviewer: reviewer.displayName, isTeam: reviewer.typename == "Team")
             },
             unresolvedThreads: node.reviewThreads?.nodes.filter { !$0.isResolved }.count ?? 0,
+            resolvedThreads: Set(node.reviewThreads?.nodes.filter(\.isResolved).compactMap(\.id) ?? []),
             pendingReview: node.pending?.nodes.first.map { review in
                 PendingReview(
                     id: review.id, commitId: review.commit?.oid ?? "", comments: review.comments.totalCount,
@@ -446,7 +447,18 @@ public enum GitHubDecoding {
 
     private struct GraphQLError: Decodable { var message: String }
     private struct ViewerData: Decodable { var viewer: Login }
-    private struct Login: Decodable { var login: String }
+    /// GraphQL gives a bot's login without the `[bot]` the web and the REST API show, so `name` puts it back: that
+    /// suffix is how the app tells a bot's PRs and reviews from a person's.
+    private struct Login: Decodable {
+        var login: String
+        var typename: String?
+        var name: String { typename == "Bot" ? "\(login)[bot]" : login }
+
+        enum CodingKeys: String, CodingKey {
+            case login
+            case typename = "__typename"
+        }
+    }
     private struct Repository: Decodable { var nameWithOwner: String }
 
     private struct DraftData: Decodable { var repository: DraftRepository? }
@@ -581,7 +593,10 @@ public enum GitHubDecoding {
     }
 
     private struct ReviewThreads: Decodable { var nodes: [ReviewThreadNode] }
-    private struct ReviewThreadNode: Decodable { var isResolved: Bool }
+    private struct ReviewThreadNode: Decodable {
+        var id: String?
+        var isResolved: Bool
+    }
 
     private struct Commits: Decodable { var nodes: [CommitNode] }
     private struct CommitNode: Decodable { var commit: Commit }
