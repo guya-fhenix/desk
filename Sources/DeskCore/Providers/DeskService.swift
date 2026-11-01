@@ -191,8 +191,9 @@ public actor DeskService {
         guard let claude = config.resolvedClaudePath else { throw DeskError.claudeNotFound }
         guard let sessionId = job.sessionId else { throw DeskError.sessionNotResumed("no session id recorded for \(job.id) yet") }
         // Its exit status is not the test: a session that is not running may refuse the stop. Not running is the test.
+        let pid = await agents(claude)?.first { $0["id"] as? String == job.id }?["pid"] as? Int32
         _ = try await Shell.run(claude, ["stop", job.id], timeout: 30)
-        guard await waitUntilStopped(job.id, claude: claude) else { throw DeskError.sessionStillRunning(job.id) }
+        guard await waitUntilStopped(job.id, pid: pid, claude: claude) else { throw DeskError.sessionStillRunning(job.id) }
         let output = try await Shell.output(claude, ["--bg", "--resume", sessionId, prompt], cwd: cwd, timeout: 120)
         guard let id = ClaudeJobs.startedID(in: output), id == job.id else {
             // A copy would run the instruction beside the real session; it goes before anything else happens.
@@ -204,15 +205,21 @@ public actor DeskService {
         }
     }
 
-    private func waitUntilStopped(_ id: String, claude: String) async -> Bool {
+    /// `claude agents` drops a stopped session a second or two before its process exits, and a resume in that gap
+    /// starts a copy: so the process `pid` going is the test too.
+    private func waitUntilStopped(_ id: String, pid: Int32?, claude: String) async -> Bool {
         for _ in 0..<30 {
-            guard let output = try? await Shell.output(claude, ["agents", "--json"], timeout: 30) else { return false }
-            let running = ((try? JSONSerialization.jsonObject(with: Data(output.utf8))) as? [[String: Any]] ?? [])
-                .contains { $0["id"] as? String == id && $0["pid"] != nil }
-            if !running { return true }
+            guard let list = await agents(claude) else { return false }
+            let listed = list.contains { $0["id"] as? String == id && $0["pid"] != nil }
+            if !listed, pid.map({ kill($0, 0) != 0 }) ?? true { return true }
             try? await Task.sleep(for: .milliseconds(500))
         }
         return false
+    }
+
+    private func agents(_ claude: String) async -> [[String: Any]]? {
+        guard let output = try? await Shell.output(claude, ["agents", "--json"], timeout: 30) else { return nil }
+        return (try? JSONSerialization.jsonObject(with: Data(output.utf8))) as? [[String: Any]] ?? []
     }
 
     /// Where the session writes the result of instruction `step`: its own scratch folder, which it may always
