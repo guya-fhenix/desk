@@ -141,25 +141,44 @@ public enum PromptID: String, CaseIterable, Sendable, Identifiable {
         // The whole text is the goal's condition, and a multi-paragraph one holds: the session works until the
         // evaluator agrees it is met. The result file comes last because writing it is the last thing to do, and it
         // is what the app waits for — the session reports `done` between rounds as well.
+        // A repo that adopted the review flow gets /pre-pr, the review the CLI runs, so its evidence comment and
+        // `local-reviewed` label are on the PR when you approve the draft; any other repo keeps the reviewing-code loop.
         case .selfReview:
             """
-            /goal Review and fix pull request {url} ({repo}#{number}, "{title}") until a review comes back with no \
-            High or Medium finding, or three reviews have run, and the summary file below is written.
+            /goal Review and fix pull request {url} ({repo}#{number}, "{title}") until a review comes back clean, \
+            or three reviews have run, and the summary file below is written.
 
             {#worktree}Its branch {headRef} is checked out in the worktree at {worktree}. Work only there \
             (EnterWorktree with that path if you are not in it already).{else}Its branch is {headRef}; work on that \
             branch.{/worktree}
 
-            Each round: run the fhenix-workflow:reviewing-code skill on the pull request, fix every High and Medium \
-            finding it reports, and the Low ones whose fix is a line or two. Commit the round's fixes with a message \
-            that says what the review found, and push. Keep the pull request a draft.
+            How each round reviews depends on whether the checkout has adopted the review flow: `REVIEW.md` and \
+            `.github/review/tier.sh` at its root.
+
+            If it has: each round, run `claude -p "/fhenix-workflow:pre-pr --no-ready --fix {number}" \
+            --permission-mode auto --output-format text` from that checkout, then read its output. /pre-pr sets \
+            disable-model-invocation, so it runs as a typed command in that headless session, not as a skill you \
+            invoke. It runs the checks and the reviews, commits and pushes its /simplify edits and its fixes, \
+            re-reviews every commit it adds, posts each open finding as a review thread on its line, and posts the \
+            evidence as a pull request comment. A round is clean when it reports no Important finding; a run that \
+            stops before its reviews is not clean.
+
+            If it has not: each round, run the fhenix-workflow:reviewing-code skill on the pull request, fix every \
+            High and Medium finding it reports, and the Low ones whose fix is a line or two. Commit the round's fixes \
+            with a message that says what the review found, and push. A round is clean when it reports no High or \
+            Medium finding.
+
+            Either way, keep the pull request a draft: never run `gh pr ready`.
 
             When you stop, write this JSON to {resultFile} and nothing else:
             {"rounds": 2, "clean": true, "findings": [{"severity": "high", "file": "src/a.rs", "line": 42, \
             "problem": "what was wrong, in one plain sentence", "fix": "what you changed, in one plain sentence, or \
             why you left it", "round": 1, "fixed": true}]}
-            `clean` says whether the last review found no High or Medium. List every High and Medium finding from \
-            every round, and the Low ones you fixed.
+            `rounds` is the number of reviews that ran, and `clean` says whether the last one was clean, as defined \
+            above. With /pre-pr, use "high" for an Important finding and "low" for a Nit, and list every Important \
+            finding from every round and the Nits that were fixed. With reviewing-code, use its own severity \
+            ("high", "medium" or "low"), and list every High and Medium finding from every round and the Low ones \
+            you fixed.
             """
         // Unresolved threads are the set to answer: what a reviewer still wants is what nobody has closed. Nothing
         // changes here — you approve each fix first — and `resolve` is the session's guess, which you can flip.
