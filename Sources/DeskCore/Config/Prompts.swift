@@ -31,7 +31,7 @@ public enum PromptID: String, CaseIterable, Sendable, Identifiable {
         case .ticketPlan: "Sent with `claude --bg` when you press Start on a ticket."
         case .session: "Sent with `claude --bg` when you start a background session on a PR."
         case .selfReview: "Sent to the PR's session when you approve its draft. It must start with /goal, and the session must write the JSON described here to {resultFile}: that file is how the app knows it has finished."
-        case .proposeFixes: "Sent to the PR's session when a teammate reviews it. The app reads the proposals from the JSON written to {resultFile}, so keep its field names."
+        case .proposeFixes: "Sent to the PR's session when a teammate reviews it, or CodeRabbit's review leaves a thread open. The app reads the proposals from the JSON written to {resultFile}, so keep its field names."
         case .applyFixes: "Sent to the PR's session when you apply the fixes you approved. The session writes the JSON described here to {resultFile} when it is done."
         case .fixConflict: "Sent on its own when a PR in the flow conflicts with its base, once its session has been idle for 10 minutes; once per PR head."
         case .fixChecks: "Sent on its own when CI fails on a PR in the flow, once its session has been idle for 10 minutes; once per PR head."
@@ -181,7 +181,7 @@ public enum PromptID: String, CaseIterable, Sendable, Identifiable {
         // changes here — you approve each fix first — and `resolve` is the session's guess, which you can flip.
         case .proposeFixes:
             """
-            A teammate reviewed pull request {url} ({repo}#{number}, "{title}"). Read every review thread that is \
+            A teammate or CodeRabbit reviewed pull request {url} ({repo}#{number}, "{title}"). Read every review thread that is \
             still unresolved, with its id (gh api graphql, reviewThreads), and the bodies of the reviews submitted \
             since your last push (gh pr view {number} --repo {repo} --comments).
 

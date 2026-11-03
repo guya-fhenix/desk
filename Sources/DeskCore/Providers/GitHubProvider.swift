@@ -284,7 +284,7 @@ public enum GitHubQueries {
       timelineItems(itemTypes: [REVIEW_REQUESTED_EVENT], first: 50) {
         nodes { ... on ReviewRequestedEvent { createdAt requestedReviewer { __typename ... on User { login } ... on Team { name } } } }
       }
-      reviewThreads(first: 100) { nodes { id isResolved } }
+      reviewThreads(first: 100) { nodes { id isResolved comments(first: 1) { nodes { author { __typename login } } } } }
       labels(first: 20) { nodes { name } }
     }
     """
@@ -423,7 +423,8 @@ public enum GitHubDecoding {
                     claudeComments: review.comments.nodes.count { $0.body.contains(DraftThreads.marker) }
                 )
             },
-            labels: node.labels?.nodes.map(\.name) ?? []
+            labels: node.labels?.nodes.map(\.name) ?? [],
+            codeRabbitThreads: node.reviewThreads?.nodes.filter { !$0.isResolved && $0.starter == PullRequest.codeRabbit }.count ?? 0
         )
     }
 
@@ -602,7 +603,12 @@ public enum GitHubDecoding {
     private struct ReviewThreadNode: Decodable {
         var id: String?
         var isResolved: Bool
+        /// The first comment only, for who started the thread.
+        var comments: ThreadComments?
+        var starter: String? { comments?.nodes.first?.author?.name }
     }
+    private struct ThreadComments: Decodable { var nodes: [ThreadComment] }
+    private struct ThreadComment: Decodable { var author: Login? }
 
     private struct Commits: Decodable { var nodes: [CommitNode] }
     private struct CommitNode: Decodable { var commit: Commit }

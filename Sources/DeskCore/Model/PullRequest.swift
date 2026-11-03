@@ -123,6 +123,11 @@ public struct PullRequest: Codable, Sendable, Hashable, Identifiable {
     public var pendingReview: PendingReview?
     /// Its label names. CodeRabbit sets `risk:*` and `needs-human` by REVIEW.md, which the review queue goes by.
     public var labels: [String]
+    /// Unresolved threads CodeRabbit started: its actionable findings, since its nitpicks stay in its review body.
+    public var codeRabbitThreads: Int
+
+    /// CodeRabbit's login as the app spells a bot's, `[bot]` and all.
+    public static let codeRabbit = "coderabbitai[bot]"
 
     /// CodeRabbit says a person has to read this one: it goes first in the review queue.
     public var needsHuman: Bool { labels.contains("needs-human") }
@@ -136,7 +141,8 @@ public struct PullRequest: Codable, Sendable, Hashable, Identifiable {
         author: String, reviewDecision: ReviewDecision = .none, mergeState: MergeState = .unknown,
         checks: CheckState = .none, checkCount: Int = 0, reviews: [Review] = [],
         requestedReviewers: [String] = [], reviewRequestEvents: [ReviewRequestEvent] = [], unresolvedThreads: Int = 0,
-        resolvedThreads: Set<String> = [], pendingReview: PendingReview? = nil, labels: [String] = []
+        resolvedThreads: Set<String> = [], pendingReview: PendingReview? = nil, labels: [String] = [],
+        codeRabbitThreads: Int = 0
     ) {
         self.number = number
         self.title = title
@@ -165,6 +171,7 @@ public struct PullRequest: Codable, Sendable, Hashable, Identifiable {
         self.resolvedThreads = resolvedThreads
         self.pendingReview = pendingReview
         self.labels = labels
+        self.codeRabbitThreads = codeRabbitThreads
     }
 
     public var repoName: String { repo.split(separator: "/").last.map(String.init) ?? repo }

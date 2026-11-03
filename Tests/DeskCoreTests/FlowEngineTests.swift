@@ -148,6 +148,12 @@ import Testing
         #expect(run(waiting, pr([Fixtures.review(at: Fixtures.hours(5), by: "me")])).pending == nil)
         #expect(run(waiting, pr([Fixtures.review(at: Fixtures.hours(5), by: "copilot")])).pending == nil)
         #expect(run(waiting, pr([Fixtures.review(at: Fixtures.hours(5), by: "github-actions[bot]")])).pending == nil)
+        // CodeRabbit's review starts the fixes while a thread it started is open, and only then.
+        let codeRabbit = [Fixtures.review(at: Fixtures.hours(5), by: PullRequest.codeRabbit)]
+        var openThread = pr(codeRabbit)
+        openThread.codeRabbitThreads = 1
+        #expect(run(waiting, openThread).pending == .proposeFixes)
+        #expect(run(waiting, pr(codeRabbit)).pending == nil)
         #expect(run(waiting, pr([Fixtures.review(at: Fixtures.hours(3), by: "haim")])).pending == nil)
 
         let approved = run(waiting, pr([Fixtures.review("APPROVED", at: Fixtures.hours(5), by: "haim")], decision: .approved, threads: 0))

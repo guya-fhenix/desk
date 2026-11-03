@@ -304,7 +304,8 @@ public enum FlowEngine {
     }
 
     /// While the PR is out for review: an approval with nothing left open moves it to Approved, and a teammate's
-    /// new review asks the session for proposed fixes. Your own reviews and the bots' start nothing.
+    /// new review asks the session for proposed fixes. So does CodeRabbit's, while a thread it started is open: its
+    /// threads are its actionable findings. Your own reviews and other bots' start nothing.
     ///
     /// An approval that goes away with no new review behind it was dismissed by a push — an automatic fix's, say —
     /// so the review team is asked again. One that a teammate's change request replaced goes the way of any other
@@ -315,8 +316,11 @@ public enum FlowEngine {
         guard flow.stage == .inReview else { return [] }
         let since = flow.reviewsSince ?? .distantPast
         let fresh = pr.reviews.filter { review in
-            review.submittedAt > since && review.author != input.login && !input.bots.contains(review.author)
-                && !review.author.hasSuffix("[bot]")
+            guard review.submittedAt > since, review.author != input.login else { return false }
+            // ponytail: any open CodeRabbit thread counts, its severity unread; read the first comment's body if
+            // threads that are only nits start fixes too often.
+            if review.author == PullRequest.codeRabbit { return pr.codeRabbitThreads > 0 }
+            return !input.bots.contains(review.author) && !review.author.hasSuffix("[bot]")
         }
         if let latest = fresh.map(\.submittedAt).max() { flow.reviewsSince = latest }
         if pr.reviewDecision == .approved, pr.unresolvedThreads == 0 {
