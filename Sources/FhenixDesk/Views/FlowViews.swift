@@ -73,7 +73,7 @@ struct FlowSection: View {
         switch flow.stage {
         case .draft:
             let skill = model.state.reviewSkill(for: pr)
-            Text("Approve to start the self-review: reviewing-code, up to three rounds, until no High or Medium finding is left.")
+            Text("Approve to start the self-review: /pre-pr where the repo has the review flow, reviewing-code elsewhere, up to three rounds, until no Important finding is left.")
                 .scaled(.caption).foregroundStyle(.secondary)
             if let skill, !skill.isReady { ReviewSkillMark(skill: skill, showsText: true) }
             HStack {
@@ -216,14 +216,16 @@ private struct SelfReviewList: View {
 
     private func summary(_ review: SelfReview) -> String {
         let rounds = review.rounds.map { "\($0) \($0 == 1 ? "round" : "rounds")" } ?? "Done"
-        let state = review.clean == false ? "High or Medium findings are left" : "no High or Medium finding left"
+        let state = review.clean == false ? "Important findings are left" : "no Important finding left"
         return "\(rounds) · \(review.findings.count) \(review.findings.count == 1 ? "finding" : "findings") · \(state)"
     }
 
+    /// "high" and "medium" are the earlier scale, still in flows saved before the switch.
     private func color(_ severity: String) -> Color {
         switch severity.lowercased() {
-        case "high": return .red
+        case "important", "high": return .red
         case "medium": return .orange
+        case "nit": return .yellow
         default: return .secondary
         }
     }

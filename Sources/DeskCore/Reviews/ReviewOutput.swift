@@ -19,21 +19,35 @@ public enum ReviewVerdict: String, Codable, Sendable, Hashable, CaseIterable, Id
     public var needsBody: Bool { self != .approve }
 }
 
+/// REVIEW.md's scale, the one reviewing-code and CodeRabbit use: Important blocks a merge, a Nit does not, and
+/// Pre-existing is a real problem on a line the PR did not change. `question` is not a severity but a kind of comment
+/// the review-others draft keeps: a real question for the author, which the draft page shows apart.
 public enum CommentSeverity: String, Codable, Sendable, Hashable, CaseIterable {
-    case blocker, major, minor, nit, question
+    case important, nit, preExisting = "pre-existing", question
 
     public var title: String {
         switch self {
-        case .blocker: return "Blocker"
-        case .major: return "Major"
-        case .minor: return "Minor"
+        case .important: return "Important"
         case .nit: return "Nit"
+        case .preExisting: return "Pre-existing"
         case .question: return "Question"
         }
     }
 
+    /// A severity from the title a draft comment leads with, the earlier scale's too, so drafts written before the
+    /// switch still read.
+    public init?(title: String) {
+        switch title {
+        case "Blocker", "Major": self = .important
+        case "Minor": self = .nit
+        default:
+            guard let match = Self.allCases.first(where: { $0.title == title }) else { return nil }
+            self = match
+        }
+    }
+
     /// What makes a verdict "request changes" rather than a pile of suggestions.
-    public var isBlocking: Bool { self == .blocker || self == .major }
+    public var isBlocking: Bool { self == .important }
 
     /// Most severe first, for sorting a list of findings.
     public var rank: Int { Self.allCases.firstIndex(of: self) ?? Self.allCases.count }
@@ -50,7 +64,7 @@ public struct ProposedComment: Sendable, Hashable {
     public var severity: CommentSeverity
     public var body: String
 
-    public init(path: String, line: Int, side: DiffSide = .right, lineText: String = "", severity: CommentSeverity = .minor, body: String) {
+    public init(path: String, line: Int, side: DiffSide = .right, lineText: String = "", severity: CommentSeverity = .nit, body: String) {
         self.path = path
         self.line = line
         self.side = side
@@ -155,12 +169,12 @@ public enum ReviewOutputParser {
 
     public static func severity(_ raw: String?) -> CommentSeverity {
         switch normalized(raw) {
-        case "BLOCKER", "BLOCKING", "CRITICAL", "HIGH", "ERROR", "BUG": return .blocker
-        case "MAJOR", "MEDIUM", "WARNING", "IMPORTANT": return .major
-        case "MINOR", "LOW", "INFO", "SUGGESTION": return .minor
-        case "NIT", "NITPICK", "STYLE", "TRIVIAL": return .nit
+        case "IMPORTANT", "BLOCKER", "BLOCKING", "CRITICAL", "HIGH", "ERROR", "BUG", "MAJOR", "MEDIUM", "WARNING":
+            return .important
+        case "PRE_EXISTING", "PREEXISTING": return .preExisting
         case "QUESTION", "DISCUSSION", "ASK": return .question
-        default: return .minor
+        // NIT, MINOR, LOW, SUGGESTION, STYLE and anything unrecognised: the severity that asserts least.
+        default: return .nit
         }
     }
 

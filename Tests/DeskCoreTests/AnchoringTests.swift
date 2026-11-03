@@ -66,18 +66,23 @@ import Testing
     /// marker closes it, which is how the comment is read back as Claude's.
     @Test func theBodyStartsWithItsSeverityAndEndsWithTheMarker() {
         let marker = "\n\n<!-- fhenix-desk -->"
-        #expect(DraftThreads.body(Fixtures.comment(severity: .blocker, body: "Off by one."), onLine: true) == "**Blocker** · Off by one." + marker)
-        #expect(DraftThreads.body(Fixtures.comment(body: "x", unverified: true), onLine: true) == "**Major** · line not verified · x" + marker)
-        #expect(DraftThreads.body(Fixtures.comment(line: 7, side: .left, body: "x"), onLine: false) == "**Major** · old line 7 · x" + marker)
+        #expect(DraftThreads.body(Fixtures.comment(severity: .important, body: "Off by one."), onLine: true) == "**Important** · Off by one." + marker)
+        #expect(DraftThreads.body(Fixtures.comment(body: "x", unverified: true), onLine: true) == "**Important** · line not verified · x" + marker)
+        #expect(DraftThreads.body(Fixtures.comment(line: 7, side: .left, body: "x"), onLine: false) == "**Important** · old line 7 · x" + marker)
     }
 
     /// Read back for the review page and the session: the severity apart from the text, the marker gone. Older
     /// comments, with the severity on its own line, and ones you wrote yourself read too.
     @Test func aDraftCommentReadsBackAsSeverityAndText() {
-        let new = DraftThreads.read(DraftThreads.body(Fixtures.comment(severity: .minor, body: "Off by one."), onLine: true))
-        #expect(new.severity == .minor && new.text == "Off by one." && new.isClaude)
+        let new = DraftThreads.read(DraftThreads.body(Fixtures.comment(severity: .nit, body: "Off by one."), onLine: true))
+        #expect(new.severity == .nit && new.text == "Off by one." && new.isClaude)
         let old = DraftThreads.read("**Major**\n\nAfter-merge step 5 adds `/cofhe`.\n\n<!-- fhenix-desk -->")
-        #expect(old.severity == .major && old.text == "After-merge step 5 adds `/cofhe`." && old.isClaude)
+        #expect(old.severity == .important && old.text == "After-merge step 5 adds `/cofhe`." && old.isClaude)
+        // REVIEW.md's scale reads back, hyphen included, and so do the earlier scale's titles on drafts already posted.
+        let preExisting = DraftThreads.read(DraftThreads.body(Fixtures.comment(severity: .preExisting, body: "Leaks."), onLine: true))
+        #expect(preExisting.severity == .preExisting && preExisting.text == "Leaks.")
+        #expect(DraftThreads.read("**Minor** · Rename it.\n\n<!-- fhenix-desk -->").severity == .nit)
+        #expect(DraftThreads.read("**Note** · Mine.").severity == nil)
         let mine = DraftThreads.read("Why not reuse the helper?")
         #expect(mine.severity == nil && mine.text == "Why not reuse the helper?" && !mine.isClaude)
     }

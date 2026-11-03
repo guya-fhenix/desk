@@ -38,7 +38,7 @@ enum Fixtures {
     }
 
     static func comment(
-        path: String = "src/gauge.rs", line: Int = 41, side: DiffSide = .right, severity: CommentSeverity = .major,
+        path: String = "src/gauge.rs", line: Int = 41, side: DiffSide = .right, severity: CommentSeverity = .important,
         body: String = "Off by one.", unverified: Bool = false
     ) -> DraftComment {
         DraftComment(path: path, line: line, side: side, severity: severity, body: body, isUnverified: unverified)

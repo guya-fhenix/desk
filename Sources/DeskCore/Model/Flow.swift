@@ -69,7 +69,7 @@ public struct Finding: Codable, Sendable, Hashable {
 /// The self-review's result file.
 public struct SelfReview: Codable, Sendable, Hashable {
     public var rounds: Int?
-    /// Whether the last review found no High or Medium.
+    /// Whether the last review found no Important finding.
     public var clean: Bool?
     public var findings: [Finding]
 

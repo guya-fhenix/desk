@@ -105,7 +105,7 @@ import Testing
         #expect(text.contains("put 2 comments into my pending review"))
         #expect(text.contains("Its summary: Mostly fine."))
         // The severity in words and the marker gone: the session reads the comment as it reads on GitHub.
-        #expect(text.contains("- src/a.rs:12 (Major) — Unchecked unwrap.\n  It panics on empty input."))
+        #expect(text.contains("- src/a.rs:12 (Important) — Unchecked unwrap.\n  It panics on empty input."))
         #expect(!text.contains("fhenix-desk"))
         #expect(text.contains("- README.md — Typo in the title."))
         #expect(text.contains("Don't post, comment, approve or push anything"))

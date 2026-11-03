@@ -43,8 +43,7 @@ public enum DraftThreads {
     public static func read(_ body: String) -> (severity: CommentSeverity?, text: String, isClaude: Bool) {
         let isClaude = body.contains(marker)
         var text = body.replacingOccurrences(of: marker, with: "").trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let match = text.firstMatch(of: /^\*\*(\w+)\*\*/),
-              let severity = CommentSeverity.allCases.first(where: { $0.title == String(match.output.1) })
+        guard let match = text.firstMatch(of: /^\*\*([\w-]+)\*\*/), let severity = CommentSeverity(title: String(match.output.1))
         else { return (nil, text, isClaude) }
         text = String(text[match.range.upperBound...])
         // " · body", or the older "\n\nbody"; a header note ("line 900") stays at the front of the text.

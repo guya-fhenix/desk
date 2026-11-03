@@ -164,21 +164,18 @@ public enum PromptID: String, CaseIterable, Sendable, Identifiable {
             stops before its reviews is not clean.
 
             If it has not: each round, run the fhenix-workflow:reviewing-code skill on the pull request, fix every \
-            High and Medium finding it reports, and the Low ones whose fix is a line or two. Commit the round's fixes \
-            with a message that says what the review found, and push. A round is clean when it reports no High or \
-            Medium finding.
+            Important finding it reports, and the Nits whose fix is a line or two. Commit the round's fixes with a \
+            message that says what the review found, and push. A round is clean when it reports no Important finding.
 
             Either way, keep the pull request a draft: never run `gh pr ready`.
 
             When you stop, write this JSON to {resultFile} and nothing else:
-            {"rounds": 2, "clean": true, "findings": [{"severity": "high", "file": "src/a.rs", "line": 42, \
+            {"rounds": 2, "clean": true, "findings": [{"severity": "important", "file": "src/a.rs", "line": 42, \
             "problem": "what was wrong, in one plain sentence", "fix": "what you changed, in one plain sentence, or \
             why you left it", "round": 1, "fixed": true}]}
             `rounds` is the number of reviews that ran, and `clean` says whether the last one was clean, as defined \
-            above. With /pre-pr, use "high" for an Important finding and "low" for a Nit, and list every Important \
-            finding from every round and the Nits that were fixed. With reviewing-code, use its own severity \
-            ("high", "medium" or "low"), and list every High and Medium finding from every round and the Low ones \
-            you fixed.
+            above. `severity` is "important" for an Important finding and "nit" for a Nit. List every Important \
+            finding from every round, and the Nits you fixed.
             """
         // Unresolved threads are the set to answer: what a reviewer still wants is what nobody has closed. Nothing
         // changes here — you approve each fix first — and `resolve` is the session's guess, which you can flip.
@@ -285,7 +282,7 @@ public enum PromptID: String, CaseIterable, Sendable, Identifiable {
                   "side": "RIGHT",
                   "line": 42,
                   "lineText": "        let mut n = 0;",
-                  "severity": "blocker" | "major" | "minor" | "nit" | "question",
+                  "severity": "important" | "nit" | "pre-existing" | "question",
                   "body": "At most three lines as GitHub shows them, about 250 characters in all: one or two \
             short sentences on what goes wrong and when, then one on what to do about it, in plain words, the way \
             you would say it to the author sitting next to you. No headings, lists or blank lines. A ```suggestion \
@@ -315,8 +312,10 @@ public enum PromptID: String, CaseIterable, Sendable, Identifiable {
             your line number, so copy it exactly, spaces included.
             - Comment only on lines inside a hunk of that diff. Leave out points about code the PR did not touch.
             - One comment per line: if two things are wrong on one line, say both in one body.
-            - `severity`: `blocker` or `major` only for what has to be fixed before merging; that is what I judge \
-            the verdict by. No findings is a fine answer for good work: `{"comments": []}`.
+            - `severity`: `important` only for what has to be fixed before merging; that is what I judge the \
+            verdict by. `nit` for what could be better but need not block, `pre-existing` for a real problem on a \
+            line of the hunk that the PR did not change, and `question` for a question. No findings is a fine answer \
+            for good work: `{"comments": []}`.
 
             Post nothing to GitHub and edit nothing: I put your comments into a draft review on the PR, and I \
             decide there what to keep and what verdict to send.
@@ -349,8 +348,9 @@ public enum PromptID: String, CaseIterable, Sendable, Identifiable {
             """
             The text below is a code review. Re-emit it as the single JSON object described here and nothing else: \
             {"verdict": "APPROVE" | "REQUEST_CHANGES" | "COMMENT", "summary": "...", "comments": [{"path": "...", \
-            "side": "RIGHT" | "LEFT", "line": 1, "lineText": "...", "severity": "blocker" | "major" | "minor" | \
-            "nit" | "question", "body": "..."}]}. Invent nothing, and drop any finding that has no file and line.
+            "side": "RIGHT" | "LEFT", "line": 1, "lineText": "...", "severity": "important" | "nit" | \
+            "pre-existing" | "question", "body": "..."}]}. Invent nothing, and drop any finding that has no file and \
+            line.
             """
         }
     }

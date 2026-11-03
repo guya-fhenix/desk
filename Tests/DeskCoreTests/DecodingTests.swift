@@ -122,7 +122,7 @@ import Testing
             """#
         let comments = try GitHubDecoding.draftComments(from: Data(json.utf8))
         #expect(comments.map(\.id) == ["c2", "c1", "c3"])
-        #expect(comments[0].severity == .major && comments[0].text == "Redirects break." && comments[0].isClaude)
+        #expect(comments[0].severity == .important && comments[0].text == "Redirects break." && comments[0].isClaude)
         #expect(comments[2].line == 60 && comments[2].severity == nil && !comments[2].isClaude)
         // No pending review: nothing to list.
         let none = #"{"data":{"repository":{"pullRequest":{"reviews":{"nodes":[]}}}}}"#

@@ -71,7 +71,7 @@ import Testing
         #expect(output.comments[0].path == "src/gauge.rs")
         #expect(output.comments[0].line == 42)
         #expect(output.comments[0].side == .right)
-        #expect(output.comments[0].severity == .blocker)
+        #expect(output.comments[0].severity == .important)
         #expect(output.comments[0].lineText == "        let mut n = 0;")
         // A model that quotes the diff header prefix must not send `b/…` to GitHub.
         #expect(output.comments[1].path == "src/retry.rs")
@@ -110,10 +110,13 @@ import Testing
         #expect(ReviewOutputParser.verdict("NEEDS DISCUSSION") == .comment)
         #expect(ReviewOutputParser.verdict(nil) == .comment)
 
-        #expect(ReviewOutputParser.severity("critical") == .blocker)
-        #expect(ReviewOutputParser.severity("Warning") == .major)
+        #expect(ReviewOutputParser.severity("critical") == .important)
+        #expect(ReviewOutputParser.severity("Warning") == .important)
         #expect(ReviewOutputParser.severity("nitpick") == .nit)
-        #expect(ReviewOutputParser.severity(nil) == .minor)
+        #expect(ReviewOutputParser.severity(nil) == .nit)
+        #expect(ReviewOutputParser.severity("Important") == .important)
+        #expect(ReviewOutputParser.severity("pre-existing") == .preExisting)
+        #expect(ReviewOutputParser.severity("blocker") == .important)
     }
 
     @Test func acceptsTheLineNumberInEveryShapeAModelWrites() throws {

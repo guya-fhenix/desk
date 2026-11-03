@@ -557,10 +557,9 @@ private struct DraftReviewCard: View {
     @ViewBuilder private func severityChip(_ comment: DraftReviewComment) -> some View {
         if let severity = comment.severity {
             let color: Color = switch severity {
-            case .blocker: .red
-            case .major: .orange
-            case .minor: .yellow
-            case .nit: .secondary
+            case .important: .red
+            case .nit: .yellow
+            case .preExisting: .secondary
             case .question: .blue
             }
             Chip(text: severity.title, color: color)
