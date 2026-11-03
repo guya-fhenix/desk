@@ -243,6 +243,20 @@ import Testing
         #expect(state.reviewQueue(.onMe, now: Fixtures.t0).map(\.number) == [1, 2])
         #expect(state.reviewQueue(.onMe, hiding: ["alice"], now: Fixtures.t0).isEmpty)
     }
+
+    /// CodeRabbit's needs-human label puts a PR first, the rest keep their order; its risk label reads as the tier.
+    @Test func prsThatNeedAPersonComeFirst() {
+        var state = DeskState(config: DeskConfig())
+        let plain = Fixtures.pr(number: 1, head: "a", author: "alice")
+        let other = Fixtures.pr(number: 2, head: "b", author: "alice")
+        var risky = Fixtures.pr(number: 3, head: "c", author: "alice")
+        risky.labels = ["risk:high", "needs-human", "area:onchain"]
+        state.github = GitHubSnapshot(
+            login: "me", mine: [], reviewRequests: [plain, risky, other], mergedRecent: [], fetchedAt: Fixtures.t0
+        )
+        #expect(state.reviewQueue(.onMe, now: Fixtures.t0).map(\.number) == [3, 1, 2])
+        #expect(risky.risk == "high" && risky.needsHuman && plain.risk == nil && !plain.needsHuman)
+    }
 }
 
 @Suite struct TicketGroupingTests {

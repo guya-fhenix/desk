@@ -116,9 +116,9 @@ public struct DeskState: Sendable {
         case .all: rows = reviewRequests + openForReview
         }
         if !hiding.isEmpty { rows.removeAll { hiding.contains($0.author) } }
-        guard let days else { return rows }
+        guard let days else { return rows.needsHumanFirst }
         let cutoff = now.addingTimeInterval(-TimeInterval(days) * 86_400)
-        return rows.filter { $0.createdAt > cutoff }
+        return rows.filter { $0.createdAt > cutoff }.needsHumanFirst
     }
 
     /// Your unfinished tickets. Done is not work, so it never counts here.

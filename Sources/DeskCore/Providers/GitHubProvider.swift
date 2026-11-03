@@ -285,6 +285,7 @@ public enum GitHubQueries {
         nodes { ... on ReviewRequestedEvent { createdAt requestedReviewer { __typename ... on User { login } ... on Team { name } } } }
       }
       reviewThreads(first: 100) { nodes { id isResolved } }
+      labels(first: 20) { nodes { name } }
     }
     """
 }
@@ -421,7 +422,8 @@ public enum GitHubDecoding {
                     id: review.id, commitId: review.commit?.oid ?? "", comments: review.comments.totalCount,
                     claudeComments: review.comments.nodes.count { $0.body.contains(DraftThreads.marker) }
                 )
-            }
+            },
+            labels: node.labels?.nodes.map(\.name) ?? []
         )
     }
 
@@ -568,7 +570,11 @@ public enum GitHubDecoding {
         var reviewRequests: ReviewRequests
         var timelineItems: Timeline
         var reviewThreads: ReviewThreads?
+        var labels: Labels?
     }
+
+    private struct Labels: Decodable { var nodes: [Label] }
+    private struct Label: Decodable { var name: String }
 
     private struct BaseRef: Decodable {
         var rules: Rules?

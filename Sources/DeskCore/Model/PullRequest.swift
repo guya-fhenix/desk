@@ -121,6 +121,13 @@ public struct PullRequest: Codable, Sendable, Hashable, Identifiable {
     public var resolvedThreads: Set<String>
     /// Your draft review on this PR, if you have one.
     public var pendingReview: PendingReview?
+    /// Its label names. CodeRabbit sets `risk:*` and `needs-human` by REVIEW.md, which the review queue goes by.
+    public var labels: [String]
+
+    /// CodeRabbit says a person has to read this one: it goes first in the review queue.
+    public var needsHuman: Bool { labels.contains("needs-human") }
+    /// CodeRabbit's risk tier, "low" to "critical", once it has set one.
+    public var risk: String? { labels.first { $0.hasPrefix("risk:") }.map { String($0.dropFirst("risk:".count)) } }
 
     public init(
         number: Int, title: String, body: String = "", url: String, repo: String, isDraft: Bool = false,
@@ -129,7 +136,7 @@ public struct PullRequest: Codable, Sendable, Hashable, Identifiable {
         author: String, reviewDecision: ReviewDecision = .none, mergeState: MergeState = .unknown,
         checks: CheckState = .none, checkCount: Int = 0, reviews: [Review] = [],
         requestedReviewers: [String] = [], reviewRequestEvents: [ReviewRequestEvent] = [], unresolvedThreads: Int = 0,
-        resolvedThreads: Set<String> = [], pendingReview: PendingReview? = nil
+        resolvedThreads: Set<String> = [], pendingReview: PendingReview? = nil, labels: [String] = []
     ) {
         self.number = number
         self.title = title
@@ -157,6 +164,7 @@ public struct PullRequest: Codable, Sendable, Hashable, Identifiable {
         self.unresolvedThreads = unresolvedThreads
         self.resolvedThreads = resolvedThreads
         self.pendingReview = pendingReview
+        self.labels = labels
     }
 
     public var repoName: String { repo.split(separator: "/").last.map(String.init) ?? repo }
@@ -272,4 +280,9 @@ extension PullRequest {
             }
         }
     }
+}
+
+extension Array where Element == PullRequest {
+    /// The PRs that need a person first, each group in the order it came in.
+    public var needsHumanFirst: [PullRequest] { filter(\.needsHuman) + filter { !$0.needsHuman } }
 }

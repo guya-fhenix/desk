@@ -32,7 +32,8 @@ struct ReviewsTab: View {
 
     private var window: Int? { filters.window }
     private func queue(_ scope: ReviewScope) -> [PullRequest] { model.state.reviewQueue(scope, days: window, hiding: filters.hidden) }
-    private var rows: [PullRequest] { queue(scope).sorted(using: sortOrder) }
+    /// Your column sort, inside "needs a person" first: those are the reviews nobody else can do.
+    private var rows: [PullRequest] { queue(scope).sorted(using: sortOrder).needsHumanFirst }
     /// The ones GitHub actually put on you, so a row in the mixed list says which it is.
     private var onMe: Set<String> { Set(model.state.reviewRequests.map(\.url)) }
 
@@ -329,6 +330,7 @@ private struct QueueTitle: View {
     var body: some View {
         HStack(spacing: 6) {
             if onMe { Chip(text: "On you", color: .orange) }
+            if pr.needsHuman { Chip(text: "Needs a person", color: .purple) }
             // Plain text, so a click on it selects the row; Return or a double-click opens the review on GitHub.
             Text(pr.title).scaled(.rowTitle).lineLimit(1)
         }
@@ -405,6 +407,11 @@ struct ReviewPage: View {
                 ChecksPill(pr: pr)
                 // Each only when it says something: GitHub asked you, and your draft's state, which is blank without one.
                 if onMe { Chip(text: "On you", color: .orange) }
+                // CodeRabbit's labels, as it set them; its reasons are in its review on GitHub.
+                if let risk = pr.risk {
+                    Chip(text: "Risk: \(risk)", color: ["high", "critical"].contains(risk) ? .red : risk == "medium" ? .orange : .secondary)
+                }
+                if pr.needsHuman { Chip(text: "Needs a person", color: .purple) }
                 // The run's progress is on the Review button, so the chip keeps to what GitHub says.
                 ReviewStatusChip(status: status, showsRun: false)
                 // The page's actions on the right, where a status line's presses go; why Review is dead, beside it.
