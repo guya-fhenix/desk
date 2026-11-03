@@ -56,7 +56,7 @@ import Testing
         let arguments = ReviewCommand.reviewArguments(pr: pr, otherRepos: [], config: DeskConfig())
         #expect(value(after: "--output-format", in: arguments) == "json")
         #expect(value(after: "--permission-mode", in: arguments) == "dontAsk")
-        #expect(value(after: "--tools", in: arguments) == "Read,Grep,Glob,Bash")
+        #expect(value(after: "--tools", in: arguments) == "Read,Grep,Glob,Bash,Skill")
         #expect(value(after: "--append-system-prompt", in: arguments) == PromptID.reviewSystem.defaultText)
         #expect(arguments.contains("--strict-mcp-config"))
         // No dollar cap: on a subscription it would cut a review off on a price nobody pays.

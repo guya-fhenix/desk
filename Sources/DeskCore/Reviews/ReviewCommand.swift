@@ -4,7 +4,9 @@ import Foundation
 /// a wrong flag here would either let the session post to GitHub or lose the structured answer the whole
 /// screen is built on.
 public enum ReviewCommand {
-    public static let tools = ["Read", "Grep", "Glob", "Bash"]
+    /// Skill loads fhenix-workflow:reviewing-code, the team's rubric; the skills it reads run under the same allow
+    /// and deny rules. No Agent: a subagent would be one more session to keep read-only.
+    public static let tools = ["Read", "Grep", "Glob", "Bash", "Skill"]
 
     /// Read-only subcommands that also work against another clone as `git -C <root> <subcommand> <ref> …`.
     public static let otherRepoReads = ["show", "ls-tree", "grep", "log", "blame", "diff", "rev-parse"]
@@ -19,6 +21,7 @@ public enum ReviewCommand {
     /// `Bash(git -C * show:*)` matches nothing (Claude Code 2.1.258). A read always takes a ref, hence the
     /// space before the last `*`; the deny form below has none, so a bare `git -C <root> push` is caught too.
     public static let allowedTools = [
+        "Skill",
         "Bash(gh pr view:*)", "Bash(gh pr diff:*)", "Bash(gh pr checks:*)",
         "Bash(git diff:*)", "Bash(git log:*)", "Bash(git show:*)", "Bash(git status:*)", "Bash(git blame:*)",
         "Bash(git grep:*)", "Bash(git ls-files:*)", "Bash(git rev-parse:*)",

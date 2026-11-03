@@ -263,9 +263,13 @@ public enum PromptID: String, CaseIterable, Sendable, Identifiable {
             3. The changed files here in full, with enough surrounding code to judge them. `git log \
             origin/{baseRef}..HEAD` shows the commits.
 
-            Look for correctness bugs, missing error handling, concurrency and security problems, untested \
-            behaviour, and anything that contradicts the conventions in the surrounding code. Prefer few strong \
-            findings to many weak ones: at most 15 comments, and no comment that only restates what the code does.
+            Review it with the fhenix-workflow:reviewing-code skill, the team's checklist, on that diff, and report \
+            only: post nothing and change nothing. A step that needs a tool you do not have, such as a subagent, you \
+            do yourself or skip. Its findings become the comments below, with its severity: Important, Nit or \
+            Pre-existing. If the skill is not available here, look for correctness bugs, missing error handling, \
+            concurrency and security problems, untested behaviour, and anything that contradicts the conventions in \
+            the surrounding code. Either way, prefer few strong findings to many weak ones: at most 15 comments, and \
+            no comment that only restates what the code does.
 
             {#otherRepos}Other repositories under my repo roots, each fetched just now. Read them directly from \
             the remote default branch named below and never from their working trees, which may be on any branch \
