@@ -5,7 +5,7 @@ import SwiftUI
 /// ready to merge, your move, drafts to submit, to review — then the Jira moves the app suggests, the sprint's tickets nothing has
 /// started, and your PRs that wait on someone else. The rows are the Pull Requests, Reviews and Jira screens' own; a
 /// click, Return or → opens the PR's or the ticket's page here, and its back link, or ←, returns here. The reviews
-/// follow the Reviews screen's day filter.
+/// follow the Reviews screen's filters.
 struct UpNextTab: View {
     @Environment(AppModel.self) private var model
     /// A PR's url, or a ticket's key: one to start, or one with a suggested move.
@@ -21,7 +21,7 @@ struct UpNextTab: View {
     private var filters = ReviewFilters()
 
     var body: some View {
-        let plan = model.state.upNext(reviewDays: filters.window, hiding: filters.hidden)
+        let plan = model.state.upNext(reviewDays: filters.window, hiding: filters.hidden, needingApproval: filters.needsApproval)
         let tickets = model.state.ticketsToStart
         let drifts = model.state.ticketDrifts
         // In the order the sections show, so the first row selected is the top one.

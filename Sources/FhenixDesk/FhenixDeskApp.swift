@@ -145,7 +145,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// A plain macOS menu, built afresh on each click: open the Desk, quit, then your open PRs and the review queue
-    /// inside the Reviews screen's day filter, each opening the Desk on that PR's page. Set on the item only while it
+    /// inside the Reviews screen's filters, each opening the Desk on that PR's page. Set on the item only while it
     /// shows, so a primary click goes on opening the Desk rather than the menu.
     @MainActor private func showMenu() {
         guard let item = statusItem, let model else { return }
@@ -158,7 +158,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             menu.addItem(.sectionHeader(title: "Pull Requests"))
             for pr in mine { menu.addItem(Self.item(for: pr, model: model, tab: .pullRequests)) }
         }
-        let reviews = model.state.reviewQueue(.all, days: ReviewFilters.currentWindow, hiding: ReviewFilters.currentHidden)
+        let reviews = model.state.reviewQueue(
+            .all, days: ReviewFilters.currentWindow, hiding: ReviewFilters.currentHidden, needingApproval: ReviewFilters.currentNeedsApproval
+        )
         if !reviews.isEmpty {
             menu.addItem(.separator())
             menu.addItem(.sectionHeader(title: "Reviews"))

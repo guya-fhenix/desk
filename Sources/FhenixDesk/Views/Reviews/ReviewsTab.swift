@@ -31,7 +31,9 @@ struct ReviewsTab: View {
     )
 
     private var window: Int? { filters.window }
-    private func queue(_ scope: ReviewScope) -> [PullRequest] { model.state.reviewQueue(scope, days: window, hiding: filters.hidden) }
+    private func queue(_ scope: ReviewScope, needingApproval: Bool? = nil) -> [PullRequest] {
+        model.state.reviewQueue(scope, days: window, hiding: filters.hidden, needingApproval: needingApproval ?? filters.needsApproval)
+    }
     /// Your column sort, inside "needs a person" first: those are the reviews nobody else can do.
     private var rows: [PullRequest] { queue(scope).sorted(using: sortOrder).needsHumanFirst }
     /// The ones GitHub actually put on you, so a row in the mixed list says which it is.
@@ -57,6 +59,7 @@ struct ReviewsTab: View {
             guard let url else { return }
             if !self.rows.contains(where: { $0.url == url }) {
                 scope = .all
+                filters.needsApproval = false
                 filters.limited = false
                 if let author = model.state.github?.allOpen.first(where: { $0.url == url })?.author {
                     filters.hidden = filters.hidden.subtracting([author])
@@ -81,11 +84,14 @@ struct ReviewsTab: View {
                 )
                 .padding(.vertical, 20)
             } else if rows.isEmpty {
-                // The day and author filters are what can hide what is there; each empty list offers to lift one.
+                // The approval, day and author filters are what can hide what is there; each empty list offers to lift one.
+                let approvalHides = filters.needsApproval && !queue(scope, needingApproval: false).isEmpty
                 EmptyState(
-                    icon: "checkmark.circle", text: emptyText,
-                    actionTitle: filters.limited ? "Show all time" : filters.hidden.isEmpty ? nil : "Show everyone",
-                    action: { if filters.limited { filters.limited = false } else { filters.hidden = [] } }
+                    icon: "checkmark.circle", text: approvalHides ? "Nothing here still needs an approval." : emptyText,
+                    actionTitle: approvalHides ? "Show all" : filters.limited ? "Show all time" : filters.hidden.isEmpty ? nil : "Show everyone",
+                    action: {
+                        if approvalHides { filters.needsApproval = false } else if filters.limited { filters.limited = false } else { filters.hidden = [] }
+                    }
                 )
                 .padding(.vertical, 20)
             } else {
@@ -161,6 +167,15 @@ struct ReviewsTab: View {
                 options: ReviewScope.allCases.map { .init(value: $0, title: $0.title, count: queue($0).count) },
                 selection: $scope
             )
+            Divider().frame(height: 18)
+            // By the review gate's status on the head commit; a repo without the gate always needs an approval.
+            PillTabs(
+                options: [
+                    .init(value: true, title: "Needs approval", count: queue(scope, needingApproval: true).count),
+                    .init(value: false, title: "All", count: queue(scope, needingApproval: false).count),
+                ],
+                selection: filters.$needsApproval
+            )
             // Only when it says something the row count beside the scopes does not.
             if ready > 0, ready != rows.count {
                 Chip(text: "\(ready) need review", color: .orange)
@@ -170,16 +185,20 @@ struct ReviewsTab: View {
             if !model.canStartReview {
                 Text("\(model.busyReviews.count) running").scaled(.caption).foregroundStyle(.secondary)
             }
-            AuthorsFilter(queue: model.state.reviewQueue(.all, days: window), filters: filters)
+            AuthorsFilter(queue: model.state.reviewQueue(.all, days: window, needingApproval: filters.needsApproval), filters: filters)
             DaysFilter(limited: filters.$limited, days: filters.$days)
             SortMenu(sort: Self.sort, order: $sortOrder)
         }
     }
 }
 
-/// The Reviews screen's filters: how far back the queue reaches, and whose PRs it leaves out. The sidebar badge, Up
-/// Next and the menu bar's menu read them too, so what they count is what the screen lists.
+/// The Reviews screen's filters: whether it keeps to the PRs that still need an approval, how far back the queue reaches,
+/// and whose PRs it leaves out. The sidebar badge, Up Next and the menu bar's menu read them too, so what they count is
+/// what the screen lists.
 struct ReviewFilters: DynamicProperty {
+    /// On by default: only the PRs the review gate says still need an approval, or has not decided on, and every PR of a
+    /// repo without the gate. Off, the whole queue.
+    @AppStorage("reviews.needsApproval") var needsApproval = true
     /// Off by default, so the whole queue shows; on, only the PRs opened in the last `days` days.
     @AppStorage("reviews.limited") var limited = false
     @AppStorage("reviews.days") var days = 14
@@ -194,7 +213,7 @@ struct ReviewFilters: DynamicProperty {
         nonmutating set { hiddenText = newValue.sorted().joined(separator: "\n") }
     }
 
-    /// The same two, read where no view is, as the menu bar's menu is.
+    /// The same, read where no view is, as the menu bar's menu is.
     static var currentWindow: Int? {
         let defaults = UserDefaults.standard
         guard defaults.bool(forKey: "reviews.limited") else { return nil }
@@ -202,6 +221,8 @@ struct ReviewFilters: DynamicProperty {
     }
 
     static var currentHidden: Set<String> { authors(UserDefaults.standard.string(forKey: "reviews.hiddenAuthors") ?? "") }
+
+    static var currentNeedsApproval: Bool { UserDefaults.standard.object(forKey: "reviews.needsApproval") as? Bool ?? true }
 
     private static func authors(_ text: String) -> Set<String> { Set(text.split(separator: "\n").map(String.init)) }
 }
@@ -331,8 +352,22 @@ private struct QueueTitle: View {
         HStack(spacing: 6) {
             if onMe { Chip(text: "On you", color: .orange) }
             if pr.needsHuman { Chip(text: "Needs a person", color: .purple) }
+            RiskChip(pr: pr)
             // Plain text, so a click on it selects the row; Return or a double-click opens the review on GitHub.
             Text(pr.title).scaled(.rowTitle).lineLimit(1)
+        }
+    }
+}
+
+/// The PR's risk tier: the review gate's, which its approvals follow, or else CodeRabbit's `risk:*` label.
+private struct RiskChip: View {
+    var pr: PullRequest
+
+    var body: some View {
+        if let risk = pr.approvalGate?.tier ?? pr.risk {
+            Chip(text: "Risk: \(risk)", color: ["high", "critical"].contains(risk) ? .red : risk == "medium" ? .orange : .secondary)
+                .fixedSize()
+                .help(pr.approvalStatus ?? "CodeRabbit's risk label")
         }
     }
 }
@@ -407,10 +442,7 @@ struct ReviewPage: View {
                 ChecksPill(pr: pr)
                 // Each only when it says something: GitHub asked you, and your draft's state, which is blank without one.
                 if onMe { Chip(text: "On you", color: .orange) }
-                // CodeRabbit's labels, as it set them; its reasons are in its review on GitHub.
-                if let risk = pr.risk {
-                    Chip(text: "Risk: \(risk)", color: ["high", "critical"].contains(risk) ? .red : risk == "medium" ? .orange : .secondary)
-                }
+                RiskChip(pr: pr)
                 if pr.needsHuman { Chip(text: "Needs a person", color: .purple) }
                 // The run's progress is on the Review button, so the chip keeps to what GitHub says.
                 ReviewStatusChip(status: status, showsRun: false)

@@ -93,10 +93,11 @@ final class AppModel {
         set { state.config = newValue }
     }
 
-    /// What Up Next has waiting on you: every section but Waiting, and the Jira moves it suggests. `reviewDays` is the
-    /// Reviews screen's day filter, which Up Next's reviews follow.
-    func upNextCount(reviewDays: Int?, hiding: Set<String>) -> Int {
-        state.upNext(reviewDays: reviewDays, hiding: hiding).filter { $0.section != .waiting }.reduce(0) { $0 + $1.pullRequests.count }
+    /// What Up Next has waiting on you: every section but Waiting, and the Jira moves it suggests. The filters are the
+    /// Reviews screen's, which Up Next's reviews follow.
+    func upNextCount(_ filters: ReviewFilters) -> Int {
+        state.upNext(reviewDays: filters.window, hiding: filters.hidden, needingApproval: filters.needsApproval)
+            .filter { $0.section != .waiting }.reduce(0) { $0 + $1.pullRequests.count }
             + state.ticketDrifts.count
     }
 

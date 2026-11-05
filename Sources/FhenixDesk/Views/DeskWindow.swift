@@ -117,13 +117,13 @@ struct DeskWindow: View {
     }
 
     /// The badge counts the rows the screen opens on: Up Next the rows it lists, Pull Requests every open PR of yours,
-    /// drafts too, as its Open tab lists them, Reviews the whole queue inside the day filter.
+    /// drafts too, as its Open tab lists them, Reviews the queue inside its filters.
     private func badge(for tab: Tab) -> Int {
         switch tab {
-        case .upNext: return model.upNextCount(reviewDays: filters.window, hiding: filters.hidden)
+        case .upNext: return model.upNextCount(filters)
         case .tickets: return model.state.openTickets.count
         case .pullRequests: return model.state.mine.count
-        case .reviews: return model.state.reviewQueue(.all, days: filters.window, hiding: filters.hidden).count
+        case .reviews: return model.state.reviewQueue(.all, days: filters.window, hiding: filters.hidden, needingApproval: filters.needsApproval).count
         }
     }
 }

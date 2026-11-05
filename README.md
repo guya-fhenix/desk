@@ -24,7 +24,12 @@ waiting, Claude reviewed, quiet PRs) and every ticket the app could not move to 
 with the button that deals with it. Pull Requests and Jira show a details panel on the right for the selected row, and Settings (⌘,) open inside the same window. Search (⌘K) finds any open PR by `repo#number`, title or branch, and any screen by name: ↩ opens it on its screen here, ⌘↩ on GitHub.
 
 Claude reviews: the Reviews tab lists the PRs waiting on you and marks which are ready to run — ones you
-have not reviewed, ones re-requested since your last review, and a run that failed. Nothing starts on its own; you press
+have not reviewed, ones re-requested since your last review, and a run that failed. By default it keeps to the
+ones that still **need an approval**, read off the `review-gate/approvals` status on each PR's head commit: fewer
+approvals on the latest commit than the risk tier needs, CodeRabbit not done reviewing it yet, or a repo that posts
+no such status at all. "low risk: no approval needed" and a met count drop out; All, one click away, shows them,
+and Up Next, the sidebar badge and the menu bar follow the same choice. The tier shows as a Risk chip on each row,
+and PRs CodeRabbit labels `needs-human` still come first. Nothing starts on its own; you press
 Review on the ones you want. Each press checks the PR head out into a detached worktree under
 `~/Repos/.reviews/<repo>/pr-<n>` and runs `claude -p` there once, with read-only tools and no session to
 attach to. Every other clone under the repo roots is fetched first and offered at its remote default

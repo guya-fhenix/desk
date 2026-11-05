@@ -105,8 +105,11 @@ public struct DeskState: Sendable {
 
     /// Everything the Reviews queue can show, in the order the scopes are offered. `days` keeps the PRs
     /// opened within that many days, which is what the Waiting column measures; nil keeps them all.
-    /// `hiding` leaves out the PRs of authors you filtered out.
-    public func reviewQueue(_ scope: ReviewScope, days: Int? = nil, hiding: Set<String> = [], now: Date = Date()) -> [PullRequest] {
+    /// `hiding` leaves out the PRs of authors you filtered out. `needingApproval` keeps the PRs the review gate says still
+    /// need an approval, or has not decided on, and every PR of a repo without the gate.
+    public func reviewQueue(
+        _ scope: ReviewScope, days: Int? = nil, hiding: Set<String> = [], needingApproval: Bool = false, now: Date = Date()
+    ) -> [PullRequest] {
         var rows: [PullRequest]
         switch scope {
         case .onMe: rows = reviewRequests
@@ -114,6 +117,7 @@ public struct DeskState: Sendable {
         case .all: rows = reviewRequests + openForReview
         }
         if !hiding.isEmpty { rows.removeAll { hiding.contains($0.author) } }
+        if needingApproval { rows.removeAll { !$0.needsApproval } }
         guard let days else { return rows.needsHumanFirst }
         let cutoff = now.addingTimeInterval(-TimeInterval(days) * 86_400)
         return rows.filter { $0.createdAt > cutoff }.needsHumanFirst
@@ -319,10 +323,10 @@ extension DeskState {
     /// needs a rebase or a flow or session waits on you; ready to merge when its nudge says so; otherwise waiting on
     /// others — most recently updated first; then the reviews you have a draft on that is not submitted yet, whatever
     /// the day filter, since you started them; then the review queue's PRs that need your review, inside the Reviews
-    /// screen's day filter (`reviewDays`, nil for all time), oldest first as the queue lists them. Both leave out the
-    /// authors the Reviews screen hides (`hiding`). Empty sections are
+    /// screen's day and approval filters (`reviewDays`, nil for all time; `needingApproval`), oldest first as the queue
+    /// lists them. Both leave out the authors the Reviews screen hides (`hiding`). Empty sections are
     /// left out. The PR's own state decides a fix, not its nudge: drafts get no nudges, and a red draft is still yours.
-    public func upNext(reviewDays: Int?, hiding: Set<String> = [], now: Date = Date()) -> [UpNextGroup] {
+    public func upNext(reviewDays: Int?, hiding: Set<String> = [], needingApproval: Bool = false, now: Date = Date()) -> [UpNextGroup] {
         let yours: Set<NudgeKind> = [.sessionNeedsYou, .flowWaiting]
         var kinds: [String: Set<NudgeKind>] = [:]
         for nudge in nudges { if let url = nudge.url { kinds[url, default: []].insert(nudge.kind) } }
@@ -335,7 +339,7 @@ extension DeskState {
             sections[section, default: []].append(pr)
         }
         sections[.draftsToSubmit] = reviewQueue(.all, hiding: hiding).filter { $0.pendingReview != nil }
-        sections[.toReview] = reviewQueue(.all, days: reviewDays, hiding: hiding, now: now)
+        sections[.toReview] = reviewQueue(.all, days: reviewDays, hiding: hiding, needingApproval: needingApproval, now: now)
             .filter { $0.pendingReview == nil && reviewNeed(for: $0) != nil }
         return UpNextSection.allCases.compactMap { section in
             guard let prs = sections[section], !prs.isEmpty else { return nil }

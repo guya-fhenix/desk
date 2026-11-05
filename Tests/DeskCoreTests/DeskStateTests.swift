@@ -257,6 +257,39 @@ import Testing
         #expect(state.reviewQueue(.onMe, now: Fixtures.t0).map(\.number) == [3, 1, 2])
         #expect(risky.risk == "high" && risky.needsHuman && plain.risk == nil && !plain.needsHuman)
     }
+
+    /// Needs approval keeps what the review gate has not passed — short of approvals, waiting for CodeRabbit, words it
+    /// does not know, or no gate at all — and drops what it has; needs-human still comes first, and Up Next follows it.
+    @Test func needsApprovalKeepsWhatTheGateHasNotPassed() {
+        var state = DeskState(config: DeskConfig())
+        func pr(_ number: Int, _ gate: String?) -> PullRequest {
+            var pr = Fixtures.pr(number: number, head: "h\(number)", author: "alice")
+            pr.approvalStatus = gate
+            return pr
+        }
+        var human = pr(6, "high risk: 0 of 2 approvals on the latest commit; CodeRabbit could not review")
+        human.labels = ["needs-human"]
+        let queue = [
+            pr(1, "medium risk: 0 of 1 approvals on the latest commit"),
+            pr(2, "medium risk: 1 of 1 approvals on the latest commit"),
+            pr(3, "low risk: no approval needed"),
+            pr(4, "Waiting for CodeRabbit's review of the latest commit"),
+            pr(5, nil),
+            human,
+            pr(7, "high risk: 2 of 2 approvals on the latest commit; How to revert is not filled in the author's /pre-pr evidence comment"),
+        ]
+        state.github = GitHubSnapshot(login: "me", mine: [], reviewRequests: queue, mergedRecent: [], fetchedAt: Fixtures.t0)
+        #expect(state.reviewQueue(.all, needingApproval: true, now: Fixtures.t0).map(\.number) == [6, 1, 4, 5])
+        #expect(state.reviewQueue(.all, now: Fixtures.t0).map(\.number) == [6, 1, 2, 3, 4, 5, 7])
+
+        state.gitScan = GitScan(repos: [Fixtures.repo()], worktrees: [])
+        state.recompute(now: Fixtures.t0)
+        let toReview = { (needing: Bool) in
+            state.upNext(reviewDays: nil, needingApproval: needing, now: Fixtures.t0).first { $0.section == .toReview }?.pullRequests.map(\.number)
+        }
+        #expect(toReview(true) == [6, 1, 4, 5])
+        #expect(toReview(false) == [6, 1, 2, 3, 4, 5, 7])
+    }
 }
 
 @Suite struct TicketGroupingTests {
