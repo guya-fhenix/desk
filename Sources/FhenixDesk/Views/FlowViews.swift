@@ -90,6 +90,108 @@ struct FlowSection: View {
     }
 }
 
+/// Your PR's open review threads, grouped by who started them — /pre-pr, CodeRabbit, people — the most severe first, each
+/// with a note of what you want done with it. Apply sends the noted ones to the PR's session, which makes the changes,
+/// replies in each thread and resolves the ones a review tool started; the app itself never writes to a thread.
+struct ThreadsSection: View {
+    var pr: PullRequest
+    var model: AppModel
+
+    var body: some View {
+        let threads = pr.threads.ordered
+        PanelSection("Open threads") {
+            if threads.isEmpty {
+                Text("None open.").foregroundStyle(.secondary)
+            } else {
+                ForEach(ReviewThread.Source.allCases) { source in
+                    let group = threads.filter { $0.source == source }
+                    if !group.isEmpty {
+                        Text("\(source.title) · \(group.count)").scaled(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                            .padding(.top, 4)
+                        ForEach(group) { ThreadRow(thread: $0, model: model) }
+                    }
+                }
+                applyBar
+            }
+        }
+    }
+
+    private var applyBar: some View {
+        let noted = model.notedThreads(pr).count
+        let blocker = model.sendBlocker(pr)
+        return HStack {
+            Text(noted == 0 ? "Write what you want done with a thread, then Apply." : "\(noted) \(noted == 1 ? "thread" : "threads") with a note")
+                .scaled(.caption).foregroundStyle(.secondary)
+            Spacer()
+            if noted > 0 { DisabledReason(text: blocker) }
+            Button("Apply") { model.applyThreadNotes(pr) }
+                .buttonStyle(.borderedProminent).handCursor()
+                .disabled(noted == 0 || blocker != nil)
+                .help("Sends the threads with a note to the PR's session: it makes the changes and pushes, replies in each thread, and resolves the ones /pre-pr or CodeRabbit started")
+        }
+    }
+}
+
+/// One open thread: its severity, where it sits, who started it, its first comment a line or two until opened, the way
+/// to it on GitHub, and your note.
+private struct ThreadRow: View {
+    var thread: ReviewThread
+    var model: AppModel
+    @State private var expanded = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                if let severity = thread.severity { Chip(text: severity.title, color: severity == .important ? .red : .yellow) }
+                Text(thread.place).scaled(.caption.monospaced()).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                if thread.isOutdated { Chip(text: "Outdated") }
+                Text("@\(thread.author)").scaled(.caption).foregroundStyle(.secondary).lineLimit(1)
+                if thread.comments > 1 { Text("\(thread.comments) comments").scaled(.caption).foregroundStyle(.secondary) }
+                Spacer(minLength: 4)
+                Button { model.open(thread.url) } label: { Image(systemName: "arrow.up.right.square") }
+                    .buttonStyle(.borderless).handCursor()
+                    .help("Open the thread on GitHub")
+                    .accessibilityLabel("Open the thread on GitHub")
+            }
+            DisclosureGroup(isExpanded: $expanded) {
+                MarkdownText(text: thread.body)
+            } label: {
+                Text(expanded ? AttributedString("First comment") : Markdown.inline(thread.preview)).scaled(.caption).lineLimit(2)
+            }
+            TextField("What I want done with it", text: Binding(
+                get: { model.threadNotes[thread.id] ?? "" }, set: { model.threadNotes[thread.id] = $0 }
+            ), axis: .vertical)
+            .textFieldStyle(.roundedBorder)
+            .lineLimit(1...4)
+        }
+        .padding(.vertical, 4)
+    }
+}
+
+/// What /pre-pr reported on the PR — its tier line, Testing, Risk and How to revert — and where the review gate has the
+/// approvals; or that it has not reported.
+struct EvidenceSection: View {
+    var pr: PullRequest
+
+    var body: some View {
+        PanelSection("/pre-pr evidence") {
+            if let gate = pr.approvalStatus {
+                LabeledContent("Review gate", value: gate).textSelection(.enabled)
+            }
+            if let body = pr.evidence {
+                let evidence = PrePR.evidence(body)
+                if let tier = evidence.tier { Text(tier).scaled(.body.weight(.medium)).textSelection(.enabled) }
+                ForEach(evidence.sections, id: \.title) { section in
+                    Text(section.title).scaled(.caption.weight(.semibold)).foregroundStyle(.secondary).padding(.top, 4)
+                    MarkdownText(text: section.text)
+                }
+            } else {
+                Text("No /pre-pr evidence comment on this PR.").foregroundStyle(.secondary)
+            }
+        }
+    }
+}
+
 /// The PR's stage in the list, with a mark when its session asks you something or the last press failed.
 struct FlowStageCell: View {
     var pr: PullRequest

@@ -75,7 +75,7 @@ import Testing
         pr.unresolvedThreads = 2
         let repos = [OtherRepo(name: "a", root: "/r/a", ref: "origin/main", fetched: true)]
         let run = ReviewRun(phase: .posted, posted: 1, summary: "S", findings: [DraftThread(path: "a.swift", line: 3, body: "B")])
-        for id in [PromptID.ticketPlan, .session, .selfReview, .review, .reviewHandoff] {
+        for id in [PromptID.ticketPlan, .session, .selfReview, .threadNotes, .review, .reviewHandoff] {
             var config = DeskConfig()
             config.prompts[id.rawValue] = (id.placeholders.map { "{\($0.name)}" } + id.conditions.map { "{#\($0.name)}C{/\($0.name)}" })
                 .joined(separator: " ")
@@ -83,6 +83,7 @@ import Testing
             case .ticketPlan: DeskService.ticketPrompt(for: ticket, note: "N", config: config)
             case .review: ReviewCommand.prompt(pr, otherRepos: repos, config: config)
             case .selfReview: DeskService.flowPrompt(.selfReview, pr: pr, worktree: "/w", resultFile: "/f", config: config)
+            case .threadNotes: DeskService.flowPrompt(.threadNotes, pr: pr, worktree: "/w", resultFile: "/f", threads: "1. T", config: config)
             case .reviewHandoff: DeskService.reviewHandoffPrompt(for: pr, run: run, config: config)
             default: DeskService.sessionPrompt(for: pr, worktree: "/w", config: config)
             }

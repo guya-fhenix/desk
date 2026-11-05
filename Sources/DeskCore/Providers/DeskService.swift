@@ -237,14 +237,34 @@ public actor DeskService {
     }
 
     /// The text of one flow instruction for this PR. `worktree` is where its branch is checked out, if anywhere.
+    /// `threads` is the list Apply sends, from `threadList`.
     public static func flowPrompt(
-        _ id: PromptID, pr: PullRequest, worktree: String?, resultFile: String, config: DeskConfig = DeskConfig()
+        _ id: PromptID, pr: PullRequest, worktree: String?, resultFile: String, threads: String = "",
+        config: DeskConfig = DeskConfig()
     ) -> String {
         let values = [
             "repo": pr.repo, "number": String(pr.number), "title": pr.title, "url": pr.url, "baseRef": pr.baseRef,
-            "headRef": pr.headRef, "worktree": worktree ?? "", "resultFile": resultFile,
+            "headRef": pr.headRef, "worktree": worktree ?? "", "resultFile": resultFile, "threads": threads,
         ]
         return config.prompt(id, values, when: ["worktree": worktree != nil])
+    }
+
+    /// The threads you wrote a note on, as Apply lists them: each one's link and place, who started it and so whether it
+    /// is resolved once answered, a quote of its first comment, and your note.
+    public static func threadList(_ threads: [ReviewThread], notes: [String: String]) -> String {
+        threads.enumerated().map { index, thread in
+            let quote = thread.preview.count > 200 ? thread.preview.prefix(199) + "…" : thread.preview
+            let starter = thread.source == .people
+                ? "started by @\(thread.author): leave it unresolved"
+                : "started by \(thread.source.title): resolve it once you have replied"
+            let note = (notes[thread.id] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            return """
+                \(index + 1). \(thread.url) — \(thread.place) (\(starter))
+                   It says: \(quote)
+                   My note: \(note.replacingOccurrences(of: "\n", with: "\n   "))
+                """
+        }
+        .joined(separator: "\n")
     }
 
     public func markReady(_ pr: PullRequest) async throws {

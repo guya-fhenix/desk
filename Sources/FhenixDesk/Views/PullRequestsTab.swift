@@ -298,8 +298,8 @@ private struct TicketMark: View {
 
 /// A pull request's own page, opened from its row. At the top what it is, its status line — checks, review and merge
 /// state, its Jira ticket, and its session or the press that starts one — and, top right, any warning about its review
-/// skill; the description in the wide column; beside it, as PR Cockpit lays it out, a card each for the actions, the
-/// flow, the reviewers, the threads, the facts and the checks.
+/// skill; in the wide column its open threads, /pre-pr's evidence and the description; beside it, as PR Cockpit lays it
+/// out, a card each for the actions, the flow, the reviewers, the facts and the checks.
 struct PullRequestPage: View {
     var pr: PullRequest
     var model: AppModel
@@ -329,6 +329,11 @@ struct PullRequestPage: View {
                 Text(error).scaled(.caption).foregroundStyle(.red).textSelection(.enabled)
             }
         } main: {
+            // What waits on you first: the threads to answer, then what /pre-pr found.
+            if pr.state == .open {
+                ThreadsSection(pr: pr, model: model)
+                EvidenceSection(pr: pr)
+            }
             // Yours to rewrite while it is open; a review's description is the author's, so the Reviews page only reads it.
             EditableDescription(
                 text: pr.body, editable: pr.state == .open,
@@ -348,14 +353,6 @@ struct PullRequestPage: View {
                 ActionsCard(pr: pr, model: model)
                 if let session = model.state.session(for: pr) { FlowSection(pr: pr, session: session, model: model).sideCard() }
                 ReviewersCard(pr: pr)
-                SideCard(title: "Threads") {
-                    if pr.unresolvedThreads == 0 {
-                        Text("None open").foregroundStyle(.secondary)
-                    } else {
-                        Text("\(pr.unresolvedThreads) unresolved").foregroundStyle(.orange)
-                        Button("Read them on GitHub") { model.open(pr.url) }.buttonStyle(.link).handCursor()
-                    }
-                }
                 DetailsCard(pr: pr)
                 if parent != nil || !children.isEmpty {
                     SideCard(title: "Stack") {

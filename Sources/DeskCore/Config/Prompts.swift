@@ -4,7 +4,7 @@ import Foundation
 /// takes as `{name}`, and wraps what only belongs on some tickets or PRs in `{#name}…{/name}`, with an
 /// optional `{else}` for the text that goes in when the condition does not hold.
 public enum PromptID: String, CaseIterable, Sendable, Identifiable {
-    case ticketPlan, session, selfReview, review, reviewSystem, reviewReformat, reviewHandoff
+    case ticketPlan, session, selfReview, threadNotes, review, reviewSystem, reviewReformat, reviewHandoff
 
     public var id: String { rawValue }
 
@@ -13,6 +13,7 @@ public enum PromptID: String, CaseIterable, Sendable, Identifiable {
         case .ticketPlan: "Start a ticket"
         case .session: "PR session"
         case .selfReview: "Flow › Self-review"
+        case .threadNotes: "Flow › Apply thread notes"
         case .review: "Review"
         case .reviewSystem: "Review › System prompt"
         case .reviewReformat: "Review › Reformat pass"
@@ -26,6 +27,7 @@ public enum PromptID: String, CaseIterable, Sendable, Identifiable {
         case .ticketPlan: "Sent with `claude --bg` when you press Start on a ticket."
         case .session: "Sent with `claude --bg` when you start a background session on a PR."
         case .selfReview: "Sent to the PR's session when you approve its draft. It must start with /goal; writing the JSON described here to {resultFile} is its last step. The stage follows the session and the PR: Self-review while the session runs, Fixes to check once /pre-pr's evidence is on the PR."
+        case .threadNotes: "Sent to the PR's session when you press Apply under its open threads, with each thread you wrote a note on. Writing the JSON described here to {resultFile} is its last step. The app itself never writes to a thread."
         case .review: "Sent with `claude -p` when you press Review. The app reads the answer as the JSON described here, so keep its field names."
         case .reviewSystem: "Sent as `--append-system-prompt` on every review run."
         case .reviewReformat: "Sent with `claude -p` only when a review answer does not parse; that answer follows on stdin. Keep the JSON shape."
@@ -49,6 +51,11 @@ public enum PromptID: String, CaseIterable, Sendable, Identifiable {
             return pr + [("headRef", "the PR branch"), ("worktree", "the worktree path"), ("threads", "\"3 review threads are\"")]
         case .selfReview:
             return pr + [("headRef", "the PR branch"), ("worktree", "the worktree path"), ("resultFile", "where the session writes its summary")]
+        case .threadNotes:
+            return pr + [
+                ("headRef", "the PR branch"), ("worktree", "the worktree path"), ("resultFile", "where the session writes its summary"),
+                ("threads", "the threads you wrote a note on: link, place, who started it, its first comment and your note"),
+            ]
         case .review:
             return pr + [("author", "the PR author"), ("headSha", "the PR head commit"), ("repos", "one line per other clone")]
         case .reviewSystem, .reviewReformat:
@@ -70,7 +77,7 @@ public enum PromptID: String, CaseIterable, Sendable, Identifiable {
                 ("worktree", "the branch is checked out in a worktree"), ("unresolved", "the PR has unresolved threads"),
                 ("conflict", "the PR conflicts with its base branch"),
             ]
-        case .selfReview: [("worktree", "the branch is checked out in a worktree")]
+        case .selfReview, .threadNotes: [("worktree", "the branch is checked out in a worktree")]
         case .review: [("otherRepos", "there are other clones under the repo roots")]
         case .reviewSystem, .reviewReformat: []
         case .reviewHandoff: [("summary", "the review wrote a summary"), ("findings", "the review placed comments on lines")]
@@ -160,6 +167,28 @@ public enum PromptID: String, CaseIterable, Sendable, Identifiable {
             `rounds` is the number of reviews that ran, and `clean` says whether the last one was clean, as defined \
             above. `severity` is "important" for an Important finding and "nit" for a Nit. List every Important \
             finding from every round, and the Nits you fixed.
+            """
+        // Only the threads you wrote a note on are listed, each saying who started it: a review tool's thread is
+        // resolved once answered, a person's is left for that person. The app writes nothing to GitHub itself.
+        case .threadNotes:
+            """
+            Work on these review threads of pull request {url} ({repo}#{number}, "{title}"), and only these. Each \
+            comes with my note on what I want done with it:
+
+            {threads}
+
+            {#worktree}Its branch {headRef} is checked out in the worktree at {worktree}. Work only there \
+            (EnterWorktree with that path if you are not in it already).{else}Its branch is {headRef}; work on that \
+            branch.{/worktree}
+
+            Make the changes the notes ask for, commit them with a message that says which threads they answer, and \
+            push. Never force-push. Then reply in each listed thread on GitHub with what you did, or why you did not \
+            where my note says to leave it (gh api graphql, addPullRequestReviewThreadReply). Once you have replied, \
+            resolve the threads /pre-pr or CodeRabbit started (resolveReviewThread), and leave the threads a person \
+            started unresolved, for their reviewer. Leave every thread that is not listed here untouched.
+
+            When you are done, write this JSON to {resultFile} and nothing else:
+            {"replied": 3, "resolved": 2, "summary": "what changed, in one plain sentence"}
             """
         // Other clones are read at the branch the app just fetched and never at their checkout, so the review
         // sees current code and not someone's half-done branch; the list comes before the answer format, or it

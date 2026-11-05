@@ -111,18 +111,29 @@ decision. The review team is a setting (GitHub → Flow, `protocol-team` by defa
 page and the ticket's repo menu say whether a repo's sessions can run `reviewing-code` at all — it ships in
 `fhenix-workflow` 0.5.0 — and Approve on a draft stays off where they cannot.
 
+Your PR's page lists its open threads — after the self-review the Important and Nit findings /pre-pr left open,
+then CodeRabbit's and people's — grouped by who started them (/pre-pr by the `<!-- pre-pr:finding -->` marker on
+the first comment, CodeRabbit by its login, people for the rest), Important first, then Nit, then by file and line.
+Each row has its severity, `path:line`, the first comment (open it for the whole of it), a link to the thread on
+GitHub and a field for what you want done with it. Apply sends the session one instruction with every thread you
+wrote a note on: make the changes, commit and push (never force), reply in each of those threads with what it did
+or why not, resolve the ones /pre-pr or CodeRabbit started, and leave people's open for their reviewer. Threads
+without a note are left alone. The notes live in memory only, and go once Apply has sent them or the thread is
+resolved. Beside the threads, the page shows /pre-pr's evidence comment — the tier line, Testing, Risk and How to
+revert — and the review gate's status, or says there is none.
+
 The app talks to the session the only way a background session takes outside input: once it has finished its
 turn, it is stopped and resumed under the same id with the instruction, so the conversation carries on. It never
-sends anything to a session that is working or asking you something — Approve waits for it to be idle — and it
-sends nothing on its own: a conflict, red CI or a review is yours to hand to the session. Each instruction ends
-with the session writing a small result file in its own scratch folder. A PR you did not start from a ticket joins
-the flow at its current stage once you Start a session on it.
+sends anything to a session that is working or asking you something — Approve and Apply wait for it to be idle —
+and it sends nothing on its own: a conflict or red CI is yours to hand to the session. Each instruction ends with
+the session writing a small result file in its own scratch folder. A PR you did not start from a ticket joins the
+flow at its current stage once you Start a session on it.
 
 ## Prompts
 
 Every text the app sends Claude is editable in Settings → Prompts, one text each: starting a ticket, the PR
-session, the flow's self-review, the review, the review's system prompt, its reformat pass and its hand-off to the
-PR's session. `{name}` placeholders are filled
+session, the flow's self-review and its Apply on noted threads, the review, the review's system prompt, its
+reformat pass and its hand-off to the PR's session. `{name}` placeholders are filled
 when the prompt is sent, and `{#name}…{/name}` wraps what only applies sometimes — a ticket description,
 unresolved threads, a conflict, other repos — with `{else}` for the other case. Only edits are stored, in
 `config.json`, so an untouched prompt follows the app's own text; Reset to default removes an edit.
