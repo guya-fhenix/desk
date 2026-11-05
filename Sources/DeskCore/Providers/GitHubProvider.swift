@@ -272,7 +272,7 @@ public enum GitHubQueries {
     /// ponytail: the first 50 comments; read the evidence by REST if a PR ever has more before it.
     public static let mineSearchQuery = searchQuery(threads: """
       reviewThreads(first: 100) { nodes { id isResolved isOutdated path line originalLine
-        comments(first: 1) { totalCount nodes { author { __typename login } body url } } } }
+        comments(first: 1) { totalCount nodes { author { __typename login } body url diffHunk } } } }
       comments(first: 50) { nodes { author { __typename login } body } }
       """)
 
@@ -447,7 +447,7 @@ public enum GitHubDecoding {
                 return ReviewThread(
                     id: id, path: path, line: thread.line ?? thread.originalLine, isOutdated: thread.isOutdated ?? false,
                     url: first.url ?? node.url, author: first.author?.name ?? "ghost", body: body,
-                    comments: thread.comments?.totalCount ?? 1
+                    comments: thread.comments?.totalCount ?? 1, diffHunk: first.diffHunk
                 )
             },
             // The author's, as the review gate reads it: anyone can paste the marker into a comment.
@@ -657,6 +657,7 @@ public enum GitHubDecoding {
         var author: Login?
         var body: String?
         var url: String?
+        var diffHunk: String?
     }
 
     private struct Commits: Decodable { var nodes: [CommitNode] }

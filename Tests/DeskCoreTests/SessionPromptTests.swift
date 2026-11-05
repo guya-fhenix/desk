@@ -141,7 +141,7 @@ import Testing
         let list = DeskService.threadList(threads, notes: ["T1": "  Fix it\nwith a guard ", "T2": "Leave it: out of scope"])
         #expect(list.contains("""
             1. https://github.com/o/r/pull/11#discussion_r1 — src/a.rs:12 (started by /pre-pr: resolve it once you have replied)
-               It says: **Important** · Unchecked unwrap It panics.
+               It says: Unchecked unwrap
                My note: Fix it
                with a guard
             """))

@@ -32,10 +32,13 @@ public struct ReviewThread: Codable, Sendable, Hashable, Identifiable {
     public var body: String
     /// Every comment in the thread, the first included.
     public var comments: Int
+    /// The diff around the line, as GitHub keeps it with the first comment: its `@@` header, then the hunk down to the
+    /// commented line. Nil on a comment on the whole file.
+    public var diffHunk: String?
 
     public init(
         id: String, path: String, line: Int? = nil, isOutdated: Bool = false, url: String, author: String, body: String,
-        comments: Int = 1
+        comments: Int = 1, diffHunk: String? = nil
     ) {
         self.id = id
         self.path = path
@@ -45,6 +48,7 @@ public struct ReviewThread: Codable, Sendable, Hashable, Identifiable {
         self.author = author
         self.body = body
         self.comments = comments
+        self.diffHunk = diffHunk
     }
 
     public var source: Source {
@@ -57,13 +61,10 @@ public struct ReviewThread: Codable, Sendable, Hashable, Identifiable {
     /// `path:line`, or the path alone.
     public var place: String { line.map { "\(path):\($0)" } ?? path }
 
-    /// The first comment on one line, without its HTML comments: a collapsed row, and the prompt's quote.
+    /// The finding on one line: its title, or its first line of text. A collapsed row, and the prompt's quote.
     public var preview: String {
-        body.replacing(/<!--[\s\S]*?-->/, with: "")
-            .split(whereSeparator: \.isNewline)
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }
-            .joined(separator: " ")
+        let finding = finding
+        return finding.title ?? finding.text.split(whereSeparator: \.isNewline).first.map(String.init) ?? ""
     }
 
     /// The severity a comment leads with, read off the emphasis on its first line: /pre-pr's `**Important**` or `**Nit**`
@@ -144,5 +145,127 @@ public enum PrePR {
             .map { $0.trimmingCharacters(in: CharacterSet(charactersIn: "-* ")) }
             .first { $0.hasPrefix("Tier:") }
         return Evidence(tier: tier, sections: shown)
+    }
+}
+
+// MARK: - What a thread says, and the code it is on
+
+extension ReviewThread {
+    /// The first comment as a finding: its title, where the tool gives one, and the rest as markdown, without the HTML
+    /// and the collapsed boilerplate review tools wrap it in.
+    public struct Finding: Sendable, Hashable {
+        public var title: String?
+        public var text: String
+    }
+
+    public var finding: Finding {
+        var lines = Self.clean(body).split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        func dropLeadingBlanks() { while let first = lines.first, first.trimmingCharacters(in: .whitespaces).isEmpty { lines.removeFirst() } }
+        dropLeadingBlanks()
+        var title: String?
+        switch source {
+        case .prePR:
+            // `**Important** · <rule> · <title>`: the title is the last part.
+            if let first = lines.first, first.hasPrefix("**") {
+                title = Self.unbold(first.components(separatedBy: " · ").last ?? first)
+                lines.removeFirst()
+            }
+        case .codeRabbit:
+            // `**Major** · **Category** · **Effort**`, then the title in bold on a line of its own.
+            if let first = lines.first, first.hasPrefix("**") || first.hasPrefix("_"), first.contains("·") || first.contains("|") {
+                lines.removeFirst()
+                dropLeadingBlanks()
+            }
+            if let first = lines.first?.trimmingCharacters(in: .whitespaces), first.hasPrefix("**"), first.hasSuffix("**"),
+               first.count > 4 {
+                title = Self.unbold(first)
+                lines.removeFirst()
+            }
+        case .people:
+            break
+        }
+        dropLeadingBlanks()
+        return Finding(title: title, text: lines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+
+    private static func unbold(_ text: String) -> String {
+        text.replacingOccurrences(of: "**", with: "").trimmingCharacters(in: .whitespaces)
+    }
+
+    /// Summaries of `<details>` blocks a reader has no use for: the tools' own working and their prompts for agents.
+    private static let boilerplate = [
+        "prompt for ai agents", "supported by static analysis", "analysis chain", "script executed", "committable suggestion",
+        "review details", "learnings", "additional comments", "tools", "fingerprint",
+    ]
+
+    /// A comment's body without HTML comments, pictures and images, without the boilerplate `<details>` blocks, and with
+    /// the others opened into a bold heading and their content.
+    public static func clean(_ body: String) -> String {
+        var text = body.replacingOccurrences(of: "\r\n", with: "\n").replacing(/<!--[\s\S]*?-->/, with: "")
+        // Innermost first: the last `<details` has no other one inside it.
+        while let open = text.range(of: "<details", options: .backwards),
+              let close = text.range(of: "</details>", range: open.upperBound..<text.endIndex) {
+            let block = String(text[open.lowerBound..<close.upperBound])
+            let summary = block.firstMatch(of: /<summary>([\s\S]*?)<\/summary>/).map { String($0.output.1) } ?? ""
+            let plainSummary = summary.replacing(/<[^>]*>/, with: "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let replacement: String
+            if boilerplate.contains(where: { plainSummary.lowercased().contains($0) }) {
+                replacement = ""
+            } else {
+                let inner = block
+                    .replacing(/^<details[^>]*>/, with: "")
+                    .replacing(/<\/details>$/, with: "")
+                    .replacing(/<summary>[\s\S]*?<\/summary>/, with: "")
+                replacement = (plainSummary.isEmpty ? "" : "\n**\(plainSummary)**\n") + inner + "\n"
+            }
+            text.replaceSubrange(open.lowerBound..<close.upperBound, with: replacement)
+        }
+        text = text
+            // A picture sits inside the bold, before its word: `**<picture>…</picture> Minor**`. It goes with the spaces
+            // after it, and never a line break.
+            .replacing(/<picture>[\s\S]*?<\/picture>[ \t]*/, with: "")
+            .replacing(/!\[[^\]]*\]\([^)]*\)/, with: "")
+            .replacing(/<\/?(?:img|source|sub|sup|dl|dd|dt|br|p|div|span|blockquote)\b[^>]*>[ \t]*/.ignoresCase(), with: "")
+            .replacing(/\n{3,}/, with: "\n\n")
+        return text.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// The last lines of the diff hunk, down to the commented line, each with its number in the new file.
+    public func codeLines(last count: Int = 6) -> [HunkLine] {
+        guard let diffHunk else { return [] }
+        return Array(HunkLine.parse(diffHunk).suffix(count))
+    }
+}
+
+/// One line of a diff hunk, as a thread shows the code it is on.
+public struct HunkLine: Sendable, Hashable {
+    public enum Kind: Sendable, Hashable { case context, added, removed }
+    public var kind: Kind
+    /// Its number in the new file; nil for a removed line.
+    public var number: Int?
+    public var text: String
+
+    /// The lines after a `@@ -a,b +c,d @@` header, numbered from `c`.
+    public static func parse(_ hunk: String) -> [HunkLine] {
+        var lines: [HunkLine] = []
+        var next = 1
+        for raw in hunk.split(separator: "\n", omittingEmptySubsequences: false) {
+            if raw.hasPrefix("@@") {
+                if let match = raw.firstMatch(of: /\+(\d+)/), let start = Int(match.output.1) { next = start }
+                continue
+            }
+            let text = String(raw.dropFirst())
+            switch raw.first {
+            case "+":
+                lines.append(HunkLine(kind: .added, number: next, text: text)); next += 1
+            case "-":
+                lines.append(HunkLine(kind: .removed, number: nil, text: text))
+            case "\\":
+                continue // "\ No newline at end of file"
+            default:
+                lines.append(HunkLine(kind: .context, number: next, text: text)); next += 1
+            }
+        }
+        return lines
     }
 }

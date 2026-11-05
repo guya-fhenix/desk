@@ -49,9 +49,10 @@ import Testing
         #expect(threads.ordered.map(\.id) == ["preBig1", "preBig2", "preNit", "crBig", "crNit", "crNone", "people"])
     }
 
-    @Test func previewDropsTheMarkerAndJoinsTheLines() {
+    /// A collapsed row and the Apply prompt quote the finding's title, without the marker and the severity.
+    @Test func previewIsTheFindingsTitle() {
         let finding = thread("1", body: "<!-- pre-pr:finding -->\n**Important** · Unchecked unwrap\n\nIt panics.\n")
-        #expect(finding.preview == "**Important** · Unchecked unwrap It panics.")
+        #expect(finding.preview == "Unchecked unwrap")
         #expect(finding.place == "src/a.rs:1")
         #expect(thread("2", line: nil, body: "x").place == "src/a.rs")
     }

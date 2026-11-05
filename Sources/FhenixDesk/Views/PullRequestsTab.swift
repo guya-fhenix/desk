@@ -307,6 +307,18 @@ struct PullRequestPage: View {
     var back = "Pull Requests"
     var onBack: () -> Void
 
+    /// Yours to rewrite while it is open; a review's description is the author's, so the Reviews page only reads it.
+    private var description: some View {
+        EditableDescription(
+            text: pr.body, editable: pr.state == .open,
+            editHelp: "Edit the description; saving writes it to GitHub", lockedHelp: "It has ended: edit it on GitHub"
+        ) {
+            await model.editDescription(pr, body: $0)
+        } rendered: {
+            PullRequestDescription(pr: pr)
+        }
+    }
+
     var body: some View {
         DetailPage(back: back, onBack: onBack) {
             PageHeadline(pr: pr, model: model, gitHub: pr.url, editable: pr.state == .open)
@@ -329,19 +341,11 @@ struct PullRequestPage: View {
                 Text(error).scaled(.caption).foregroundStyle(.red).textSelection(.enabled)
             }
         } main: {
-            // What waits on you first: the threads to answer, then what /pre-pr found.
+            // A tab at a time: the threads to answer, what /pre-pr found, and the description. An ended PR has only the last.
             if pr.state == .open {
-                ThreadsSection(pr: pr, model: model)
-                EvidenceSection(pr: pr)
-            }
-            // Yours to rewrite while it is open; a review's description is the author's, so the Reviews page only reads it.
-            EditableDescription(
-                text: pr.body, editable: pr.state == .open,
-                editHelp: "Edit the description; saving writes it to GitHub", lockedHelp: "It has ended: edit it on GitHub"
-            ) {
-                await model.editDescription(pr, body: $0)
-            } rendered: {
-                PullRequestDescription(pr: pr)
+                PullRequestTabs(pr: pr, model: model) { description }.id(pr.url)
+            } else {
+                description
             }
         } side: {
             // An ended PR has nothing left to act on or check: who reviewed it and its facts. How it ended is on the

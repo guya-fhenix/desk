@@ -116,7 +116,7 @@ struct ThreadsSection: View {
 
     var body: some View {
         let threads = pr.threads.ordered
-        PanelSection("Open threads") {
+        PanelSection {
             if threads.isEmpty {
                 Text("None open.").foregroundStyle(.secondary)
             } else {
@@ -149,31 +149,42 @@ struct ThreadsSection: View {
     }
 }
 
-/// One open thread: its severity, where it sits, who started it, its first comment a line or two until opened, the way
-/// to it on GitHub, and your note.
+/// One open thread as a card: its severity, where it sits and who started it, the code it is on, the finding — its title,
+/// and its text a paragraph at a time — the way to it on GitHub, and your note.
 private struct ThreadRow: View {
     var thread: ReviewThread
     var model: AppModel
     @State private var expanded = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        let finding = thread.finding
+        let code = thread.codeLines()
+        let paragraphs = finding.text.components(separatedBy: "\n\n").filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+        VStack(alignment: .leading, spacing: Theme.Space.s) {
             HStack(spacing: 6) {
                 if let severity = thread.severity { Chip(text: severity.title, color: severity == .important ? .red : .yellow) }
                 Text(thread.place).scaled(.caption.monospaced()).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
                 if thread.isOutdated { Chip(text: "Outdated") }
+                Spacer(minLength: 4)
                 Text("@\(thread.author)").scaled(.caption).foregroundStyle(.secondary).lineLimit(1)
                 if thread.comments > 1 { Text("\(thread.comments) comments").scaled(.caption).foregroundStyle(.secondary) }
-                Spacer(minLength: 4)
                 Button { model.open(thread.url) } label: { Image(systemName: "arrow.up.right.square") }
                     .buttonStyle(.borderless).handCursor()
                     .help("Open the thread on GitHub")
                     .accessibilityLabel("Open the thread on GitHub")
             }
-            DisclosureGroup(isExpanded: $expanded) {
-                MarkdownText(text: thread.body)
-            } label: {
-                Text(expanded ? AttributedString("First comment") : Markdown.inline(thread.preview)).scaled(.caption).lineLimit(2)
+            if !code.isEmpty { CodeSnippet(lines: code) }
+            if let title = finding.title {
+                Text(Markdown.inline(title)).scaled(.body.weight(.semibold)).textSelection(.enabled)
+            }
+            if expanded {
+                MarkdownText(text: finding.text)
+            } else if let first = paragraphs.first {
+                Text(Markdown.inline(first)).scaled(.callout).foregroundStyle(.secondary).lineLimit(4).textSelection(.enabled)
+            }
+            if paragraphs.count > 1 || (paragraphs.first?.count ?? 0) > 320 {
+                Button(expanded ? "Show less" : "Show more") { expanded.toggle() }
+                    .buttonStyle(.link).scaled(.caption)
             }
             TextField("What I want done with it", text: Binding(
                 get: { model.threadNotes[thread.id] ?? "" }, set: { model.threadNotes[thread.id] = $0 }
@@ -181,7 +192,77 @@ private struct ThreadRow: View {
             .textFieldStyle(.roundedBorder)
             .lineLimit(1...4)
         }
+        .padding(Theme.Space.m)
+        .background(Color.primary.opacity(0.03), in: RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Theme.controlBorder))
+    }
+}
+
+/// The lines of the diff a thread is on, numbered as in the new file: added ones green, removed ones red, and the
+/// commented line, the last, marked.
+private struct CodeSnippet: View {
+    var lines: [HunkLine]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(lines.indices, id: \.self) { index in
+                let line = lines[index]
+                let commented = index == lines.count - 1
+                HStack(alignment: .top, spacing: Theme.Space.s) {
+                    Text(line.number.map(String.init) ?? "").foregroundStyle(.secondary).frame(width: 40, alignment: .trailing)
+                    Text(line.kind == .added ? "+" : line.kind == .removed ? "−" : " ").foregroundStyle(.secondary)
+                    Text(line.text.isEmpty ? " " : line.text).lineLimit(1).truncationMode(.tail)
+                    Spacer(minLength: 0)
+                }
+                .scaled(.caption.monospaced())
+                .padding(.horizontal, 6)
+                .padding(.vertical, 1)
+                .background(background(line.kind, commented: commented))
+            }
+        }
         .padding(.vertical, 4)
+        .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 6))
+        .textSelection(.enabled)
+        .accessibilityElement(children: .combine)
+    }
+
+    private func background(_ kind: HunkLine.Kind, commented: Bool) -> Color {
+        if commented { return Theme.accent.opacity(0.18) }
+        switch kind {
+        case .added: return Color.green.opacity(0.12)
+        case .removed: return Color.red.opacity(0.12)
+        case .context: return .clear
+        }
+    }
+}
+
+/// The PR page's main column, a tab at a time: its open threads, what /pre-pr reported, and its description. It opens on
+/// the threads while any are open.
+struct PullRequestTabs<Description: View>: View {
+    enum Tab: Hashable { case threads, evidence, description }
+
+    var pr: PullRequest
+    var model: AppModel
+    @ViewBuilder var description: Description
+    @State private var chosen: Tab?
+
+    var body: some View {
+        let tab = chosen ?? (pr.threads.isEmpty ? .description : .threads)
+        VStack(alignment: .leading, spacing: Theme.Space.m) {
+            PillTabs(
+                options: [
+                    .init(value: .threads, title: "Threads", count: pr.threads.count),
+                    .init(value: .evidence, title: "Evidence", count: nil),
+                    .init(value: .description, title: "Description", count: nil),
+                ],
+                selection: Binding(get: { tab }, set: { chosen = $0 })
+            )
+            switch tab {
+            case .threads: ThreadsSection(pr: pr, model: model)
+            case .evidence: EvidenceSection(pr: pr)
+            case .description: description
+            }
+        }
     }
 }
 
@@ -191,7 +272,7 @@ struct EvidenceSection: View {
     var pr: PullRequest
 
     var body: some View {
-        PanelSection("/pre-pr evidence") {
+        PanelSection {
             if let gate = pr.approvalStatus {
                 LabeledContent("Review gate", value: gate).textSelection(.enabled)
             }
