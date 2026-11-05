@@ -6,10 +6,12 @@ import Testing
 @Suite struct FlowStageTests {
     private static let evidence = "<!-- pre-pr:start -->\n## Testing\n- ok"
 
-    private func session(_ state: String, prs: [PullRequest] = [], ticket: String? = nil, id: String = "aaaaaaaa") -> ClaudeJob {
+    private func session(
+        _ state: String, prs: [PullRequest] = [], ticket: String? = nil, id: String = "aaaaaaaa", startedOn: [PullRequest] = []
+    ) -> ClaudeJob {
         ClaudeJob(
             id: id, name: "s", state: state, cwd: "/r/cofhe", prKeys: Set(prs.compactMap { ClaudeJobs.prKey($0.url) }),
-            updatedAt: Fixtures.t0, sessionId: "sid", ticketKey: ticket
+            updatedAt: Fixtures.t0, sessionId: "sid", ticketKey: ticket, startedOn: Set(startedOn.compactMap { ClaudeJobs.prKey($0.url) })
         )
     }
 
@@ -52,6 +54,21 @@ import Testing
     }
 
     /// A PR is in the flow while a session works on it; a ticket's session is Working until it opens its PR.
+    /// A busy session that only touched a PR, as one long session touches many, does not make it Fixing: only a session
+    /// started on the PR, or on its ticket, carries it.
+    @Test func onlyASessionStartedOnThePullRequestCarriesIt() {
+        var state = DeskState(config: DeskConfig())
+        let pr = Fixtures.pr(number: 7, head: "x")
+        state.github = GitHubSnapshot(login: "me", mine: [pr], reviewRequests: [], mergedRecent: [], fetchedAt: Fixtures.t0)
+        state.recompute(now: Fixtures.t0)
+        state.claudeJobs = [session("working", prs: [pr], id: "cccccccc")]
+        #expect(state.session(for: pr) == nil)
+        #expect(state.stage(for: pr) == nil)
+        state.claudeJobs = [session("working", prs: [pr], id: "cccccccc"), session("done", prs: [pr], startedOn: [pr])]
+        #expect(state.session(for: pr)?.id == "aaaaaaaa")
+        #expect(state.stage(for: pr) == .inReview)
+    }
+
     @Test func sessionsPutPullRequestsAndTicketsInTheFlow() {
         var config = DeskConfig()
         config.jiraProjectKeys = ["PRO"]
@@ -66,7 +83,8 @@ import Testing
         let opened = session("done", prs: [other, mine], ticket: "PRO-1")
         state.claudeJobs = [planning, opened]
         #expect(state.stage(for: mine) == .draft)
-        #expect(state.stage(for: other) == .inReview)
+        // It also touched another PR, which names no ticket: that one is not its flow.
+        #expect(state.stage(for: other) == nil)
         #expect(state.sessions(forTicket: "PRO-9").map(\.id) == ["bbbbbbbb"])
         #expect(state.stage(of: planning) == .working)
         // It touched two PRs of yours; the one naming its ticket is the one it opened.

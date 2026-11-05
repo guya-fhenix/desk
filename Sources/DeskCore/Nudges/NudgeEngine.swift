@@ -25,11 +25,13 @@ public struct NudgeInput: Sendable {
     public var readyReviews: [ReadyReview]
     /// The background sessions, newest first: one on a PR of yours puts it in the flow.
     public var sessions: [ClaudeJob]
+    /// The Jira keys each PR of yours names, by PR url: a ticket's session carries its PRs.
+    public var ticketKeys: [String: [String]]
 
     public init(
         now: Date, login: String, config: DeskConfig, mine: [PullRequest], reviewRequests: [PullRequest],
         openHeadsByRepo: [String: Set<String>], defaultBranches: [String: String], readyReviews: [ReadyReview] = [],
-        sessions: [ClaudeJob] = []
+        sessions: [ClaudeJob] = [], ticketKeys: [String: [String]] = [:]
     ) {
         self.now = now
         self.login = login
@@ -40,12 +42,13 @@ public struct NudgeInput: Sendable {
         self.defaultBranches = defaultBranches
         self.readyReviews = readyReviews
         self.sessions = sessions
+        self.ticketKeys = ticketKeys
     }
 
     /// The session carrying this PR through the flow, as `DeskState.session(for:)` picks it.
     func session(for pr: PullRequest) -> ClaudeJob? {
         guard let key = ClaudeJobs.prKey(pr.url) else { return nil }
-        return sessions.first { $0.prKeys.contains(key) }
+        return sessions.first { $0.carries(key, tickets: ticketKeys[pr.url] ?? []) }
     }
 }
 

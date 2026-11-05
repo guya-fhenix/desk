@@ -22,10 +22,12 @@ public struct ClaudeJob: Sendable, Hashable, Identifiable {
     public var sessionId: String?
     /// The Jira key the prompt it started from names first: a session started on a ticket, before it has a PR.
     public var ticketKey: String?
+    /// The PRs the prompt it started from names: a session the app started on a PR.
+    public var startedOn: Set<String>
 
     public init(
         id: String, name: String, state: String, cwd: String, prKeys: Set<String>, updatedAt: Date, sessionId: String? = nil,
-        ticketKey: String? = nil
+        ticketKey: String? = nil, startedOn: Set<String> = []
     ) {
         self.id = id
         self.name = name
@@ -35,6 +37,13 @@ public struct ClaudeJob: Sendable, Hashable, Identifiable {
         self.updatedAt = updatedAt
         self.sessionId = sessionId
         self.ticketKey = ticketKey
+        self.startedOn = startedOn
+    }
+
+    /// Whether this session carries the PR through the flow: it was started on the PR, or on its ticket. A session that
+    /// only touched the PR on the way, as one long session touches many, does not.
+    public func carries(_ prKey: String, tickets: [String]) -> Bool {
+        startedOn.contains(prKey) || ticketKey.map(tickets.contains) == true
     }
 
     public var isRunning: Bool { state == "working" }
@@ -65,7 +74,8 @@ public enum ClaudeJobs {
             guard !keys.isEmpty || ticketKey != nil else { return nil }
             return ClaudeJob(
                 id: id, name: state.label(fallback: id), state: state.state ?? "unknown", cwd: state.cwd ?? "",
-                prKeys: keys, updatedAt: state.updatedAt ?? .distantPast, sessionId: state.sessionId, ticketKey: ticketKey
+                prKeys: keys, updatedAt: state.updatedAt ?? .distantPast, sessionId: state.sessionId, ticketKey: ticketKey,
+                startedOn: state.intent.map(ClaudeJobs.prKeys(in:)) ?? []
             )
         }
         .sorted { $0.updatedAt > $1.updatedAt }

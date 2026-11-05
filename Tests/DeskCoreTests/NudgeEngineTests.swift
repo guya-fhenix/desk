@@ -17,7 +17,10 @@ import Testing
     @Test func aFlowSaysWhatWaitsOnYou() {
         let pr = Fixtures.pr(number: 3, head: "c", review: .approved, merge: .clean)
         func session(_ state: String) -> ClaudeJob {
-            ClaudeJob(id: "aaaaaaaa", name: "s", state: state, cwd: "/r/cofhe", prKeys: [ClaudeJobs.prKey(pr.url)!], updatedAt: Fixtures.t0)
+            ClaudeJob(
+                id: "aaaaaaaa", name: "s", state: state, cwd: "/r/cofhe", prKeys: [ClaudeJobs.prKey(pr.url)!], updatedAt: Fixtures.t0,
+                startedOn: [ClaudeJobs.prKey(pr.url)!]
+            )
         }
         var withFlow = input(mine: [pr])
         withFlow.sessions = [session("done")]

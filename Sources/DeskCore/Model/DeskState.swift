@@ -199,7 +199,7 @@ public struct DeskState: Sendable {
         nudges = NudgeEngine.nudges(NudgeInput(
             now: now, login: login, config: config, mine: mine, reviewRequests: reviewRequests,
             openHeadsByRepo: Linker.openHeadsByRepo(openAll), defaultBranches: defaultBranches, readyReviews: readyReviews,
-            sessions: claudeJobs
+            sessions: claudeJobs, ticketKeys: ticketKeys
         ))
     }
 
@@ -220,8 +220,12 @@ public struct DeskState: Sendable {
         return claudeJobs.filter { $0.prKeys.contains(key) }
     }
 
-    /// The session that carries this PR through the flow: the newest that worked on it. A PR with one is in the flow.
-    public func session(for pr: PullRequest) -> ClaudeJob? { claudeJobs(for: pr).first }
+    /// The session that carries this PR through the flow: the newest started on it or on its ticket. A PR with one is
+    /// in the flow.
+    public func session(for pr: PullRequest) -> ClaudeJob? {
+        guard let key = ClaudeJobs.prKey(pr.url) else { return nil }
+        return claudeJobs.first { $0.carries(key, tickets: ticketKeys[pr.url] ?? []) }
+    }
 
     /// Where this PR of yours stands in the flow; nil while no session works on it.
     public func stage(for pr: PullRequest) -> FlowStage? { session(for: pr).map { FlowStage.of(pr, session: $0) } }
