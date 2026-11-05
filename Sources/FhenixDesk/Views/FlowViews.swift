@@ -41,7 +41,7 @@ struct FlowSection: View {
         switch stage {
         case .draft:
             let skill = model.state.reviewSkill(for: pr)
-            Text("Approve to start the self-review: one /pre-pr --fix run where the repo has the review flow, one reviewing-code pass elsewhere. The PR stays a draft.")
+            Text("Approve to start the self-review: one /pre-pr run where the repo has the review flow, one reviewing-code pass elsewhere. It changes no code: its findings come back as threads with suggested fixes, for your notes and Apply.")
                 .scaled(.caption).foregroundStyle(.secondary)
             if let skill, !skill.isReady { ReviewSkillMark(skill: skill, showsText: true) }
             HStack {

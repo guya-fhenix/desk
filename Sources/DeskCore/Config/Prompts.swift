@@ -28,7 +28,7 @@ public enum PromptID: String, CaseIterable, Sendable, Identifiable {
         switch self {
         case .ticketPlan: "Sent with `claude --bg` when you press Start on a ticket."
         case .session: "Sent with `claude --bg` when you start a background session on a PR."
-        case .selfReview: "Sent to the PR's session when you approve its draft. It runs the review once; writing the JSON described here to {resultFile} is its last step. The session shows as working while it runs; the PR is Self-reviewed once /pre-pr's evidence is on it."
+        case .selfReview: "Sent to the PR's session when you approve its draft. It reviews once and changes no code: the findings come back as threads with suggested fixes, for you to note and Apply. Add --fix to its /pre-pr command to have it fix them itself. Writing the JSON described here to {resultFile} is its last step. The session shows as working while it runs; the PR is Self-reviewed once /pre-pr's evidence is on it."
         case .threadNotes: "Sent to the PR's session when you press Apply under its open threads, with each thread you wrote a note on. Writing the JSON described here to {resultFile} is its last step. The app itself never writes to a thread."
         case .fixConflict: "Sent to the PR's session when you press Fix it on a PR that conflicts with its base branch. Writing the JSON described here to {resultFile} is its last step. Nothing is sent on its own."
         case .fixChecks: "Sent to the PR's session when you press Fix it on a PR whose CI failed. Writing the JSON described here to {resultFile} is its last step. Nothing is sent on its own."
@@ -137,11 +137,14 @@ public enum PromptID: String, CaseIterable, Sendable, Identifiable {
             {#conflict}It conflicts with {baseRef}. Work out which files conflict and propose how to resolve each \
             one, but leave the branch as it is until I say so.{/conflict}
             """
-        // One run: /pre-pr where the repo adopted the review flow, its own fix loop being the only loop, and one
-        // reviewing-code pass elsewhere. The result file comes last because writing it is the last thing to do.
+        // One run, and no code changed: the findings come back as threads with a suggested fix, for you to note what
+        // you want done and Apply. /pre-pr where the repo adopted the review flow; elsewhere reviewing-code, whose
+        // findings are posted the same way so they show among the PR's threads. Add --fix to /pre-pr below to have it
+        // fix them itself. The result file comes last because writing it is the last thing to do.
         case .selfReview:
             """
-            Review and fix pull request {url} ({repo}#{number}, "{title}") once, then write the summary file below.
+            Review pull request {url} ({repo}#{number}, "{title}") once, then write the summary file below. Change no \
+            code: the findings go on the pull request as review threads, each with a suggested fix.
 
             {#worktree}Its branch {headRef} is checked out in the worktree at {worktree}. Work only there \
             (EnterWorktree with that path if you are not in it already).{else}Its branch is {headRef}; work on that \
@@ -150,25 +153,25 @@ public enum PromptID: String, CaseIterable, Sendable, Identifiable {
             How it reviews depends on whether the checkout has adopted the review flow: `REVIEW.md` and \
             `.github/review/tier.sh` at its root.
 
-            If it has: run `claude -p "/fhenix-workflow:pre-pr --fix {number}" --permission-mode auto \
-            --output-format text` once, from that checkout, then read its output. /pre-pr sets \
-            disable-model-invocation, so it runs as a typed command in that headless session, not as a skill you \
-            invoke. It runs the checks and the reviews, commits and pushes its fixes, re-reviews every commit it adds, \
-            posts each open finding as a review thread on its line, and posts the evidence as a pull request comment. \
-            Do not run it again, whatever it reports.
+            If it has: run `claude -p "/fhenix-workflow:pre-pr {number}" --permission-mode auto --output-format text` \
+            once, from that checkout, then read its output. /pre-pr sets disable-model-invocation, so it runs as a \
+            typed command in that headless session, not as a skill you invoke. It runs the checks and the reviews, \
+            posts each finding as a review thread on its line with a suggested fix, and posts the evidence as a pull \
+            request comment. Do not run it again, whatever it reports.
 
-            If it has not: run the fhenix-workflow:reviewing-code skill on the pull request once, fix every Important \
-            finding it reports and the Nits whose fix is a line or two, commit the fixes with a message that says what \
-            the review found, and push.
+            If it has not: run the fhenix-workflow:reviewing-code skill on the pull request once. Post its Important and \
+            Nit findings in one review with event COMMENT (gh api repos/{repo}/pulls/{number}/reviews), one comment on \
+            each finding's line, each starting with the line `<!-- pre-pr:finding -->`, then `**Important** · <title>` \
+            or `**Nit** · <title>`, then why it matters in one sentence and `**Fix:**` with the one fix you recommend. \
+            Put Pre-existing findings in the review's body.
 
-            Either way, keep the pull request a draft: never run `gh pr ready`.
+            Either way, change no code and keep the pull request a draft: never run `gh pr ready`.
 
             When you are done, write this JSON to {resultFile} and nothing else:
             {"clean": true, "findings": [{"severity": "important", "file": "src/a.rs", "line": 42, \
-            "problem": "what was wrong, in one plain sentence", "fix": "what you changed, in one plain sentence, or \
-            why you left it", "fixed": true}]}
+            "problem": "what is wrong, in one plain sentence", "fix": "the fix you suggested, in one plain sentence"}]}
             `clean` says whether the review reported no Important finding. `severity` is "important" for an \
-            Important finding and "nit" for a Nit. List every Important finding, and the Nits you fixed.
+            Important finding and "nit" for a Nit. List every finding you posted.
             """
         // Only the threads you wrote a note on are listed, each saying who started it: a review tool's thread is
         // resolved once answered, a person's is left for that person. The app writes nothing to GitHub itself.
