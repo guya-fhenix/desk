@@ -228,7 +228,7 @@ public struct DeskState: Sendable {
     }
 
     /// Where this PR of yours stands in the flow; nil while no session works on it.
-    public func stage(for pr: PullRequest) -> FlowStage? { session(for: pr).map { FlowStage.of(pr, session: $0) } }
+    public func stage(for pr: PullRequest) -> FlowStage? { session(for: pr).map { _ in FlowStage.of(pr) } }
 
     /// The sessions started on this ticket, newest first.
     public func sessions(forTicket key: String) -> [ClaudeJob] { claudeJobs.filter { $0.ticketKey == key } }
@@ -241,7 +241,7 @@ public struct DeskState: Sendable {
 
     /// A ticket session's stage: its PR's, or Working until it has one.
     public func stage(of session: ClaudeJob) -> FlowStage {
-        pullRequest(of: session).map { FlowStage.of($0, session: session) } ?? .working
+        pullRequest(of: session).map(FlowStage.of) ?? .working
     }
 
     public func rebaseReason(_ pr: PullRequest) -> RebaseReason? {

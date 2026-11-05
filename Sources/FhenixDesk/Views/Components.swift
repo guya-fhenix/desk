@@ -37,12 +37,15 @@ struct ReviewSkillMark: View {
     }
 }
 
-/// A flow's stage. Orange when it waits on your press, so the column reads as a to-do list.
+/// A flow's stage. Orange when it waits on your press, so the column reads as a to-do list; a session at work means it
+/// does not wait on you yet.
 struct StageChip: View {
     var stage: FlowStage
+    var sessionBusy = false
 
     var body: some View {
-        Chip(text: stage.title, color: stage.waitsOnYou ? .orange : stage == .merged ? .purple : stage == .closed ? .secondary : .blue)
+        let waits = stage.waitsOnYou && !sessionBusy
+        Chip(text: stage.title, color: waits ? .orange : stage == .merged ? .purple : stage == .closed ? .secondary : .blue)
     }
 }
 

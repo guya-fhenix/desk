@@ -114,16 +114,21 @@ public enum NudgeEngine {
             ))
         }
         for pr in input.mine where pr.state == .open {
-            guard let session = input.session(for: pr) else { continue }
-            let stage = FlowStage.of(pr, session: session)
+            // A session at work leaves nothing to press; one asking something is nudged above.
+            guard let session = input.session(for: pr), !session.isBusy else { continue }
+            let stage = FlowStage.of(pr)
             let label = "\(pr.repoName)#\(pr.number)"
+            let threads = pr.unresolvedThreads
+            let open = "\(threads) open \(threads == 1 ? "thread" : "threads")"
             let title: String
             switch stage {
             case .draft: title = "\(label) is a draft waiting for your approval"
-            case .fixesToCheck: title = "\(label): self-review done, check its fixes"
-            case .threadsToReview: title = "\(label): \(pr.unresolvedThreads) open \(pr.unresolvedThreads == 1 ? "thread" : "threads") to review"
+            case .selfReviewed: title = "\(label) is self-reviewed: approve it to go ready" + (threads > 0 ? ", \(open) left" : "")
             case .approved: title = "\(label) is approved: merge it"
-            default: continue
+            default:
+                // Open threads wait on you at any stage; a stage that waits on you already says so.
+                guard threads > 0 else { continue }
+                title = "\(label): \(open) to review"
             }
             // A warning, not info: this is the press only you can make, so it is counted and coloured as one.
             nudges.append(Nudge(

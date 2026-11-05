@@ -1,19 +1,17 @@
 import Foundation
 
-/// Where one of your pull requests stands in the app's flow, from the ticket's session to the merge. Worked out afresh
-/// on every refresh from what GitHub says of the PR and whether its session is running: nothing of it is saved.
+/// Where one of your pull requests stands in the app's flow, from the ticket's session to the merge. Read afresh on
+/// every refresh from GitHub alone: nothing of it is saved. What the PR's session is doing, and the PR's open threads,
+/// are shown beside the stage, at any stage.
 public enum FlowStage: String, Sendable, CaseIterable {
-    case working, draft, selfReview, fixesToCheck, inReview, threadsToReview, fixing, approved, merged, closed
+    case working, draft, selfReviewed, inReview, approved, merged, closed
 
     public var title: String {
         switch self {
         case .working: return "Working"
         case .draft: return "Draft"
-        case .selfReview: return "Self-review"
-        case .fixesToCheck: return "Fixes to check"
+        case .selfReviewed: return "Self-reviewed"
         case .inReview: return "In review"
-        case .threadsToReview: return "Threads to review"
-        case .fixing: return "Fixing"
         // Not "Approved": that word is GitHub's review decision, shown in the same row.
         case .approved: return "Ready to merge"
         case .merged: return "Merged"
@@ -21,22 +19,18 @@ public enum FlowStage: String, Sendable, CaseIterable {
         }
     }
 
-    /// The stages that move only when you press something.
-    public var waitsOnYou: Bool { [.draft, .fixesToCheck, .threadsToReview, .approved].contains(self) }
+    /// The stages that move only when you press something, once the session is not at work.
+    public var waitsOnYou: Bool { [.draft, .selfReviewed, .approved].contains(self) }
 
-    /// A PR's stage. A running session is the self-review on a draft and fixing on a ready PR; an idle one, or none,
-    /// leaves it to the PR: a draft with /pre-pr's evidence has fixes to check, a ready one with an open thread has
-    /// threads to review, and one with the approvals it needs and nothing open is ready to merge.
-    public static func of(_ pr: PullRequest, session: ClaudeJob?) -> FlowStage {
+    /// A PR's stage: a draft without /pre-pr's evidence is a draft, one with it is self-reviewed; a ready PR with the
+    /// approvals it needs and nothing open is ready to merge, and in review until then.
+    public static func of(_ pr: PullRequest) -> FlowStage {
         switch pr.state {
         case .merged: return .merged
         case .closed: return .closed
         case .open: break
         }
-        let running = session?.isBusy == true
-        if pr.isDraft { return running ? .selfReview : pr.evidence == nil ? .draft : .fixesToCheck }
-        if running { return .fixing }
-        if pr.unresolvedThreads > 0 { return .threadsToReview }
-        return pr.approvalsMet ? .approved : .inReview
+        if pr.isDraft { return pr.evidence == nil ? .draft : .selfReviewed }
+        return pr.approvalsMet && pr.unresolvedThreads == 0 ? .approved : .inReview
     }
 }

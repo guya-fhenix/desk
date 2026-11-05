@@ -9,9 +9,9 @@ struct FlowSection: View {
     var model: AppModel
 
     var body: some View {
-        let stage = FlowStage.of(pr, session: session)
+        let stage = FlowStage.of(pr)
         PanelSection("Flow") {
-            LabeledContent("Stage") { StageChip(stage: stage) }
+            LabeledContent("Stage") { StageChip(stage: stage, sessionBusy: session.isBusy) }
             if let key = session.ticketKey { LabeledContent("Started from", value: key) }
             LabeledContent("Session") {
                 HStack(spacing: 6) {
@@ -50,21 +50,22 @@ struct FlowSection: View {
                     .buttonStyle(.borderedProminent).handCursor()
                     .disabled(blocker != nil)
             }
-        case .fixesToCheck:
-            Text("The self-review is done: its evidence and any threads it left open are on this page.")
+        case .selfReviewed:
+            Text("Self-reviewed: its evidence and any threads it left open are on this page.")
                 .scaled(.caption).foregroundStyle(.secondary)
             HStack {
                 Spacer()
                 if busy { ProgressView().controlSize(.mini) }
+                // A self-review still running may push again: the PR goes ready only once the session is done.
+                let blocker = busy ? nil : session.isBusy ? "The session is busy" : nil
+                DisabledReason(text: blocker)
                 Button("Approve") { model.approveFixes(pr) }
                     .buttonStyle(.borderedProminent).handCursor()
-                    .disabled(busy)
+                    .disabled(busy || blocker != nil)
                     .help("Marks the PR ready for review and asks \(model.config.reviewTeam) to review it")
             }
         case .inReview:
             Text("Waiting for a review from \(model.config.reviewTeam).").scaled(.caption).foregroundStyle(.secondary)
-        case .threadsToReview:
-            Text("Open threads wait on you: they are listed on this page.").scaled(.caption).foregroundStyle(.secondary)
         case .approved:
             Text(mergeHint).scaled(.caption).foregroundStyle(pr.mergeState == .dirty || pr.checks.isRed ? .orange : .secondary)
             HStack {
@@ -77,7 +78,7 @@ struct FlowSection: View {
                     .disabled(blocker != nil)
                     .help(blocker ?? "Squash-merges the PR into \(pr.baseRef)")
             }
-        case .working, .selfReview, .fixing, .merged, .closed:
+        case .working, .merged, .closed:
             EmptyView()
         }
     }
@@ -200,8 +201,10 @@ struct FlowStageCell: View {
     var body: some View {
         if let session = model.state.session(for: pr) {
             HStack(spacing: 4) {
-                StageChip(stage: FlowStage.of(pr, session: session)).fixedSize()
-                if session.state == "blocked" {
+                StageChip(stage: FlowStage.of(pr), sessionBusy: session.isBusy).fixedSize()
+                if session.isRunning {
+                    ProgressView().controlSize(.mini).help("The session is working")
+                } else if session.state == "blocked" {
                     Image(systemName: "exclamationmark.bubble.fill").foregroundStyle(.orange)
                         .help("The session is asking you something")
                 } else if let error = model.flowErrors[pr.url] {

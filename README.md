@@ -101,14 +101,14 @@ it is saved: every refresh works it out again from GitHub and the session, so a 
 | Stage | When |
 |---|---|
 | Working | the ticket's session has not opened its PR yet |
-| Draft | a draft without /pre-pr's evidence comment; Approve sends the session the self-review |
-| Self-review | the session is running while the PR is a draft: each round `/fhenix-workflow:pre-pr --no-ready --fix` where the repo has adopted the review flow, `reviewing-code` elsewhere, until a round is clean or three have run |
-| Fixes to check | a draft with the author's evidence comment (it starts `<!-- pre-pr:start -->`) and an idle session; Approve marks it ready and asks the review team |
-| In review | ready, nothing open, not yet approved |
-| Threads to review | ready, with unresolved threads |
-| Fixing | the session is running while the PR is ready |
+| Draft | a draft without /pre-pr's evidence comment; Approve sends the session the self-review: each round `/fhenix-workflow:pre-pr --no-ready --fix` where the repo has adopted the review flow, `reviewing-code` elsewhere, until a round is clean or three have run |
+| Self-reviewed | a draft with the author's evidence comment (it starts `<!-- pre-pr:start -->`); Approve, once the session is done, marks it ready and asks the review team |
+| In review | ready, until it has the approvals it needs and nothing open |
 | Ready to merge | approved with nothing open; Merge squashes it |
 | Merged, Closed | as GitHub says |
+
+Beside the stage, at any stage: what the session is doing (working, asking you something, or done — the self-review
+and the work on noted threads both show as working), and the PR's open threads, listed on its page.
 
 Approved means the `review-gate/approvals` status on the head commit says so — "no approval needed", or as many
 approvals on the latest commit as the tier needs — and, in a repo that posts no such status, GitHub's review

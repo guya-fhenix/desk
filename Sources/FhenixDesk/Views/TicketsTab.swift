@@ -479,7 +479,7 @@ private struct SessionRow: View {
             Button("Attach") { model.attach(jobId: session.id, errorKey: session.ticketKey ?? session.id) }.controlSize(.small)
         } label: {
             HStack(spacing: 6) {
-                StageChip(stage: model.state.stage(of: session)).fixedSize()
+                StageChip(stage: model.state.stage(of: session), sessionBusy: session.isBusy).fixedSize()
                 if let pr {
                     Button { model.open(pr.url) } label: { Text(verbatim: "\(pr.repoName)#\(pr.number)") }.buttonStyle(.link).handCursor()
                 } else {

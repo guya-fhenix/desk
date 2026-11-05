@@ -26,35 +26,42 @@ import Testing
         return pr
     }
 
-    @Test func eachStageFromGitHubAndTheSession() {
-        let cases: [(String, PullRequest, String?, FlowStage)] = [
-            ("a draft, no evidence, idle session", pr(draft: true), "done", .draft),
-            ("a draft with no session at all", pr(draft: true), nil, .draft),
-            ("a draft whose session runs", pr(draft: true), "working", .selfReview),
-            ("a draft whose session asks something mid-turn", pr(draft: true, evidence: Self.evidence), "blocked", .selfReview),
-            ("a draft with /pre-pr's evidence, idle", pr(draft: true, evidence: Self.evidence), "done", .fixesToCheck),
-            ("a draft with evidence and threads left open", pr(draft: true, evidence: Self.evidence, threads: 2), "done", .fixesToCheck),
-            ("ready, nothing open, not approved", pr(), "done", .inReview),
-            ("ready with open threads", pr(threads: 2), "done", .threadsToReview),
-            ("ready, the session fixing", pr(threads: 2), "working", .fixing),
-            ("ready, approved by GitHub, no gate", pr(review: .approved), "done", .approved),
-            ("approved but a thread still open", pr(threads: 1, review: .approved), "done", .threadsToReview),
-            ("the gate wants one more", pr(review: .approved, gate: "medium risk: 0 of 1 approvals on the latest commit"), "done", .inReview),
-            ("the gate is met", pr(gate: "medium risk: 1 of 1 approvals on the latest commit"), "done", .approved),
-            ("no approval needed", pr(gate: "low risk: no approval needed; CodeRabbit could not review"), "done", .approved),
-            ("waiting for CodeRabbit", pr(gate: "Waiting for CodeRabbit's review of the latest commit"), "done", .inReview),
-            ("merged", pr(merged: true), "working", .merged),
+    @Test func eachStageFromGitHub() {
+        let cases: [(String, PullRequest, FlowStage)] = [
+            ("a draft, no evidence", pr(draft: true), .draft),
+            ("a draft with /pre-pr's evidence", pr(draft: true, evidence: Self.evidence), .selfReviewed),
+            ("a draft with evidence and threads left open", pr(draft: true, evidence: Self.evidence, threads: 2), .selfReviewed),
+            ("ready, nothing open, not approved", pr(), .inReview),
+            ("ready with open threads", pr(threads: 2), .inReview),
+            ("ready, approved by GitHub, no gate", pr(review: .approved), .approved),
+            ("approved but a thread still open", pr(threads: 1, review: .approved), .inReview),
+            ("the gate wants one more", pr(review: .approved, gate: "medium risk: 0 of 1 approvals on the latest commit"), .inReview),
+            ("the gate is met", pr(gate: "medium risk: 1 of 1 approvals on the latest commit"), .approved),
+            ("no approval needed", pr(gate: "low risk: no approval needed; CodeRabbit could not review"), .approved),
+            ("waiting for CodeRabbit", pr(gate: "Waiting for CodeRabbit's review of the latest commit"), .inReview),
+            ("merged", pr(merged: true), .merged),
         ]
-        for (name, pr, state, stage) in cases {
-            #expect(FlowStage.of(pr, session: state.map { session($0) }) == stage, "\(name)")
+        for (name, pr, stage) in cases {
+            #expect(FlowStage.of(pr) == stage, "\(name)")
         }
         var closed = pr()
         closed.state = .closed
-        #expect(FlowStage.of(closed, session: nil) == .closed)
+        #expect(FlowStage.of(closed) == .closed)
     }
 
-    /// A PR is in the flow while a session works on it; a ticket's session is Working until it opens its PR.
-    /// A busy session that only touched a PR, as one long session touches many, does not make it Fixing: only a session
+    /// The session at work is shown beside the stage, never as one: a draft whose self-review runs is still a draft.
+    @Test func aWorkingSessionLeavesTheStageAlone() {
+        var state = DeskState(config: DeskConfig())
+        let draft = Fixtures.pr(number: 8, head: "d", draft: true)
+        state.github = GitHubSnapshot(login: "me", mine: [draft], reviewRequests: [], mergedRecent: [], fetchedAt: Fixtures.t0)
+        state.recompute(now: Fixtures.t0)
+        state.claudeJobs = [session("working", prs: [draft], startedOn: [draft])]
+        #expect(state.stage(for: draft) == .draft)
+        state.claudeJobs = [session("done", prs: [draft], startedOn: [draft])]
+        #expect(state.stage(for: draft) == .draft)
+    }
+
+    /// A busy session that only touched a PR, as one long session touches many, does not put it in the flow: only a session
     /// started on the PR, or on its ticket, carries it.
     @Test func onlyASessionStartedOnThePullRequestCarriesIt() {
         var state = DeskState(config: DeskConfig())
