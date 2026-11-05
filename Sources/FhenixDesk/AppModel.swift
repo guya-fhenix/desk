@@ -57,6 +57,9 @@ final class AppModel {
     /// minute or so, and until it agrees each refresh is corrected by these, so a PR's page and the lists show how it
     /// ended at once instead of on some later poll.
     private var landed: [String: (pr: PullRequest, at: Date)] = [:]
+    /// Your drafts this app marked ready, by url, and when: corrected the same way, or a lagging search would put the PR
+    /// back at Fixes to check and offer Approve again.
+    private var readied: [String: Date] = [:]
     /// Your PRs with a flow instruction going out or a GitHub write in flight, by url.
     var busyFlows: Set<String> = []
     /// Why the last press on a PR's flow failed, by url, until the next press. Like the stage, nothing of it is saved.
@@ -502,12 +505,14 @@ final class AppModel {
         state.recompute()
     }
 
-    /// Takes what this app merged or closed out of the open lists, and puts a merge into the merged one, until GitHub's
-    /// search says the same; after ten minutes it long has.
+    /// Takes what this app merged or closed out of the open lists, puts a merge into the merged one, and shows a draft it
+    /// marked ready as ready, until GitHub's search says the same; after ten minutes it long has.
     private func applyLanded() {
         let now = Date()
         landed = landed.filter { now.timeIntervalSince($0.value.at) < 600 }
-        guard var github = state.github, !landed.isEmpty else { return }
+        readied = readied.filter { now.timeIntervalSince($0.value) < 600 }
+        guard var github = state.github, !landed.isEmpty || !readied.isEmpty else { return }
+        for index in github.mine.indices where readied[github.mine[index].url] != nil { github.mine[index].isDraft = false }
         for (url, entry) in landed {
             github.mine.removeAll { $0.url == url }
             github.reviewRequests.removeAll { $0.url == url }
@@ -623,8 +628,7 @@ final class AppModel {
         send(.selfReview, for: pr)
     }
 
-    /// Approve on the self-review's fixes: the PR leaves draft and the review team is asked. Shown ready at once: the
-    /// search lags the write, and the stage would offer Approve again until it caught up.
+    /// Approve on the self-review's fixes: the PR leaves draft and the review team is asked. Shown ready at once.
     func approveFixes(_ pr: PullRequest) {
         guard busyFlows.insert(pr.url).inserted else { return }
         flowErrors[pr.url] = nil
@@ -632,7 +636,8 @@ final class AppModel {
             defer { busyFlows.remove(pr.url) }
             do {
                 try await service.markReady(pr)
-                if let index = state.github?.mine.firstIndex(where: { $0.url == pr.url }) { state.github?.mine[index].isDraft = false }
+                readied[pr.url] = Date()
+                applyLanded()
                 try await service.requestTeamReview(pr)
             } catch {
                 flowErrors[pr.url] = "\(error)"
