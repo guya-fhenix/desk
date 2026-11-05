@@ -4,7 +4,7 @@ import Foundation
 /// takes as `{name}`, and wraps what only belongs on some tickets or PRs in `{#name}…{/name}`, with an
 /// optional `{else}` for the text that goes in when the condition does not hold.
 public enum PromptID: String, CaseIterable, Sendable, Identifiable {
-    case ticketPlan, session, selfReview, threadNotes, fixConflict, fixChecks, review, reviewSystem, reviewReformat, reviewHandoff
+    case ticketPlan, session, selfReview, fixConflict, fixChecks, review, reviewSystem, reviewReformat, reviewHandoff
 
     public var id: String { rawValue }
 
@@ -13,7 +13,6 @@ public enum PromptID: String, CaseIterable, Sendable, Identifiable {
         case .ticketPlan: "Start a ticket"
         case .session: "PR session"
         case .selfReview: "Flow › Self-review"
-        case .threadNotes: "Flow › Apply thread notes"
         case .fixConflict: "Flow › Fix the conflict"
         case .fixChecks: "Flow › Fix CI"
         case .review: "Review"
@@ -28,8 +27,7 @@ public enum PromptID: String, CaseIterable, Sendable, Identifiable {
         switch self {
         case .ticketPlan: "Sent with `claude --bg` when you press Start on a ticket."
         case .session: "Sent with `claude --bg` when you start a background session on a PR."
-        case .selfReview: "Sent to the PR's session when you approve its draft. It reviews once and changes no code: the findings come back as threads with suggested fixes, for you to note and Apply. Add --fix to its /pre-pr command to have it fix them itself. Writing the JSON described here to {resultFile} is its last step. The session shows as working while it runs; the PR is Self-reviewed once /pre-pr's evidence is on it."
-        case .threadNotes: "Sent to the PR's session when you press Apply under its open threads, with each thread you wrote a note on. Writing the JSON described here to {resultFile} is its last step. The app itself never writes to a thread."
+        case .selfReview: "Sent to the PR's session when you approve its draft. It reviews once and changes no code: the findings come back as threads with suggested fixes, for you to read on the PR and settle with the session. Add --fix to its /pre-pr command to have it fix them itself. Writing the JSON described here to {resultFile} is its last step. The session shows as working while it runs; the PR is Self-reviewed once /pre-pr's evidence is on it."
         case .fixConflict: "Sent to the PR's session when you press Fix it on a PR that conflicts with its base branch. Writing the JSON described here to {resultFile} is its last step. Nothing is sent on its own."
         case .fixChecks: "Sent to the PR's session when you press Fix it on a PR whose CI failed. Writing the JSON described here to {resultFile} is its last step. Nothing is sent on its own."
         case .review: "Sent with `claude -p` when you press Review. The app reads the answer as the JSON described here, so keep its field names."
@@ -55,11 +53,6 @@ public enum PromptID: String, CaseIterable, Sendable, Identifiable {
             return pr + [("headRef", "the PR branch"), ("worktree", "the worktree path"), ("threads", "\"3 review threads are\"")]
         case .selfReview:
             return pr + [("headRef", "the PR branch"), ("worktree", "the worktree path"), ("resultFile", "where the session writes its summary")]
-        case .threadNotes:
-            return pr + [
-                ("headRef", "the PR branch"), ("worktree", "the worktree path"), ("resultFile", "where the session writes its summary"),
-                ("threads", "the threads you wrote a note on: link, place, who started it, its first comment and your note"),
-            ]
         case .fixConflict, .fixChecks:
             return pr + [("headRef", "the PR branch"), ("worktree", "the worktree path"), ("resultFile", "where the session writes its summary")]
         case .review:
@@ -83,7 +76,7 @@ public enum PromptID: String, CaseIterable, Sendable, Identifiable {
                 ("worktree", "the branch is checked out in a worktree"), ("unresolved", "the PR has unresolved threads"),
                 ("conflict", "the PR conflicts with its base branch"),
             ]
-        case .selfReview, .threadNotes, .fixChecks: [("worktree", "the branch is checked out in a worktree")]
+        case .selfReview, .fixChecks: [("worktree", "the branch is checked out in a worktree")]
         case .fixConflict: [("worktree", "the branch is checked out in a worktree"), ("draft", "the PR is still a draft")]
         case .review: [("otherRepos", "there are other clones under the repo roots")]
         case .reviewSystem, .reviewReformat: []
@@ -137,8 +130,8 @@ public enum PromptID: String, CaseIterable, Sendable, Identifiable {
             {#conflict}It conflicts with {baseRef}. Work out which files conflict and propose how to resolve each \
             one, but leave the branch as it is until I say so.{/conflict}
             """
-        // One run, and no code changed: the findings come back as threads with a suggested fix, for you to note what
-        // you want done and Apply. /pre-pr where the repo adopted the review flow; elsewhere reviewing-code, whose
+        // One run, and no code changed: the findings come back as threads with a suggested fix, for you to read on the PR
+        // and settle with the session. /pre-pr where the repo adopted the review flow; elsewhere reviewing-code, whose
         // findings are posted the same way so they show among the PR's threads. Add --fix to /pre-pr below to have it
         // fix them itself. The result file comes last because writing it is the last thing to do.
         case .selfReview:
@@ -172,28 +165,6 @@ public enum PromptID: String, CaseIterable, Sendable, Identifiable {
             "problem": "what is wrong, in one plain sentence", "fix": "the fix you suggested, in one plain sentence"}]}
             `clean` says whether the review reported no Important finding. `severity` is "important" for an \
             Important finding and "nit" for a Nit. List every finding you posted.
-            """
-        // Only the threads you wrote a note on are listed, each saying who started it: a review tool's thread is
-        // resolved once answered, a person's is left for that person. The app writes nothing to GitHub itself.
-        case .threadNotes:
-            """
-            Work on these review threads of pull request {url} ({repo}#{number}, "{title}"), and only these. Each \
-            comes with my note on what I want done with it:
-
-            {threads}
-
-            {#worktree}Its branch {headRef} is checked out in the worktree at {worktree}. Work only there \
-            (EnterWorktree with that path if you are not in it already).{else}Its branch is {headRef}; work on that \
-            branch.{/worktree}
-
-            Make the changes the notes ask for, commit them with a message that says which threads they answer, and \
-            push. Never force-push. Then reply in each listed thread on GitHub with what you did, or why you did not \
-            where my note says to leave it (gh api graphql, addPullRequestReviewThreadReply). Once you have replied, \
-            resolve the threads /pre-pr or CodeRabbit started (resolveReviewThread), and leave the threads a person \
-            started unresolved, for their reviewer. Leave every thread that is not listed here untouched.
-
-            When you are done, write this JSON to {resultFile} and nothing else:
-            {"replied": 3, "resolved": 2, "summary": "what changed, in one plain sentence"}
             """
         // Rebase while nobody reviews it, merge once somebody does: a rebase moves every line a reviewer's comment
         // is pinned to. A conflict only you can settle is the one reason to stop and ask.

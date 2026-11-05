@@ -64,9 +64,6 @@ final class AppModel {
     var busyFlows: Set<String> = []
     /// Why the last press on a PR's flow failed, by url, until the next press. Like the stage, nothing of it is saved.
     var flowErrors: [String: String] = [:]
-    /// What you want done with each open thread on your PRs, by thread id: typed on the PR page, sent with Apply. In
-    /// memory only; a note goes once Apply has sent it, or once its thread is resolved.
-    var threadNotes: [String: String] = [:]
     /// Set to have the Pull Requests or Reviews screen open this PR's page; the screen clears it. Search, Up Next
     /// and a notification's Show use it.
     var selectPullRequest: String?
@@ -143,9 +140,6 @@ final class AppModel {
                 let snapshot = try await service.refreshGitHub()
                 state.github = snapshot
                 applyLanded()
-                // A note on a thread that has since been resolved has nothing left to ask for.
-                let open = Set(snapshot.mine.flatMap(\.threads).map(\.id))
-                threadNotes = threadNotes.filter { open.contains($0.key) }
                 await service.cleanupClosedReviews(
                     github: snapshot, reviewWorktrees: state.reviewWorktrees, repos: state.gitScan?.repos ?? []
                 )
@@ -656,19 +650,6 @@ final class AppModel {
         }
     }
 
-    /// The open threads of this PR you wrote a note on.
-    func notedThreads(_ pr: PullRequest) -> [ReviewThread] {
-        pr.threads.filter { !(threadNotes[$0.id] ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-    }
-
-    /// Apply under a PR's threads: one instruction to its session with every thread you wrote a note on. The session does
-    /// the work and the replies on GitHub; the app never writes to a thread. The notes go once it is sent.
-    func applyThreadNotes(_ pr: PullRequest) {
-        let noted = notedThreads(pr)
-        guard !noted.isEmpty, sendBlocker(pr) == nil else { return }
-        send(.threadNotes, for: pr, threads: noted)
-    }
-
     /// Fix it on a PR that conflicts with its base or whose CI failed: its session gets the fix. Nothing goes out on its
     /// own: a fix that did not take is pressed again or left, as you choose.
     func fix(_ prompt: PromptID, for pr: PullRequest) {
@@ -676,9 +657,8 @@ final class AppModel {
         send(prompt, for: pr)
     }
 
-    /// Sends the PR's session one flow instruction; the session going to work is what moves the stage. `threads` are the
-    /// noted ones Apply sends, whose notes go once it is out.
-    private func send(_ prompt: PromptID, for pr: PullRequest, threads: [ReviewThread] = []) {
+    /// Sends the PR's session one flow instruction; the session going to work is what moves the stage.
+    private func send(_ prompt: PromptID, for pr: PullRequest) {
         guard let session = state.session(for: pr), busyFlows.insert(pr.url).inserted else { return }
         flowErrors[pr.url] = nil
         let root = state.localRepo(for: pr)?.root ?? session.cwd
@@ -686,15 +666,13 @@ final class AppModel {
         // Numbered by when it went out, so an earlier instruction's file is never this one's.
         let resultFile = DeskService.resultFile(jobId: session.id, step: Int(Date().timeIntervalSince1970))
         let text = DeskService.flowPrompt(
-            prompt, pr: pr, worktree: worktree, resultFile: resultFile, threads: DeskService.threadList(threads, notes: threadNotes),
-            config: config
+            prompt, pr: pr, worktree: worktree, resultFile: resultFile, config: config
         )
         let cwd = resumeDirectory(session, for: pr)
         Task {
             defer { busyFlows.remove(pr.url) }
             do {
                 try await service.send(text, to: session, cwd: cwd)
-                for thread in threads { threadNotes[thread.id] = nil }
                 Self.log.info("flow \(pr.url, privacy: .public): sent \(prompt.rawValue, privacy: .public)")
             } catch {
                 flowErrors[pr.url] = "Couldn't send it to the session: \(error)"

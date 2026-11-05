@@ -7,27 +7,6 @@ import Testing
         ReviewThread(id: id, path: path, line: line, url: "https://github.com/o/r/pull/1#discussion_r\(id)", author: author, body: body)
     }
 
-    /// /pre-pr leads with its own word under its marker; CodeRabbit with its scale, in either of its two styles.
-    @Test func severityReadsPrePRAndBothCodeRabbitStyles() {
-        let cases: [(String, CommentSeverity?)] = [
-            ("<!-- pre-pr:finding -->\n**Important** · R3 · Unchecked unwrap\n\nWhy.\n\n**Fix:** check it.", .important),
-            ("<!-- pre-pr:finding -->\n**Nit** · Rename it", .nit),
-            ("**Minor** · **Security & Privacy** · **Quick win**\n\n**Leaks the token.**", .nit),
-            ("**Major** · **Correctness**\n\nOff by one.", .important),
-            ("**Critical** · **Security**", .important),
-            ("**Trivial** · **Style**", .nit),
-            ("_⚠️ Potential issue_ | _🟠 Major_\n\n**Null deref.**", .important),
-            ("_🛠️ Refactor suggestion_ | _🟡 Minor_", .nit),
-            ("_🧹 Nitpick_\n\nSpacing.", .nit),
-            ("_⚠️ Potential issue_\n\nSomething.", nil),
-            ("Could you rename `my_var_name`? It reads as **important** further down.", nil),
-            ("", nil),
-        ]
-        for (body, expected) in cases {
-            #expect(ReviewThread.severity(of: body) == expected, "\(body)")
-        }
-    }
-
     @Test func sourceIsPrePRByMarkerThenCodeRabbitByAuthor() {
         #expect(thread("1", author: "me", body: "<!-- pre-pr:finding -->\n**Nit** · x").source == .prePR)
         #expect(thread("2", author: "coderabbitai[bot]", body: "**Minor** · x").source == .codeRabbit)
@@ -35,54 +14,20 @@ import Testing
         #expect(thread("4", author: "alice", body: "Why?").source == .people)
     }
 
-    /// By source, then Important, Nit and the rest, then file and line.
-    @Test func orderGroupsBySourceThenSeverityThenPlace() {
+
+    /// The side card's rows: the tools first, then each person, the most first.
+    @Test func countsByWhoStartedThem() {
         let threads = [
-            thread("people", author: "alice", body: "Why?"),
-            thread("crNit", path: "b.rs", author: "coderabbitai[bot]", body: "**Minor** · x"),
-            thread("crNone", path: "a.rs", author: "coderabbitai[bot]", body: "Hmm"),
-            thread("crBig", path: "z.rs", author: "coderabbitai[bot]", body: "**Major** · x"),
-            thread("preNit", author: "me", body: "<!-- pre-pr:finding -->\n**Nit** · x"),
-            thread("preBig2", path: "b.rs", line: 9, author: "me", body: "<!-- pre-pr:finding -->\n**Important** · x"),
-            thread("preBig1", path: "b.rs", line: 3, author: "me", body: "<!-- pre-pr:finding -->\n**Important** · x"),
+            thread("1", author: "me", body: "<!-- pre-pr:finding -->\n**Nit** · x"),
+            thread("2", author: "coderabbitai[bot]", body: "**Minor** · x"),
+            thread("3", author: "coderabbitai[bot]", body: "**Major** · x"),
+            thread("4", author: "bob", body: "Why?"),
+            thread("5", author: "alice", body: "And this?"),
+            thread("6", author: "alice", body: "Here too."),
         ]
-        #expect(threads.ordered.map(\.id) == ["preBig1", "preBig2", "preNit", "crBig", "crNit", "crNone", "people"])
-    }
-
-    /// A collapsed row and the Apply prompt quote the finding's title, without the marker and the severity.
-    @Test func previewIsTheFindingsTitle() {
-        let finding = thread("1", body: "<!-- pre-pr:finding -->\n**Important** · Unchecked unwrap\n\nIt panics.\n")
-        #expect(finding.preview == "Unchecked unwrap")
-        #expect(finding.place == "src/a.rs:1")
-        #expect(thread("2", line: nil, body: "x").place == "src/a.rs")
-    }
-
-    /// The evidence comment as /pre-pr writes it: the page keeps Testing, Risk and How to revert, and the tier line.
-    @Test func evidenceKeepsTestingRiskAndRevert() {
-        let body = """
-            <!-- pre-pr:start -->
-            ## Testing
-            - cargo test: passed
-
-            ## Risk
-            - Tier: medium. Needs a person: no. Expected approvals: 1.
-            - Why: touches the gateway <!-- tier.sh -->
-
-            ## How to revert
-            Revert the squash commit.
-
-            ## Local review
-            | Step | Important |
-            |---|---|
-            <!-- pre-pr:end -->
-            """
-        let evidence = PrePR.evidence(body)
-        #expect(evidence.sections.map(\.title) == ["Testing", "Risk", "How to revert"])
-        #expect(evidence.sections[0].text == "- cargo test: passed")
-        #expect(evidence.sections[1].text == "- Tier: medium. Needs a person: no. Expected approvals: 1.\n- Why: touches the gateway")
-        #expect(evidence.sections[2].text == "Revert the squash commit.")
-        #expect(evidence.tier == "Tier: medium. Needs a person: no. Expected approvals: 1.")
-        #expect(PrePR.evidence("<!-- pre-pr:start -->\nnothing").sections.isEmpty)
+        #expect(threads.byWho.map(\.who) == ["/pre-pr", "CodeRabbit", "@alice", "@bob"])
+        #expect(threads.byWho.map(\.count) == [1, 2, 2, 1])
+        #expect([ReviewThread]().byWho.isEmpty)
     }
 }
 

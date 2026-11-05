@@ -2,7 +2,7 @@
 
 Menu bar app that tracks the Fhenix development cycle and carries your own work from a ticket to its merge.
 Everything it writes is either a press of yours — putting a Claude review into your draft review on a PR,
-starting a background session, and the flow's Approve, Apply and Merge — or the one move it makes on its own:
+starting a background session, and the flow's Approve, Fix it and Merge — or the one move it makes on its own:
 moving a Jira ticket that has fallen behind its PRs.
 
 Sources: GitHub PRs (`gh`), local git worktrees, Claude Code sessions (`~/.claude`), Jira. What it shows is read
@@ -101,14 +101,14 @@ it is saved: every refresh works it out again from GitHub and the session, so a 
 | Stage | When |
 |---|---|
 | Working | the ticket's session has not opened its PR yet |
-| Draft | a draft without /pre-pr's evidence comment; Approve sends the session the self-review: one `/fhenix-workflow:pre-pr` run where the repo has adopted the review flow, one `reviewing-code` pass elsewhere, posted as threads; it changes no code, and its findings come back as threads with suggested fixes for your notes and Apply |
+| Draft | a draft without /pre-pr's evidence comment; Approve sends the session the self-review: one `/fhenix-workflow:pre-pr` run where the repo has adopted the review flow, one `reviewing-code` pass elsewhere, posted as threads; it changes no code, and its findings come back as threads on the PR, each with a suggested fix |
 | Self-reviewed | a draft with the author's evidence comment (it starts `<!-- pre-pr:start -->`); Approve, once the session is done, marks it ready and asks the review team |
 | In review | ready, until it has the approvals it needs and nothing open |
 | Ready to merge | approved with nothing open; Merge squashes it |
 | Merged, Closed | as GitHub says |
 
 Beside the stage, at any stage: what the session is doing (working, asking you something, or done — the self-review
-and the work on noted threads both show as working), and the PR's open threads, listed on its page. A PR that
+shows as working), and the PR's open threads, counted on its page. A PR that
 conflicts with its base branch, or whose CI failed, shows Fix it on its page: it sends the session the matching
 prompt (Settings → Prompts), which fixes and pushes. Nothing is sent on its own.
 
@@ -118,20 +118,14 @@ decision. The review team is a setting (GitHub → Flow, `protocol-team` by defa
 page and the ticket's repo menu say whether a repo's sessions can run `reviewing-code` at all — it ships in
 `fhenix-workflow` 0.5.0 — and Approve on a draft stays off where they cannot.
 
-Your PR's page lists its open threads — after the self-review the Important and Nit findings /pre-pr left open,
-then CodeRabbit's and people's — grouped by who started them (/pre-pr by the `<!-- pre-pr:finding -->` marker on
-the first comment, CodeRabbit by its login, people for the rest), Important first, then Nit, then by file and line.
-Each row has its severity, `path:line`, the first comment (open it for the whole of it), a link to the thread on
-GitHub and a field for what you want done with it. Apply sends the session one instruction with every thread you
-wrote a note on: make the changes, commit and push (never force), reply in each of those threads with what it did
-or why not, resolve the ones /pre-pr or CodeRabbit started, and leave people's open for their reviewer. Threads
-without a note are left alone. The notes live in memory only, and go once Apply has sent them or the thread is
-resolved. Beside the threads, the page shows /pre-pr's evidence comment — the tier line, Testing, Risk and How to
-revert — and the review gate's status, or says there is none.
+Your PR's page shows its description; beside it, an Open threads card counts the open threads by who started them —
+/pre-pr (the `<!-- pre-pr:finding -->` marker on the first comment), CodeRabbit (its login), and each person by name —
+with a link to read them on GitHub. They are answered there, or by telling the PR's session what to do with them; the
+app never writes to a thread.
 
 The app talks to the session the only way a background session takes outside input: once it has finished its
 turn, it is stopped and resumed under the same id with the instruction, so the conversation carries on. It never
-sends anything to a session that is working or asking you something — Approve and Apply wait for it to be idle —
+sends anything to a session that is working or asking you something — Approve and Fix it wait for it to be idle —
 and it sends nothing on its own: a conflict or red CI is yours to hand to the session. Each instruction ends with
 the session writing a small result file in its own scratch folder. A PR you did not start from a ticket joins the
 flow at its current stage once you Start a session on it.
@@ -139,7 +133,7 @@ flow at its current stage once you Start a session on it.
 ## Prompts
 
 Every text the app sends Claude is editable in Settings → Prompts, one text each: starting a ticket, the PR
-session, the flow's self-review and its Apply on noted threads, the review, the review's system prompt, its
+session, the flow's self-review and its Fix it prompts, the review, the review's system prompt, its
 reformat pass and its hand-off to the PR's session. `{name}` placeholders are filled
 when the prompt is sent, and `{#name}…{/name}` wraps what only applies sometimes — a ticket description,
 unresolved threads, a conflict, other repos — with `{else}` for the other case. Only edits are stored, in

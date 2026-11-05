@@ -126,38 +126,6 @@ import Testing
         #expect(!DeskService.flowPrompt(.selfReview, pr: pr, worktree: nil, resultFile: "/f").contains("worktree at"))
     }
 
-    /// Apply lists only the noted threads, each with who started it and so whether it is resolved, and the instruction says
-    /// to reply in every one, never force-push, and leave the rest alone.
-    @Test func applySendsTheNotedThreadsAndHowToAnswerEach() {
-        let pr = Fixtures.pr(number: 11, head: "worktree-pro-1")
-        let long = String(repeating: "word ", count: 60)
-        let threads = [
-            ReviewThread(
-                id: "T1", path: "src/a.rs", line: 12, url: "https://github.com/o/r/pull/11#discussion_r1", author: "me",
-                body: "<!-- pre-pr:finding -->\n**Important** · Unchecked unwrap\n\nIt panics."
-            ),
-            ReviewThread(id: "T2", path: "README.md", url: "https://github.com/o/r/pull/11#discussion_r2", author: "alice", body: long),
-        ]
-        let list = DeskService.threadList(threads, notes: ["T1": "  Fix it\nwith a guard ", "T2": "Leave it: out of scope"])
-        #expect(list.contains("""
-            1. https://github.com/o/r/pull/11#discussion_r1 — src/a.rs:12 (started by /pre-pr: resolve it once you have replied)
-               It says: Unchecked unwrap
-               My note: Fix it
-               with a guard
-            """))
-        #expect(list.contains("2. https://github.com/o/r/pull/11#discussion_r2 — README.md (started by @alice: leave it unresolved)"))
-        // A long first comment is quoted, not pasted.
-        #expect(list.contains("It says: \(long.prefix(199))…"))
-
-        let text = DeskService.flowPrompt(.threadNotes, pr: pr, worktree: "/r/cofhe/.claude/worktrees/pro-1", resultFile: "/j/tmp/desk-step-9.json", threads: list)
-        #expect(text.contains(list))
-        #expect(text.contains("worktree at /r/cofhe/.claude/worktrees/pro-1"))
-        #expect(text.contains("Never force-push"))
-        #expect(text.contains("reply in each listed thread"))
-        #expect(text.contains("Leave every thread that is not listed here untouched"))
-        #expect(text.contains("write this JSON to /j/tmp/desk-step-9.json"))
-    }
-
     /// A session that entered a worktree keeps its transcript under that worktree's project folder.
     @Test func aSessionIsResumedFromTheFolderThatHoldsItsTranscript() throws {
         let home = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent(UUID().uuidString)

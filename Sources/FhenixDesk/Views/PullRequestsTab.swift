@@ -341,12 +341,7 @@ struct PullRequestPage: View {
                 Text(error).scaled(.caption).foregroundStyle(.red).textSelection(.enabled)
             }
         } main: {
-            // A tab at a time: the threads to answer, what /pre-pr found, and the description. An ended PR has only the last.
-            if pr.state == .open {
-                PullRequestTabs(pr: pr, model: model) { description }.id(pr.url)
-            } else {
-                description
-            }
+            description
         } side: {
             // An ended PR has nothing left to act on or check: who reviewed it and its facts. How it ended is on the
             // status line.
@@ -356,6 +351,7 @@ struct PullRequestPage: View {
             } else {
                 ActionsCard(pr: pr, model: model)
                 if let session = model.state.session(for: pr) { FlowSection(pr: pr, session: session, model: model).sideCard() }
+                ThreadsCard(pr: pr, model: model)
                 ReviewersCard(pr: pr)
                 DetailsCard(pr: pr)
                 if parent != nil || !children.isEmpty {
