@@ -4,7 +4,7 @@ import Foundation
 /// comment says. Read off GitHub on every refresh; the app never writes to a thread.
 public struct ReviewThread: Codable, Sendable, Hashable, Identifiable {
     /// Who started the thread, in the order the page groups them.
-    public enum Source: Int, Codable, Sendable, CaseIterable, Comparable, Identifiable {
+    public enum Source: Int, Sendable, CaseIterable, Identifiable {
         case prePR, codeRabbit, people
 
         public var id: Self { self }
@@ -16,8 +16,6 @@ public struct ReviewThread: Codable, Sendable, Hashable, Identifiable {
             case .people: return "People"
             }
         }
-
-        public static func < (a: Self, b: Self) -> Bool { a.rawValue < b.rawValue }
     }
 
     /// The node id.
@@ -122,7 +120,7 @@ public enum PrePR {
         public var sections: [Section]
     }
 
-    public static let shownSections = ["Testing", "Risk", "How to revert"]
+    private static let shownSections = ["Testing", "Risk", "How to revert"]
 
     /// Splits the comment at its `## ` headings and keeps the sections the page shows.
     public static func evidence(_ body: String) -> Evidence {
