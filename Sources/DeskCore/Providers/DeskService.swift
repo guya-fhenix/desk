@@ -246,7 +246,7 @@ public actor DeskService {
             "repo": pr.repo, "number": String(pr.number), "title": pr.title, "url": pr.url, "baseRef": pr.baseRef,
             "headRef": pr.headRef, "worktree": worktree ?? "", "resultFile": resultFile, "threads": threads,
         ]
-        return config.prompt(id, values, when: ["worktree": worktree != nil])
+        return config.prompt(id, values, when: ["worktree": worktree != nil, "draft": pr.isDraft])
     }
 
     /// The threads you wrote a note on, as Apply lists them: each one's link and place, who started it and so whether it

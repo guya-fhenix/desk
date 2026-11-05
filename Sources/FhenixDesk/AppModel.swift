@@ -669,6 +669,13 @@ final class AppModel {
         send(.threadNotes, for: pr, threads: noted)
     }
 
+    /// Fix it on a PR that conflicts with its base or whose CI failed: its session gets the fix. Nothing goes out on its
+    /// own: a fix that did not take is pressed again or left, as you choose.
+    func fix(_ prompt: PromptID, for pr: PullRequest) {
+        guard sendBlocker(pr) == nil else { return }
+        send(prompt, for: pr)
+    }
+
     /// Sends the PR's session one flow instruction; the session going to work is what moves the stage. `threads` are the
     /// noted ones Apply sends, whose notes go once it is out.
     private func send(_ prompt: PromptID, for pr: PullRequest, threads: [ReviewThread] = []) {

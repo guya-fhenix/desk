@@ -28,6 +28,8 @@ struct FlowSection: View {
                 }
             }
             stageContent(stage)
+            if pr.state == .open, pr.mergeState == .dirty { fixRow(.fixConflict, problem: "It conflicts with \(pr.baseRef).") }
+            if pr.state == .open, pr.checks.isRed { fixRow(.fixChecks, problem: "CI failed.") }
             if let error = model.flowErrors[pr.url] {
                 Text(error).scaled(.caption).foregroundStyle(.red).textSelection(.enabled)
             }
@@ -80,6 +82,20 @@ struct FlowSection: View {
             }
         case .working, .merged, .closed:
             EmptyView()
+        }
+    }
+
+    /// A problem the session can fix, with the press that sends it the fix.
+    private func fixRow(_ prompt: PromptID, problem: String) -> some View {
+        let blocker = model.sendBlocker(pr)
+        return HStack {
+            Text(problem).scaled(.caption).foregroundStyle(.orange)
+            Spacer()
+            DisabledReason(text: blocker)
+            Button("Fix it") { model.fix(prompt, for: pr) }
+                .handCursor()
+                .disabled(blocker != nil)
+                .help("Sends the session \"\(prompt.title)\": it fixes and pushes, and asks you only for a decision it can't make")
         }
     }
 

@@ -75,7 +75,7 @@ import Testing
         pr.unresolvedThreads = 2
         let repos = [OtherRepo(name: "a", root: "/r/a", ref: "origin/main", fetched: true)]
         let run = ReviewRun(phase: .posted, posted: 1, summary: "S", findings: [DraftThread(path: "a.swift", line: 3, body: "B")])
-        for id in [PromptID.ticketPlan, .session, .selfReview, .threadNotes, .review, .reviewHandoff] {
+        for id in [PromptID.ticketPlan, .session, .selfReview, .threadNotes, .fixConflict, .fixChecks, .review, .reviewHandoff] {
             var config = DeskConfig()
             config.prompts[id.rawValue] = (id.placeholders.map { "{\($0.name)}" } + id.conditions.map { "{#\($0.name)}C{/\($0.name)}" })
                 .joined(separator: " ")
@@ -84,11 +84,22 @@ import Testing
             case .review: ReviewCommand.prompt(pr, otherRepos: repos, config: config)
             case .selfReview: DeskService.flowPrompt(.selfReview, pr: pr, worktree: "/w", resultFile: "/f", config: config)
             case .threadNotes: DeskService.flowPrompt(.threadNotes, pr: pr, worktree: "/w", resultFile: "/f", threads: "1. T", config: config)
+            case .fixConflict, .fixChecks: DeskService.flowPrompt(id, pr: pr, worktree: "/w", resultFile: "/f", config: config)
             case .reviewHandoff: DeskService.reviewHandoffPrompt(for: pr, run: run, config: config)
             default: DeskService.sessionPrompt(for: pr, worktree: "/w", config: config)
             }
             #expect(!text.contains("{"), "\(id) left a marker: \(text)")
         }
+    }
+
+    /// The conflict fix rebases a draft nobody reviews yet, and merges the base into a PR reviewers are on, so their
+    /// comments stay on their lines.
+    @Test func theConflictFixRebasesOnlyADraft() {
+        let draft = Fixtures.pr(number: 4, head: "h", draft: true)
+        let ready = Fixtures.pr(number: 5, head: "h")
+        #expect(DeskService.flowPrompt(.fixConflict, pr: draft, worktree: nil, resultFile: "/f").contains("--force-with-lease"))
+        #expect(!DeskService.flowPrompt(.fixConflict, pr: ready, worktree: nil, resultFile: "/f").contains("--force-with-lease"))
+        #expect(DeskService.flowPrompt(.fixConflict, pr: ready, worktree: nil, resultFile: "/f").contains("merge origin/"))
     }
 
     /// The session is told what the review found, line by line, and that the review stays the user's to finish.

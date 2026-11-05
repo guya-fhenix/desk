@@ -108,7 +108,9 @@ it is saved: every refresh works it out again from GitHub and the session, so a 
 | Merged, Closed | as GitHub says |
 
 Beside the stage, at any stage: what the session is doing (working, asking you something, or done — the self-review
-and the work on noted threads both show as working), and the PR's open threads, listed on its page.
+and the work on noted threads both show as working), and the PR's open threads, listed on its page. A PR that
+conflicts with its base branch, or whose CI failed, shows Fix it on its page: it sends the session the matching
+prompt (Settings → Prompts), which fixes and pushes. Nothing is sent on its own.
 
 Approved means the `review-gate/approvals` status on the head commit says so — "no approval needed", or as many
 approvals on the latest commit as the tier needs — and, in a repo that posts no such status, GitHub's review
