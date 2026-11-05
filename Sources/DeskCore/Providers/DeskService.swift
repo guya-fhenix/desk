@@ -222,7 +222,7 @@ public actor DeskService {
 
     /// Where the session writes the result of instruction `step`: its own scratch folder, which it may always
     /// write to, and which goes when the session is deleted. The app reads nothing from it — the stage follows the
-    /// session and the PR — but writing it is the instruction's last step, which ends a `/goal`.
+    /// session and the PR — and writing it is the instruction's last step.
     public static func resultFile(jobId: String, step: Int, home: String = ClaudeJobs.home) -> String {
         "\(home)/jobs/\(jobId)/tmp/desk-step-\(step).json"
     }

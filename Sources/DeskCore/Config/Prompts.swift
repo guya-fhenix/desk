@@ -28,7 +28,7 @@ public enum PromptID: String, CaseIterable, Sendable, Identifiable {
         switch self {
         case .ticketPlan: "Sent with `claude --bg` when you press Start on a ticket."
         case .session: "Sent with `claude --bg` when you start a background session on a PR."
-        case .selfReview: "Sent to the PR's session when you approve its draft. It must start with /goal; writing the JSON described here to {resultFile} is its last step. The session shows as working while it runs; the PR is Self-reviewed once /pre-pr's evidence is on it."
+        case .selfReview: "Sent to the PR's session when you approve its draft. It runs the review once; writing the JSON described here to {resultFile} is its last step. The session shows as working while it runs; the PR is Self-reviewed once /pre-pr's evidence is on it."
         case .threadNotes: "Sent to the PR's session when you press Apply under its open threads, with each thread you wrote a note on. Writing the JSON described here to {resultFile} is its last step. The app itself never writes to a thread."
         case .fixConflict: "Sent to the PR's session when you press Fix it on a PR that conflicts with its base branch. Writing the JSON described here to {resultFile} is its last step. Nothing is sent on its own."
         case .fixChecks: "Sent to the PR's session when you press Fix it on a PR whose CI failed. Writing the JSON described here to {resultFile} is its last step. Nothing is sent on its own."
@@ -137,43 +137,38 @@ public enum PromptID: String, CaseIterable, Sendable, Identifiable {
             {#conflict}It conflicts with {baseRef}. Work out which files conflict and propose how to resolve each \
             one, but leave the branch as it is until I say so.{/conflict}
             """
-        // The whole text is the goal's condition, and a multi-paragraph one holds: the session works until the
-        // evaluator agrees it is met. The result file comes last because writing it is the last thing to do.
-        // A repo that adopted the review flow gets /pre-pr, the review the CLI runs, so its evidence comment and
-        // `local-reviewed` label are on the PR when you approve the draft; any other repo keeps the reviewing-code loop.
+        // One run: /pre-pr where the repo adopted the review flow, its own fix loop being the only loop, and one
+        // reviewing-code pass elsewhere. The result file comes last because writing it is the last thing to do.
         case .selfReview:
             """
-            /goal Review and fix pull request {url} ({repo}#{number}, "{title}") until a review comes back clean, \
-            or three reviews have run, and the summary file below is written.
+            Review and fix pull request {url} ({repo}#{number}, "{title}") once, then write the summary file below.
 
             {#worktree}Its branch {headRef} is checked out in the worktree at {worktree}. Work only there \
             (EnterWorktree with that path if you are not in it already).{else}Its branch is {headRef}; work on that \
             branch.{/worktree}
 
-            How each round reviews depends on whether the checkout has adopted the review flow: `REVIEW.md` and \
+            How it reviews depends on whether the checkout has adopted the review flow: `REVIEW.md` and \
             `.github/review/tier.sh` at its root.
 
-            If it has: each round, run `claude -p "/fhenix-workflow:pre-pr --no-ready --fix {number}" \
-            --permission-mode auto --output-format text` from that checkout, then read its output. /pre-pr sets \
+            If it has: run `claude -p "/fhenix-workflow:pre-pr --fix {number}" --permission-mode auto \
+            --output-format text` once, from that checkout, then read its output. /pre-pr sets \
             disable-model-invocation, so it runs as a typed command in that headless session, not as a skill you \
-            invoke. It runs the checks and the reviews, commits and pushes its /simplify edits and its fixes, \
-            re-reviews every commit it adds, posts each open finding as a review thread on its line, and posts the \
-            evidence as a pull request comment. A round is clean when it reports no Important finding; a run that \
-            stops before its reviews is not clean.
+            invoke. It runs the checks and the reviews, commits and pushes its fixes, re-reviews every commit it adds, \
+            posts each open finding as a review thread on its line, and posts the evidence as a pull request comment. \
+            Do not run it again, whatever it reports.
 
-            If it has not: each round, run the fhenix-workflow:reviewing-code skill on the pull request, fix every \
-            Important finding it reports, and the Nits whose fix is a line or two. Commit the round's fixes with a \
-            message that says what the review found, and push. A round is clean when it reports no Important finding.
+            If it has not: run the fhenix-workflow:reviewing-code skill on the pull request once, fix every Important \
+            finding it reports and the Nits whose fix is a line or two, commit the fixes with a message that says what \
+            the review found, and push.
 
             Either way, keep the pull request a draft: never run `gh pr ready`.
 
-            When you stop, write this JSON to {resultFile} and nothing else:
-            {"rounds": 2, "clean": true, "findings": [{"severity": "important", "file": "src/a.rs", "line": 42, \
+            When you are done, write this JSON to {resultFile} and nothing else:
+            {"clean": true, "findings": [{"severity": "important", "file": "src/a.rs", "line": 42, \
             "problem": "what was wrong, in one plain sentence", "fix": "what you changed, in one plain sentence, or \
-            why you left it", "round": 1, "fixed": true}]}
-            `rounds` is the number of reviews that ran, and `clean` says whether the last one was clean, as defined \
-            above. `severity` is "important" for an Important finding and "nit" for a Nit. List every Important \
-            finding from every round, and the Nits you fixed.
+            why you left it", "fixed": true}]}
+            `clean` says whether the review reported no Important finding. `severity` is "important" for an \
+            Important finding and "nit" for a Nit. List every Important finding, and the Nits you fixed.
             """
         // Only the threads you wrote a note on are listed, each saying who started it: a review tool's thread is
         // resolved once answered, a person's is left for that person. The app writes nothing to GitHub itself.

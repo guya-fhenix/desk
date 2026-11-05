@@ -111,14 +111,16 @@ import Testing
 
 /// What a flow's session is sent, and where from.
 @Suite struct FlowPromptTests {
-    @Test func theSelfReviewIsAGoalThatEndsInTheResultFile() {
+    @Test func theSelfReviewRunsOnceAndEndsInTheResultFile() {
         let pr = Fixtures.pr(number: 11, head: "worktree-pro-1", draft: true)
         let text = DeskService.flowPrompt(.selfReview, pr: pr, worktree: "/r/cofhe/.claude/worktrees/pro-1", resultFile: "/j/tmp/desk-step-1.json")
-        #expect(text.hasPrefix("/goal "))
+        #expect(!text.contains("/goal"))
+        #expect(text.contains("pre-pr --fix 11"))
+        #expect(!text.contains("--no-ready"))
         #expect(text.contains("fhenix-workflow:reviewing-code"))
         #expect(text.contains("worktree at /r/cofhe/.claude/worktrees/pro-1"))
         #expect(text.contains("write this JSON to /j/tmp/desk-step-1.json"))
-        #expect(text.contains(#"{"rounds": 2, "clean": true"#))
+        #expect(text.contains(#"{"clean": true"#))
         #expect(!DeskService.flowPrompt(.selfReview, pr: pr, worktree: nil, resultFile: "/f").contains("worktree at"))
     }
 
