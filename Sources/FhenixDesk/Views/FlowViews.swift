@@ -107,100 +107,149 @@ struct FlowSection: View {
     }
 }
 
-/// Your PR's open review threads, grouped by who started them — /pre-pr, CodeRabbit, people — the most severe first, each
-/// with a note of what you want done with it. Apply sends the noted ones to the PR's session, which makes the changes,
-/// replies in each thread and resolves the ones a review tool started; the app itself never writes to a thread.
+/// Your PR's open review threads as GitHub shows them, each on its code and with its whole conversation, grouped by who
+/// started them — /pre-pr, CodeRabbit, people — the most severe first. Under each, your instruction for the session; Apply,
+/// on top, sends the ones you wrote to the PR's session, which makes the changes, replies in each thread and resolves the
+/// ones a review tool started. The app itself never writes to a thread.
 struct ThreadsSection: View {
     var pr: PullRequest
     var model: AppModel
 
     var body: some View {
         let threads = pr.threads.ordered
-        PanelSection {
+        VStack(alignment: .leading, spacing: Theme.Space.m) {
             if threads.isEmpty {
-                Text("None open.").foregroundStyle(.secondary)
+                Text("No open threads.").foregroundStyle(.secondary)
             } else {
+                applyBar(count: threads.count)
                 ForEach(ReviewThread.Source.allCases) { source in
                     let group = threads.filter { $0.source == source }
                     if !group.isEmpty {
-                        Text("\(source.title) · \(group.count)").scaled(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                        Text("\(source.title) · \(group.count)").scaled(.callout.weight(.semibold)).foregroundStyle(.secondary)
                             .padding(.top, 4)
-                        ForEach(group) { ThreadRow(thread: $0, model: model) }
+                        ForEach(group) { ThreadCard(thread: $0, model: model) }
                     }
                 }
-                applyBar
             }
         }
     }
 
-    private var applyBar: some View {
+    private func applyBar(count: Int) -> some View {
         let noted = model.notedThreads(pr).count
         let blocker = model.sendBlocker(pr)
-        return HStack {
-            Text(noted == 0 ? "Write what you want done with a thread, then Apply." : "\(noted) \(noted == 1 ? "thread" : "threads") with a note")
-                .scaled(.caption).foregroundStyle(.secondary)
+        return HStack(spacing: Theme.Space.m) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("\(count) open \(count == 1 ? "thread" : "threads")").scaled(.body.weight(.semibold))
+                Text(noted == 0
+                    ? "Write an instruction under the threads you want handled, then Apply sends them to the PR's session."
+                    : "\(noted) with an instruction. Apply sends \(noted == 1 ? "it" : "them") to the PR's session.")
+                    .scaled(.caption).foregroundStyle(.secondary)
+            }
             Spacer()
             if noted > 0 { DisabledReason(text: blocker) }
-            Button("Apply") { model.applyThreadNotes(pr) }
-                .buttonStyle(.borderedProminent).handCursor()
-                .disabled(noted == 0 || blocker != nil)
-                .help("Sends the threads with a note to the PR's session: it makes the changes and pushes, replies in each thread, and resolves the ones /pre-pr or CodeRabbit started")
+            Button { model.applyThreadNotes(pr) } label: {
+                Label(noted == 0 ? "Apply" : "Apply \(noted)", systemImage: "paperplane.fill")
+            }
+            .buttonStyle(.borderedProminent).controlSize(.large).handCursor()
+            .disabled(noted == 0 || blocker != nil)
+            .help("Sends the threads with an instruction to the PR's session: it makes the changes and pushes, replies in each thread, and resolves the ones /pre-pr or CodeRabbit started")
         }
+        .padding(Theme.Space.m)
+        .background(Theme.raised, in: RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(noted > 0 ? Theme.accent : Theme.controlBorder))
     }
 }
 
-/// One open thread as a card: its severity, where it sits and who started it, the code it is on, the finding — its title,
-/// and its text a paragraph at a time — the way to it on GitHub, and your note.
-private struct ThreadRow: View {
+/// One open thread as GitHub draws it: the file and line on top, the diff down to the commented line, then the whole
+/// conversation, each comment in full; and at the bottom your instruction for the session.
+private struct ThreadCard: View {
     var thread: ReviewThread
     var model: AppModel
-    @State private var expanded = false
+    @FocusState private var editing: Bool
 
     var body: some View {
-        let finding = thread.finding
         let code = thread.codeLines()
-        let paragraphs = finding.text.components(separatedBy: "\n\n").filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
-        VStack(alignment: .leading, spacing: Theme.Space.s) {
-            HStack(spacing: 6) {
-                if let severity = thread.severity { Chip(text: severity.title, color: severity == .important ? .red : .yellow) }
-                Text(thread.place).scaled(.caption.monospaced()).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+        let note = model.threadNotes[thread.id] ?? ""
+        let hasNote = !note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: Theme.Space.s) {
+                Image(systemName: "doc.text").foregroundStyle(.secondary)
+                Text(thread.place).scaled(.callout.monospaced()).lineLimit(1).truncationMode(.middle).textSelection(.enabled)
                 if thread.isOutdated { Chip(text: "Outdated") }
                 Spacer(minLength: 4)
-                Text("@\(thread.author)").scaled(.caption).foregroundStyle(.secondary).lineLimit(1)
-                if thread.comments > 1 { Text("\(thread.comments) comments").scaled(.caption).foregroundStyle(.secondary) }
+                if let severity = thread.severity { Chip(text: severity.title, color: severity == .important ? .red : .yellow) }
                 Button { model.open(thread.url) } label: { Image(systemName: "arrow.up.right.square") }
                     .buttonStyle(.borderless).handCursor()
                     .help("Open the thread on GitHub")
                     .accessibilityLabel("Open the thread on GitHub")
             }
-            if !code.isEmpty { CodeSnippet(lines: code) }
-            if let title = finding.title {
-                Text(Markdown.inline(title)).scaled(.body.weight(.semibold)).textSelection(.enabled)
+            .padding(.horizontal, Theme.Space.m)
+            .padding(.vertical, Theme.Space.s)
+            .background(Theme.raised)
+            if !code.isEmpty {
+                Divider()
+                DiffLines(lines: code)
             }
-            if expanded {
-                MarkdownText(text: finding.text)
-            } else if let first = paragraphs.first {
-                Text(Markdown.inline(first)).scaled(.callout).foregroundStyle(.secondary).lineLimit(4).textSelection(.enabled)
+            Divider()
+            VStack(alignment: .leading, spacing: Theme.Space.m) {
+                CommentView(author: thread.author, createdAt: thread.createdAt, text: thread.body)
+                ForEach(thread.replies, id: \.self) { reply in
+                    Divider()
+                    CommentView(author: reply.author, createdAt: reply.createdAt, text: reply.body)
+                }
+                VStack(alignment: .leading, spacing: 6) {
+                    Label("Your instruction to the session", systemImage: "pencil.line")
+                        .scaled(.caption.weight(.semibold))
+                        .foregroundStyle(hasNote || editing ? Theme.accent : .secondary)
+                    TextField(
+                        "What should the session do with this thread? For example: fix it as suggested, or reply that it is on purpose because…",
+                        text: Binding(get: { note }, set: { model.threadNotes[thread.id] = $0 }), axis: .vertical
+                    )
+                    .textFieldStyle(.plain)
+                    .focused($editing)
+                    .lineLimit(3...10)
+                    .padding(Theme.Space.s)
+                    .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 6))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6)
+                            .strokeBorder(hasNote || editing ? Theme.accent : Theme.controlBorder, lineWidth: hasNote || editing ? 1.5 : 1)
+                    )
+                }
+                .padding(.top, 4)
             }
-            if paragraphs.count > 1 || (paragraphs.first?.count ?? 0) > 320 {
-                Button(expanded ? "Show less" : "Show more") { expanded.toggle() }
-                    .buttonStyle(.link).scaled(.caption)
-            }
-            TextField("What I want done with it", text: Binding(
-                get: { model.threadNotes[thread.id] ?? "" }, set: { model.threadNotes[thread.id] = $0 }
-            ), axis: .vertical)
-            .textFieldStyle(.roundedBorder)
-            .lineLimit(1...4)
+            .padding(Theme.Space.m)
         }
-        .padding(Theme.Space.m)
-        .background(Color.primary.opacity(0.03), in: RoundedRectangle(cornerRadius: 8))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
         .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Theme.controlBorder))
     }
 }
 
-/// The lines of the diff a thread is on, numbered as in the new file: added ones green, removed ones red, and the
-/// commented line, the last, marked.
-private struct CodeSnippet: View {
+/// One comment of a thread: who wrote it and when, then all of it, rendered, without the HTML and the collapsed
+/// boilerplate review tools wrap their comments in.
+private struct CommentView: View {
+    var author: String
+    var createdAt: Date?
+    var text: String
+
+    var body: some View {
+        HStack(alignment: .top, spacing: Theme.Space.s) {
+            Avatar(login: author.replacingOccurrences(of: "[bot]", with: ""), size: 24)
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 6) {
+                    Text(author).scaled(.callout.weight(.semibold))
+                    if let createdAt {
+                        Text("\(Format.age(createdAt)) ago").scaled(.caption).foregroundStyle(.secondary).help(Format.date(createdAt))
+                    }
+                }
+                MarkdownText(text: ReviewThread.clean(text))
+            }
+        }
+    }
+}
+
+/// The diff lines a thread is on, as GitHub shows them: the old and the new line number, the sign, and the code, added
+/// lines green and removed ones red across the whole row; the commented line, the last, marked on its edge.
+private struct DiffLines: View {
     var lines: [HunkLine]
 
     var body: some View {
@@ -208,29 +257,29 @@ private struct CodeSnippet: View {
             ForEach(lines.indices, id: \.self) { index in
                 let line = lines[index]
                 let commented = index == lines.count - 1
-                HStack(alignment: .top, spacing: Theme.Space.s) {
-                    Text(line.number.map(String.init) ?? "").foregroundStyle(.secondary).frame(width: 40, alignment: .trailing)
-                    Text(line.kind == .added ? "+" : line.kind == .removed ? "−" : " ").foregroundStyle(.secondary)
-                    Text(line.text.isEmpty ? " " : line.text).lineLimit(1).truncationMode(.tail)
+                HStack(alignment: .top, spacing: 0) {
+                    Rectangle().fill(commented ? Theme.accent : .clear).frame(width: 3)
+                    Text(line.old.map(String.init) ?? "").foregroundStyle(.secondary).frame(width: 44, alignment: .trailing)
+                    Text(line.number.map(String.init) ?? "").foregroundStyle(.secondary).frame(width: 44, alignment: .trailing)
+                    Text(line.kind == .added ? "+" : line.kind == .removed ? "−" : " ")
+                        .foregroundStyle(line.kind == .added ? .green : line.kind == .removed ? .red : .secondary)
+                        .frame(width: 22)
+                    Text(line.text.isEmpty ? " " : line.text).fixedSize(horizontal: false, vertical: true)
                     Spacer(minLength: 0)
                 }
-                .scaled(.caption.monospaced())
-                .padding(.horizontal, 6)
-                .padding(.vertical, 1)
-                .background(background(line.kind, commented: commented))
+                .scaled(.callout.monospaced())
+                .padding(.vertical, 2)
+                .background(background(line.kind))
             }
         }
         .padding(.vertical, 4)
-        .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 6))
         .textSelection(.enabled)
-        .accessibilityElement(children: .combine)
     }
 
-    private func background(_ kind: HunkLine.Kind, commented: Bool) -> Color {
-        if commented { return Theme.accent.opacity(0.18) }
+    private func background(_ kind: HunkLine.Kind) -> Color {
         switch kind {
-        case .added: return Color.green.opacity(0.12)
-        case .removed: return Color.red.opacity(0.12)
+        case .added: return Color.green.opacity(0.14)
+        case .removed: return Color.red.opacity(0.14)
         case .context: return .clear
         }
     }

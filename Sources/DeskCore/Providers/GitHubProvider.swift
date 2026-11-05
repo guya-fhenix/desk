@@ -272,7 +272,8 @@ public enum GitHubQueries {
     /// ponytail: the first 50 comments; read the evidence by REST if a PR ever has more before it.
     public static let mineSearchQuery = searchQuery(threads: """
       reviewThreads(first: 100) { nodes { id isResolved isOutdated path line originalLine
-        comments(first: 1) { totalCount nodes { author { __typename login } body url diffHunk } } } }
+        comments(first: 1) { totalCount nodes { author { __typename login } body url diffHunk createdAt } }
+        replies: comments(first: 20) { nodes { author { __typename login } body url createdAt } } } }
       comments(first: 50) { nodes { author { __typename login } body } }
       """)
 
@@ -447,7 +448,12 @@ public enum GitHubDecoding {
                 return ReviewThread(
                     id: id, path: path, line: thread.line ?? thread.originalLine, isOutdated: thread.isOutdated ?? false,
                     url: first.url ?? node.url, author: first.author?.name ?? "ghost", body: body,
-                    comments: thread.comments?.totalCount ?? 1, diffHunk: first.diffHunk
+                    comments: thread.comments?.totalCount ?? 1, diffHunk: first.diffHunk, createdAt: first.createdAt,
+                    replies: (thread.replies?.nodes ?? []).dropFirst().compactMap { reply in
+                        reply.body.map {
+                            ReviewThread.Comment(author: reply.author?.name ?? "ghost", body: $0, createdAt: reply.createdAt, url: reply.url ?? node.url)
+                        }
+                    }
                 )
             },
             // The author's, as the review gate reads it: anyone can paste the marker into a comment.
@@ -646,8 +652,10 @@ public enum GitHubDecoding {
         var path: String?
         var line: Int?
         var originalLine: Int?
-        /// The first comment only, for who started the thread and what it says.
+        /// The first comment only, for who started the thread, what it says and the code it is on.
         var comments: ThreadComments?
+        /// Every comment, the first included, without the diff each repeats.
+        var replies: ThreadComments?
     }
     private struct ThreadComments: Decodable {
         var totalCount: Int?
@@ -658,6 +666,7 @@ public enum GitHubDecoding {
         var body: String?
         var url: String?
         var diffHunk: String?
+        var createdAt: Date?
     }
 
     private struct Commits: Decodable { var nodes: [CommitNode] }

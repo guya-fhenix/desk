@@ -194,6 +194,7 @@ unlabeled pull-request events, preserving the existing concurrency behavior.
         let thread = ReviewThread(id: "t", path: "ci.yml", line: 15, url: "u", author: "me", body: "x", diffHunk: hunk)
         let lines = thread.codeLines()
         #expect(lines.map(\.number) == [12, nil, 13, 14, 15])
+        #expect(lines.map(\.old) == [10, 11, nil, nil, 12])
         #expect(lines.map(\.kind) == [.context, .removed, .added, .added, .context])
         #expect(lines.last?.text == "  push:")
         #expect(thread.codeLines(last: 2).map(\.number) == [14, 15])

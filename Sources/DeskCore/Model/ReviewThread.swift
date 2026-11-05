@@ -35,10 +35,30 @@ public struct ReviewThread: Codable, Sendable, Hashable, Identifiable {
     /// The diff around the line, as GitHub keeps it with the first comment: its `@@` header, then the hunk down to the
     /// commented line. Nil on a comment on the whole file.
     public var diffHunk: String?
+    /// When the first comment was written.
+    public var createdAt: Date?
+    /// The comments after the first, oldest first.
+    public var replies: [Comment]
+
+    /// One comment in a thread after the first.
+    public struct Comment: Codable, Sendable, Hashable {
+        /// A bot's with its `[bot]`.
+        public var author: String
+        public var body: String
+        public var createdAt: Date?
+        public var url: String
+
+        public init(author: String, body: String, createdAt: Date? = nil, url: String) {
+            self.author = author
+            self.body = body
+            self.createdAt = createdAt
+            self.url = url
+        }
+    }
 
     public init(
         id: String, path: String, line: Int? = nil, isOutdated: Bool = false, url: String, author: String, body: String,
-        comments: Int = 1, diffHunk: String? = nil
+        comments: Int = 1, diffHunk: String? = nil, createdAt: Date? = nil, replies: [Comment] = []
     ) {
         self.id = id
         self.path = path
@@ -49,6 +69,8 @@ public struct ReviewThread: Codable, Sendable, Hashable, Identifiable {
         self.body = body
         self.comments = comments
         self.diffHunk = diffHunk
+        self.createdAt = createdAt
+        self.replies = replies
     }
 
     public var source: Source {
@@ -237,33 +259,38 @@ extension ReviewThread {
     }
 }
 
-/// One line of a diff hunk, as a thread shows the code it is on.
+/// One line of a diff hunk, as a thread shows the code it is on, with its numbers in both files as GitHub shows them.
 public struct HunkLine: Sendable, Hashable {
     public enum Kind: Sendable, Hashable { case context, added, removed }
     public var kind: Kind
+    /// Its number in the old file; nil for an added line.
+    public var old: Int?
     /// Its number in the new file; nil for a removed line.
     public var number: Int?
     public var text: String
 
-    /// The lines after a `@@ -a,b +c,d @@` header, numbered from `c`.
+    /// The lines after a `@@ -a,b +c,d @@` header, numbered from `a` in the old file and `c` in the new one.
     public static func parse(_ hunk: String) -> [HunkLine] {
         var lines: [HunkLine] = []
-        var next = 1
+        var old = 1, new = 1
         for raw in hunk.split(separator: "\n", omittingEmptySubsequences: false) {
             if raw.hasPrefix("@@") {
-                if let match = raw.firstMatch(of: /\+(\d+)/), let start = Int(match.output.1) { next = start }
+                if let match = raw.firstMatch(of: /-(\d+)(?:,\d+)? \+(\d+)/), let a = Int(match.output.1), let c = Int(match.output.2) {
+                    old = a
+                    new = c
+                }
                 continue
             }
             let text = String(raw.dropFirst())
             switch raw.first {
             case "+":
-                lines.append(HunkLine(kind: .added, number: next, text: text)); next += 1
+                lines.append(HunkLine(kind: .added, old: nil, number: new, text: text)); new += 1
             case "-":
-                lines.append(HunkLine(kind: .removed, number: nil, text: text))
+                lines.append(HunkLine(kind: .removed, old: old, number: nil, text: text)); old += 1
             case "\\":
                 continue // "\ No newline at end of file"
             default:
-                lines.append(HunkLine(kind: .context, number: next, text: text)); next += 1
+                lines.append(HunkLine(kind: .context, old: old, number: new, text: text)); old += 1; new += 1
             }
         }
         return lines
