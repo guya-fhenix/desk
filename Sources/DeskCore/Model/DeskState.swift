@@ -43,13 +43,11 @@ public struct DeskState: Sendable {
     /// Claude review runs this session, by PR url. Where each review stands is read off the PR itself.
     public var reviewRuns: [String: ReviewRun] = [:]
     public var tickets: [Ticket] = []
-    /// Claude Code's background sessions that mention a PR. Local files, so they ride the git poll
-    /// rather than being a polled `Source` of their own.
+    /// Claude Code's background sessions that mention a PR or were started on a ticket, newest first. Local files, so
+    /// they ride the git poll rather than being a polled `Source` of their own.
     public var claudeJobs: [ClaudeJob] = []
     /// Your Claude plan's limits, for the sidebar. Rides the git poll as well.
     public var claudeLimits: [ClaudeLimit] = []
-    /// Sessions carried from a ticket to the merge, saved in `flows.json`.
-    public var flows: [Flow] = []
     /// Whether each clone's sessions can run the team review skill, by repo root. Read with the git poll.
     public var reviewSkills: [String: ReviewSkill] = [:]
     public var errors: [Source: String] = [:]
@@ -197,7 +195,7 @@ public struct DeskState: Sendable {
         nudges = NudgeEngine.nudges(NudgeInput(
             now: now, login: login, config: config, mine: mine, reviewRequests: reviewRequests,
             openHeadsByRepo: Linker.openHeadsByRepo(openAll), defaultBranches: defaultBranches, readyReviews: readyReviews,
-            flows: flows, sessionStates: Dictionary(claudeJobs.map { ($0.id, $0.state) }, uniquingKeysWith: { first, _ in first })
+            sessions: claudeJobs
         ))
     }
 
@@ -218,16 +216,25 @@ public struct DeskState: Sendable {
         return claudeJobs.filter { $0.prKeys.contains(key) }
     }
 
-    public func job(id: String) -> ClaudeJob? { claudeJobs.first { $0.id == id } }
+    /// The session that carries this PR through the flow: the newest that worked on it. A PR with one is in the flow.
+    public func session(for pr: PullRequest) -> ClaudeJob? { claudeJobs(for: pr).first }
 
-    /// The open PR of yours this flow carries.
-    public func pullRequest(of flow: Flow) -> PullRequest? { flow.prURL.flatMap { url in mine.first { $0.url == url } } }
+    /// Where this PR of yours stands in the flow; nil while no session works on it.
+    public func stage(for pr: PullRequest) -> FlowStage? { session(for: pr).map { FlowStage.of(pr, session: $0) } }
 
-    /// The flow this PR is in, if any.
-    public func flow(for pr: PullRequest) -> Flow? { flows.first { $0.prURL == pr.url } }
+    /// The sessions started on this ticket, newest first.
+    public func sessions(forTicket key: String) -> [ClaudeJob] { claudeJobs.filter { $0.ticketKey == key } }
 
-    /// The flows started from this ticket, oldest first.
-    public func flows(forTicket key: String) -> [Flow] { flows.filter { $0.ticketKey == key } }
+    /// The PR of yours, open or merged, that a ticket's session works on: one that names the ticket first.
+    public func pullRequest(of session: ClaudeJob) -> PullRequest? {
+        let linked = (mine + (github?.mergedRecent ?? [])).filter { ClaudeJobs.prKey($0.url).map(session.prKeys.contains) == true }
+        return linked.first { pr in session.ticketKey.map { ticketKeys[pr.url]?.contains($0) == true } ?? false } ?? linked.first
+    }
+
+    /// A ticket session's stage: its PR's, or Working until it has one.
+    public func stage(of session: ClaudeJob) -> FlowStage {
+        pullRequest(of: session).map { FlowStage.of($0, session: session) } ?? .working
+    }
 
     public func rebaseReason(_ pr: PullRequest) -> RebaseReason? {
         let openHeads = Linker.openHeadsByRepo(github?.allOpen ?? [])[pr.repoName] ?? []
@@ -295,7 +302,7 @@ extension DeskState {
     public var ticketsToStart: [Ticket] {
         let named = Set(ticketKeys.values.joined())
         return openTickets.filter { ticket in
-            ticket.placement == .sprint && ticket.category == .todo && !named.contains(ticket.key) && flows(forTicket: ticket.key).isEmpty
+            ticket.placement == .sprint && ticket.category == .todo && !named.contains(ticket.key) && sessions(forTicket: ticket.key).isEmpty
         }
     }
 }

@@ -20,8 +20,13 @@ public struct ClaudeJob: Sendable, Hashable, Identifiable {
     public var updatedAt: Date
     /// The full id `claude --resume` takes, which is how the app sends the session its next instruction.
     public var sessionId: String?
+    /// The Jira key the prompt it started from names first: a session started on a ticket, before it has a PR.
+    public var ticketKey: String?
 
-    public init(id: String, name: String, state: String, cwd: String, prKeys: Set<String>, updatedAt: Date, sessionId: String? = nil) {
+    public init(
+        id: String, name: String, state: String, cwd: String, prKeys: Set<String>, updatedAt: Date, sessionId: String? = nil,
+        ticketKey: String? = nil
+    ) {
         self.id = id
         self.name = name
         self.state = state
@@ -29,9 +34,15 @@ public struct ClaudeJob: Sendable, Hashable, Identifiable {
         self.prKeys = prKeys
         self.updatedAt = updatedAt
         self.sessionId = sessionId
+        self.ticketKey = ticketKey
     }
 
     public var isRunning: Bool { state == "working" }
+    /// In the middle of a turn: working, or asking you something.
+    public var isBusy: Bool { isRunning || state == "blocked" }
+    /// Done with its turn: the one state an instruction may be sent in. Stopping a session that works or asks would cut
+    /// it off.
+    public var isIdle: Bool { state == "done" }
 }
 
 /// Reads the background sessions off disk. Only the small per-job state files, never a transcript: the
@@ -39,10 +50,10 @@ public struct ClaudeJob: Sendable, Hashable, Identifiable {
 public enum ClaudeJobs {
     public static let home = ("~/.claude" as NSString).expandingTildeInPath
 
-    /// Background sessions that mention a pull request, newest first. Sessions that mention none are
-    /// dropped — nothing on a PR screen could show them — unless `keeping` names them: a flow's session is
-    /// shown on its ticket before it has opened anything.
-    public static func scan(home: String = ClaudeJobs.home, keeping kept: Set<String> = []) -> [ClaudeJob] {
+    /// Background sessions that mention a pull request, or whose prompt names a ticket, newest first. The rest are
+    /// dropped: nothing on a PR or ticket screen could show them. A ticket's session is shown on the ticket before it
+    /// has opened anything.
+    public static func scan(home: String = ClaudeJobs.home, tickets: TicketKeyMatcher = TicketKeyMatcher(projectKeys: [])) -> [ClaudeJob] {
         let root = URL(fileURLWithPath: home).appendingPathComponent("jobs")
         guard let ids = try? FileManager.default.contentsOfDirectory(atPath: root.path) else { return [] }
         let decoder = JSON.decoder()
@@ -50,10 +61,11 @@ public enum ClaudeJobs {
             let file = root.appendingPathComponent(id).appendingPathComponent("state.json")
             guard let data = try? Data(contentsOf: file), let state = try? decoder.decode(JobState.self, from: data) else { return nil }
             let keys = state.prKeys
-            guard !keys.isEmpty || kept.contains(id) else { return nil }
+            let ticketKey = state.intent.flatMap { tickets.keys(in: $0).first }
+            guard !keys.isEmpty || ticketKey != nil else { return nil }
             return ClaudeJob(
                 id: id, name: state.label(fallback: id), state: state.state ?? "unknown", cwd: state.cwd ?? "",
-                prKeys: keys, updatedAt: state.updatedAt ?? .distantPast, sessionId: state.sessionId
+                prKeys: keys, updatedAt: state.updatedAt ?? .distantPast, sessionId: state.sessionId, ticketKey: ticketKey
             )
         }
         .sorted { $0.updatedAt > $1.updatedAt }

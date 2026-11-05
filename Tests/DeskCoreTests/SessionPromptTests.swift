@@ -122,15 +122,6 @@ import Testing
         #expect(!DeskService.flowPrompt(.selfReview, pr: pr, worktree: nil, resultFile: "/f").contains("worktree at"))
     }
 
-    /// A draft is rebased; once reviewers are on it the base is merged in, so their comments stay put.
-    @Test func aConflictIsRebasedWhileADraftAndMergedAfter() {
-        let draft = Fixtures.pr(number: 11, head: "h", merge: .dirty, draft: true)
-        let ready = Fixtures.pr(number: 11, head: "h", merge: .dirty)
-        #expect(DeskService.flowPrompt(.fixConflict, pr: draft, worktree: nil, resultFile: "/f").contains("--force-with-lease"))
-        let merging = DeskService.flowPrompt(.fixConflict, pr: ready, worktree: nil, resultFile: "/f")
-        #expect(merging.contains("merge origin/master into it rather than rebasing") && !merging.contains("--force-with-lease"))
-    }
-
     /// A session that entered a worktree keeps its transcript under that worktree's project folder.
     @Test func aSessionIsResumedFromTheFolderThatHoldsItsTranscript() throws {
         let home = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent(UUID().uuidString)

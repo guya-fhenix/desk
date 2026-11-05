@@ -272,10 +272,10 @@ private struct TicketInspector: View {
             if let drift = model.state.drift(forKey: ticket.key) {
                 PanelSection("Suggested move") { MoveSuggestion(drift: drift, model: model) }
             }
-            let flows = model.state.flows(forTicket: ticket.key)
-            if !flows.isEmpty {
+            let sessions = model.state.sessions(forTicket: ticket.key)
+            if !sessions.isEmpty {
                 PanelSection("Sessions") {
-                    ForEach(flows) { flow in FlowRow(flow: flow, model: model) }
+                    ForEach(sessions) { SessionRow(session: $0, model: model) }
                     if let error = model.sessionErrors[ticket.key] {
                         Text(error).scaled(.caption).foregroundStyle(.red).textSelection(.enabled)
                     }
@@ -407,7 +407,7 @@ struct TicketPage: View {
 
     var body: some View {
         // As on a PR page: the icon's middle on the middle of the title's capitals.
-        let flows = model.state.flows(forTicket: ticket.key)
+        let sessions = model.state.sessions(forTicket: ticket.key)
         DetailPage(back: back, onBack: onBack) {
             EditableTitle(prefix: ticket.key, title: ticket.summary, what: "the ticket", editable: true) {
                 await model.editTicket(ticket, summary: $0)
@@ -456,9 +456,9 @@ struct TicketPage: View {
                     }
                 }
             }
-            if !flows.isEmpty {
+            if !sessions.isEmpty {
                 SideCard(title: "Sessions") {
-                    ForEach(flows) { flow in FlowRow(flow: flow, model: model) }
+                    ForEach(sessions) { SessionRow(session: $0, model: model) }
                 }
             }
             if let drift = model.state.drift(forKey: ticket.key) {
@@ -468,25 +468,24 @@ struct TicketPage: View {
     }
 }
 
-/// One session started from this ticket: where its flow stands, the PR once it has one, and the way in.
-private struct FlowRow: View {
-    var flow: Flow
+/// One session started on this ticket: where its flow stands, the PR once it has one, and the way in.
+private struct SessionRow: View {
+    var session: ClaudeJob
     var model: AppModel
 
     var body: some View {
-        let job = model.state.job(id: flow.jobId)
-        let pr = model.state.mine.first { $0.url == flow.prURL }
+        let pr = model.state.pullRequest(of: session)
         LabeledContent {
-            Button("Attach") { model.attach(jobId: flow.jobId, errorKey: flow.ticketKey ?? flow.jobId) }.controlSize(.small)
+            Button("Attach") { model.attach(jobId: session.id, errorKey: session.ticketKey ?? session.id) }.controlSize(.small)
         } label: {
             HStack(spacing: 6) {
-                StageChip(stage: flow.stage).fixedSize()
+                StageChip(stage: model.state.stage(of: session)).fixedSize()
                 if let pr {
                     Button { model.open(pr.url) } label: { Text(verbatim: "\(pr.repoName)#\(pr.number)") }.buttonStyle(.link).handCursor()
                 } else {
-                    Text(URL(fileURLWithPath: flow.repoRoot).lastPathComponent)
+                    Text(URL(fileURLWithPath: session.cwd).lastPathComponent)
                 }
-                if let job { Text(job.state).scaled(.caption).foregroundStyle(.secondary) }
+                Text(session.state).scaled(.caption).foregroundStyle(.secondary)
             }
         }
     }

@@ -42,7 +42,7 @@ struct StageChip: View {
     var stage: FlowStage
 
     var body: some View {
-        Chip(text: stage.title, color: stage.waitsOnYou ? .orange : stage == .merged ? .purple : .blue)
+        Chip(text: stage.title, color: stage.waitsOnYou ? .orange : stage == .merged ? .purple : stage == .closed ? .secondary : .blue)
     }
 }
 
@@ -999,8 +999,8 @@ private struct IconButtonBody: View {
 }
 
 /// Where the PR's background session stands, in place of the press that starts one: what it is doing, and a click
-/// attaches to it; its menu has every session on the PR and, outside a flow, the one that carries the PR through it.
-/// With no session, the press to start one.
+/// attaches to it; its menu has every session on the PR, the newest first, which is the one that carries the PR through
+/// the flow. With no session, the press to start one.
 struct SessionStatus: View {
     var pr: PullRequest
     var model: AppModel
@@ -1011,10 +1011,6 @@ struct SessionStatus: View {
             Menu {
                 ForEach(jobs) { job in
                     Button("Attach to \(job.name) — \(job.state)") { model.attach(job, for: pr) }
-                }
-                if model.state.flow(for: pr) == nil {
-                    Divider()
-                    Button("Use for Flow") { model.joinFlow(newest, pr) }
                 }
             } label: {
                 // One text and an icon: a menu button keeps no more of its label than that.

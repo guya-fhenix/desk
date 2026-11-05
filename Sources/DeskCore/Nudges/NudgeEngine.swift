@@ -23,14 +23,13 @@ public struct NudgeInput: Sendable {
     public var openHeadsByRepo: [String: Set<String>]
     public var defaultBranches: [String: String]
     public var readyReviews: [ReadyReview]
-    public var flows: [Flow]
-    /// Each flow session's state, by job id.
-    public var sessionStates: [String: String]
+    /// The background sessions, newest first: one on a PR of yours puts it in the flow.
+    public var sessions: [ClaudeJob]
 
     public init(
         now: Date, login: String, config: DeskConfig, mine: [PullRequest], reviewRequests: [PullRequest],
         openHeadsByRepo: [String: Set<String>], defaultBranches: [String: String], readyReviews: [ReadyReview] = [],
-        flows: [Flow] = [], sessionStates: [String: String] = [:]
+        sessions: [ClaudeJob] = []
     ) {
         self.now = now
         self.login = login
@@ -40,25 +39,28 @@ public struct NudgeInput: Sendable {
         self.openHeadsByRepo = openHeadsByRepo
         self.defaultBranches = defaultBranches
         self.readyReviews = readyReviews
-        self.flows = flows
-        self.sessionStates = sessionStates
+        self.sessions = sessions
+    }
+
+    /// The session carrying this PR through the flow, as `DeskState.session(for:)` picks it.
+    func session(for pr: PullRequest) -> ClaudeJob? {
+        guard let key = ClaudeJobs.prKey(pr.url) else { return nil }
+        return sessions.first { $0.prKeys.contains(key) }
     }
 }
 
 public enum NudgeEngine {
     public static func nudges(_ input: NudgeInput) -> [Nudge] {
         var nudges: [Nudge] = []
-        // A flow that is not paused fixes red CI itself, proposes fixes for change requests and offers Merge, so those
-        // three would only repeat what its own nudges say.
-        let carried = Set(input.flows.filter { !$0.paused && $0.stage != .merged }.compactMap(\.prURL))
 
         for pr in input.mine where pr.state == .open && !pr.isDraft {
             let label = "\(pr.repoName)#\(pr.number)"
-            let inFlow = carried.contains(pr.url)
-            if pr.checks.isRed && !inFlow {
+            // A PR in the flow says Merge on its own nudge.
+            let inFlow = input.session(for: pr) != nil
+            if pr.checks.isRed {
                 nudges.append(Nudge(id: "ci:\(pr.url):\(pr.headSha)", kind: .ciFailed, severity: .urgent, title: "CI failed on \(label)", detail: pr.title, url: pr.url))
             }
-            if pr.reviewDecision == .changesRequested && !inFlow {
+            if pr.reviewDecision == .changesRequested {
                 let latest = pr.reviews.filter { $0.state == "CHANGES_REQUESTED" }.map(\.submittedAt).max() ?? pr.updatedAt
                 nudges.append(Nudge(id: "changes:\(pr.url):\(latest.timeIntervalSince1970)", kind: .changesRequested, severity: .warning, title: "Changes requested on \(label)", detail: pr.title, url: pr.url))
             }
@@ -93,41 +95,39 @@ public enum NudgeEngine {
         return nudges.sorted { ($0.severity, $0.title) > ($1.severity, $1.title) }
     }
 
-    /// The flow's presses that wait on you, and the sessions that do. Keyed by stage and step, so each new wait is
-    /// news once.
+    /// The flow's presses that wait on you, and the sessions that do: a session on one of your PRs, or one started on a
+    /// ticket. A stage's nudge is keyed by the PR head and an ask by when the session last moved, so each new wait is news
+    /// once.
     private static func flowNudges(_ input: NudgeInput) -> [Nudge] {
-        input.flows.filter { $0.stage != .merged }.flatMap { flow -> [Nudge] in
-            let pr = flow.prURL.flatMap { url in input.mine.first { $0.url == url } }
-            let label = pr.map { "\($0.repoName)#\($0.number)" } ?? flow.ticketKey ?? flow.jobId
-            let detail = pr?.title ?? "Session started from \(flow.ticketKey ?? "a ticket")"
-            var nudges: [Nudge] = []
-            if input.sessionStates[flow.jobId] == "blocked" {
-                nudges.append(Nudge(
-                    id: "flow-ask:\(flow.jobId):\(flow.step)", kind: .sessionNeedsYou, severity: .warning,
-                    title: "\(label): the session is asking you something", detail: detail, url: pr?.url, jobId: flow.jobId
-                ))
-            } else if let note = flow.note {
-                nudges.append(Nudge(
-                    id: "flow-note:\(flow.jobId):\(flow.step):\(flow.paused)", kind: .sessionNeedsYou, severity: .warning,
-                    title: "\(label): \(flow.paused ? "the flow is paused" : "the flow needs a look")", detail: note,
-                    url: pr?.url, jobId: flow.jobId
-                ))
-            }
-            if flow.stage.waitsOnYou, flow.pending == nil, flow.awaiting == nil, let pr {
-                let title: String
-                switch flow.stage {
-                case .draft: title = "\(label) is a draft waiting for your approval"
-                case .fixesToCheck: title = "\(label): self-review done, check its fixes"
-                case .fixesProposed: title = "\(label): \(flow.proposals.count) \(flow.proposals.count == 1 ? "fix" : "fixes") proposed"
-                default: title = "\(label) is approved: merge it"
-                }
-                // A warning, not info: this is the press only you can make, so it is counted and coloured as one.
-                nudges.append(Nudge(
-                    id: "flow:\(flow.jobId):\(flow.stage.rawValue):\(flow.step)", kind: .flowWaiting, severity: .warning,
-                    title: title, detail: pr.title, url: pr.url, jobId: flow.jobId
-                ))
-            }
-            return nudges
+        var nudges: [Nudge] = []
+        for session in input.sessions where session.state == "blocked" {
+            let pr = input.mine.first { ClaudeJobs.prKey($0.url).map(session.prKeys.contains) == true }
+            // A session on a teammate's PR, opened from Reviews, is not in the flow.
+            guard let label = pr.map({ "\($0.repoName)#\($0.number)" }) ?? session.ticketKey else { continue }
+            nudges.append(Nudge(
+                id: "flow-ask:\(session.id):\(session.updatedAt.timeIntervalSince1970)", kind: .sessionNeedsYou, severity: .warning,
+                title: "\(label): the session is asking you something", detail: pr?.title ?? "Session started from \(label)",
+                url: pr?.url, jobId: session.id
+            ))
         }
+        for pr in input.mine where pr.state == .open {
+            guard let session = input.session(for: pr) else { continue }
+            let stage = FlowStage.of(pr, session: session)
+            let label = "\(pr.repoName)#\(pr.number)"
+            let title: String
+            switch stage {
+            case .draft: title = "\(label) is a draft waiting for your approval"
+            case .fixesToCheck: title = "\(label): self-review done, check its fixes"
+            case .threadsToReview: title = "\(label): \(pr.unresolvedThreads) open \(pr.unresolvedThreads == 1 ? "thread" : "threads") to review"
+            case .approved: title = "\(label) is approved: merge it"
+            default: continue
+            }
+            // A warning, not info: this is the press only you can make, so it is counted and coloured as one.
+            nudges.append(Nudge(
+                id: "flow:\(pr.url):\(stage.rawValue):\(pr.headSha)", kind: .flowWaiting, severity: .warning,
+                title: title, detail: pr.title, url: pr.url, jobId: session.id
+            ))
+        }
+        return nudges
     }
 }

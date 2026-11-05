@@ -264,9 +264,8 @@ public enum GitHubQueries {
     }
     """
 
-    public static let searchQuery = searchQuery(
-        threads: "reviewThreads(first: 100) { nodes { id isResolved comments(first: 1) { nodes { author { __typename login } } } } }"
-    )
+    /// The open threads are only counted here.
+    public static let searchQuery = searchQuery(threads: "reviewThreads(first: 100) { nodes { isResolved } }")
 
     /// Your own PRs' search: each thread in full, for the PR page's list, and the comments the /pre-pr evidence is one
     /// of. /pre-pr edits its one evidence comment in place, and posts it while the PR is a draft, so it is early on.
@@ -434,7 +433,6 @@ public enum GitHubDecoding {
                 return ReviewRequestEvent(createdAt: createdAt, reviewer: reviewer.displayName, isTeam: reviewer.typename == "Team")
             },
             unresolvedThreads: node.reviewThreads?.nodes.filter { !$0.isResolved }.count ?? 0,
-            resolvedThreads: Set(node.reviewThreads?.nodes.filter(\.isResolved).compactMap(\.id) ?? []),
             pendingReview: node.pending?.nodes.first.map { review in
                 PendingReview(
                     id: review.id, commitId: review.commit?.oid ?? "", comments: review.comments.totalCount,
@@ -442,7 +440,6 @@ public enum GitHubDecoding {
                 )
             },
             labels: node.labels?.nodes.map(\.name) ?? [],
-            codeRabbitThreads: node.reviewThreads?.nodes.filter { !$0.isResolved && $0.starter == PullRequest.codeRabbit }.count ?? 0,
             threads: (node.reviewThreads?.nodes ?? []).filter { !$0.isResolved }.compactMap { thread in
                 // Only your own PRs' search asks for the path and the comment.
                 guard let id = thread.id, let path = thread.path, let first = thread.comments?.nodes.first, let body = first.body
@@ -651,7 +648,6 @@ public enum GitHubDecoding {
         var originalLine: Int?
         /// The first comment only, for who started the thread and what it says.
         var comments: ThreadComments?
-        var starter: String? { comments?.nodes.first?.author?.name }
     }
     private struct ThreadComments: Decodable {
         var totalCount: Int?

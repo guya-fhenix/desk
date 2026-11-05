@@ -346,7 +346,7 @@ struct PullRequestPage: View {
                 DetailsCard(pr: pr)
             } else {
                 ActionsCard(pr: pr, model: model)
-                if let flow = model.state.flow(for: pr) { FlowSection(flow: flow, pr: pr, model: model).sideCard() }
+                if let session = model.state.session(for: pr) { FlowSection(pr: pr, session: session, model: model).sideCard() }
                 ReviewersCard(pr: pr)
                 SideCard(title: "Threads") {
                     if pr.unresolvedThreads == 0 {

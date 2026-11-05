@@ -23,7 +23,6 @@ public enum DeskError: Error, CustomStringConvertible, Sendable {
 /// Owns the providers and the on-disk caches. The app and the doctor share it.
 public actor DeskService {
     public static let configFile = "config.json"
-    public static let flowsFile = "flows.json"
 
     private var config: DeskConfig
     private let support: AppSupport
@@ -88,9 +87,8 @@ public actor DeskService {
         await git.scan(roots: config.expandedRepoRoots, slugs: config.trackedRepoSlugs)
     }
 
-    /// Claude Code's background sessions, plus the flows' own whatever they mention. Small local files, read
-    /// with the git scan.
-    public func claudeJobs(keeping ids: Set<String> = []) -> [ClaudeJob] { ClaudeJobs.scan(keeping: ids) }
+    /// Claude Code's background sessions on a PR or a ticket. Small local files, read with the git scan.
+    public func claudeJobs() -> [ClaudeJob] { ClaudeJobs.scan(tickets: TicketKeyMatcher(projectKeys: config.jiraProjectKeys)) }
 
     /// Your Claude plan's limits, for the sidebar. A local file too, read with the git scan.
     public func claudeLimits() -> [ClaudeLimit] { ClaudeLimits.read() }
@@ -223,13 +221,10 @@ public actor DeskService {
     }
 
     /// Where the session writes the result of instruction `step`: its own scratch folder, which it may always
-    /// write to, and which goes when the session is deleted.
+    /// write to, and which goes when the session is deleted. The app reads nothing from it — the stage follows the
+    /// session and the PR — but writing it is the instruction's last step, which ends a `/goal`.
     public static func resultFile(jobId: String, step: Int, home: String = ClaudeJobs.home) -> String {
         "\(home)/jobs/\(jobId)/tmp/desk-step-\(step).json"
-    }
-
-    public static func result(jobId: String, step: Int) -> Data? {
-        FileManager.default.contents(atPath: resultFile(jobId: jobId, step: step))
     }
 
     /// The directory to resume a session from: the one whose Claude Code project folder holds its transcript. A
@@ -242,24 +237,14 @@ public actor DeskService {
     }
 
     /// The text of one flow instruction for this PR. `worktree` is where its branch is checked out, if anywhere.
-    /// `fixes` is the approved list the apply instruction carries.
     public static func flowPrompt(
-        _ prompt: FlowPrompt, pr: PullRequest, worktree: String?, resultFile: String, fixes: String = "",
-        config: DeskConfig = DeskConfig()
+        _ id: PromptID, pr: PullRequest, worktree: String?, resultFile: String, config: DeskConfig = DeskConfig()
     ) -> String {
         let values = [
             "repo": pr.repo, "number": String(pr.number), "title": pr.title, "url": pr.url, "baseRef": pr.baseRef,
-            "headRef": pr.headRef, "worktree": worktree ?? "", "resultFile": resultFile, "fixes": fixes,
+            "headRef": pr.headRef, "worktree": worktree ?? "", "resultFile": resultFile,
         ]
-        let id: PromptID
-        switch prompt {
-        case .selfReview: id = .selfReview
-        case .proposeFixes: id = .proposeFixes
-        case .applyFixes: id = .applyFixes
-        case .fixConflict: id = .fixConflict
-        case .fixChecks: id = .fixChecks
-        }
-        return config.prompt(id, values, when: ["worktree": worktree != nil, "draft": pr.isDraft])
+        return config.prompt(id, values, when: ["worktree": worktree != nil])
     }
 
     public func markReady(_ pr: PullRequest) async throws {

@@ -45,14 +45,17 @@ import Testing
         #expect(state.claudeJobs(for: Fixtures.pr(number: 5, head: "b")).isEmpty)
     }
 
-    /// A flow's session is kept before it has touched any PR, so its ticket can show it.
-    @Test func scanKeepsTheSessionsItIsAskedToEvenWithoutAPullRequest() throws {
+    /// A ticket's session is kept before it has touched any PR, by the key in the prompt it started from, so its ticket
+    /// can show it.
+    @Test func scanKeepsTicketSessionsByTheKeyInTheirPrompt() throws {
         let home = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: home) }
         try job(home, id: "dddddddd", body: #"{"state": "working", "intent": "Plan PRO-9 — a thing", "cwd": "/r/cofhe"}"#)
         try job(home, id: "eeeeeeee", body: #"{"state": "done", "intent": "unrelated", "cwd": "/r/cofhe"}"#)
         #expect(ClaudeJobs.scan(home: home.path).isEmpty)
-        #expect(ClaudeJobs.scan(home: home.path, keeping: ["dddddddd"]).map(\.id) == ["dddddddd"])
+        let jobs = ClaudeJobs.scan(home: home.path, tickets: TicketKeyMatcher(projectKeys: ["PRO"]))
+        #expect(jobs.map(\.id) == ["dddddddd"])
+        #expect(jobs.first?.ticketKey == "PRO-9")
     }
 
     @Test func scanSurvivesAMissingOrUnreadableJobsDirectory() {

@@ -67,12 +67,20 @@ enum Doctor {
 
         section("Background sessions")
         state.claudeJobs = await service.claudeJobs()
-        if state.claudeJobs.isEmpty { print("  no background Claude session mentions a pull request") }
+        if state.claudeJobs.isEmpty { print("  no background Claude session mentions a pull request or a ticket") }
         for job in state.claudeJobs {
-            print("  \(pad(job.id, 10)) \(pad(job.state, 8)) \(pad(job.prKeys.sorted().joined(separator: " "), 34)) \(job.name.prefix(40))")
+            let about = job.prKeys.isEmpty ? job.ticketKey ?? "" : job.prKeys.sorted().joined(separator: " ")
+            print("  \(pad(job.id, 10)) \(pad(job.state, 8)) \(pad(about, 34)) \(job.name.prefix(40))")
         }
 
         state.recompute(now: now)
+
+        // Worked out here as the app does on every refresh: nothing of it is saved.
+        section("Flow")
+        for pr in state.mine {
+            guard let stage = state.stage(for: pr) else { continue }
+            print("  \(pad("\(pr.repoName)#\(pr.number)", 22)) \(pad(stage.title, 18)) \(pr.approvalStatus ?? "no review gate")")
+        }
 
         section("Ready to run (\(state.reviewsToRun.count))")
         if state.reviewsToRun.isEmpty { print("  nothing waiting; reviews only ever start from a press") }

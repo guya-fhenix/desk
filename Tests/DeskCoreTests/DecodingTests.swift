@@ -28,7 +28,8 @@ import Testing
         #expect(pr.reviewRequestEvents.count == 1)
         #expect(pr.reviewRequestEvents[0].isTeam)
         #expect(pr.unresolvedThreads == 2)
-        #expect(pr.resolvedThreads == ["PRRT_2"])
+        // Counted only: the other searches do not ask for a thread's place or comment.
+        #expect(pr.threads.isEmpty)
         // GraphQL drops a bot's `[bot]`; it is put back, so the bot checks see it.
         #expect(pr.reviews.first?.author == "coderabbitai[bot]")
         #expect(pr.author == "me")

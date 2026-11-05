@@ -117,14 +117,10 @@ public struct PullRequest: Codable, Sendable, Hashable, Identifiable {
     public var reviewRequestEvents: [ReviewRequestEvent]
     /// Review conversations nobody has resolved yet, outdated ones included: GitHub counts them the same way.
     public var unresolvedThreads: Int
-    /// Node ids of the resolved ones, which is how a proposed fix learns its thread was dealt with elsewhere.
-    public var resolvedThreads: Set<String>
     /// Your draft review on this PR, if you have one.
     public var pendingReview: PendingReview?
     /// Its label names. CodeRabbit sets `risk:*` and `needs-human` by REVIEW.md, which the review queue goes by.
     public var labels: [String]
-    /// Unresolved threads CodeRabbit started: its actionable findings, since its nitpicks stay in its review body.
-    public var codeRabbitThreads: Int
     /// The unresolved threads in full, for your PR's page. Only your own PRs' search asks for them: empty on the rest,
     /// where `unresolvedThreads` still counts them.
     public var threads: [ReviewThread]
@@ -154,8 +150,8 @@ public struct PullRequest: Codable, Sendable, Hashable, Identifiable {
         author: String, reviewDecision: ReviewDecision = .none, mergeState: MergeState = .unknown,
         checks: CheckState = .none, checkCount: Int = 0, reviews: [Review] = [],
         requestedReviewers: [String] = [], reviewRequestEvents: [ReviewRequestEvent] = [], unresolvedThreads: Int = 0,
-        resolvedThreads: Set<String> = [], pendingReview: PendingReview? = nil, labels: [String] = [],
-        codeRabbitThreads: Int = 0, threads: [ReviewThread] = [], evidence: String? = nil, approvalStatus: String? = nil
+        pendingReview: PendingReview? = nil, labels: [String] = [], threads: [ReviewThread] = [], evidence: String? = nil,
+        approvalStatus: String? = nil
     ) {
         self.number = number
         self.title = title
@@ -181,10 +177,8 @@ public struct PullRequest: Codable, Sendable, Hashable, Identifiable {
         self.requestedReviewers = requestedReviewers
         self.reviewRequestEvents = reviewRequestEvents
         self.unresolvedThreads = unresolvedThreads
-        self.resolvedThreads = resolvedThreads
         self.pendingReview = pendingReview
         self.labels = labels
-        self.codeRabbitThreads = codeRabbitThreads
         self.threads = threads
         self.evidence = evidence
         self.approvalStatus = approvalStatus

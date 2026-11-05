@@ -46,8 +46,8 @@ final class AppModel {
     /// PR urls with a background session being started, for the same reason.
     var startingSessions: Set<String> = []
     /// A finished review's findings waiting for the PR's session, by PR url: the session was working or waiting on you
-    /// when the review landed, and an instruction never cuts in. Sent once a scan finds it idle.
-    /// Saved in `handoffs.json`, so a quit or a relaunch before the session goes idle does not drop it.
+    /// when the review landed, and an instruction never cuts in. Sent once a scan finds it idle. In memory only: a quit
+    /// before then drops it, and the review itself stays in your draft on GitHub.
     private(set) var reviewHandoffs: [String: String] = [:]
     /// Why a waiting hand-off could not go out, by PR url: no session would start, or the session refused it. It waits
     /// for Try again on the review page rather than retrying every poll.
@@ -57,8 +57,10 @@ final class AppModel {
     /// minute or so, and until it agrees each refresh is corrected by these, so a PR's page and the lists show how it
     /// ended at once instead of on some later poll.
     private var landed: [String: (pr: PullRequest, at: Date)] = [:]
-    /// Flows with an instruction going out or a GitHub write in flight, by job id.
+    /// Your PRs with a flow instruction going out or a GitHub write in flight, by url.
     var busyFlows: Set<String> = []
+    /// Why the last press on a PR's flow failed, by url, until the next press. Like the stage, nothing of it is saved.
+    var flowErrors: [String: String] = [:]
     /// Set to have the Pull Requests or Reviews screen open this PR's page; the screen clears it. Search, Up Next
     /// and a notification's Show use it.
     var selectPullRequest: String?
@@ -78,9 +80,7 @@ final class AppModel {
         state = DeskState(config: config)
         service = DeskService(config: config, support: support)
         notifier = Notifier(support: support)
-        state.flows = Self.loadFlows(support: support)
         state.dismissedMoves = Set(UserDefaults.standard.stringArray(forKey: Self.dismissedMovesKey) ?? [])
-        reviewHandoffs = (try? support.load([String: String].self, from: Self.handoffsFile)) ?? [:]
         Task { await self.start() }
         Notifier.onShow = { [weak self] url in self?.show(url) }
     }
@@ -142,7 +142,7 @@ final class AppModel {
             case .git:
                 let scan = await service.refreshGit()
                 state.gitScan = scan
-                state.claudeJobs = await service.claudeJobs(keeping: Set(state.flows.map(\.jobId)))
+                state.claudeJobs = await service.claudeJobs()
                 state.claudeLimits = await service.claudeLimits()
                 state.reviewSkills = await service.reviewSkills(repos: scan.repos)
                 state.errors[.git] = scan.errors.isEmpty ? nil : scan.errors.joined(separator: "\n")
@@ -163,7 +163,6 @@ final class AppModel {
         }
         await mergeReviews()
         state.recompute()
-        advanceFlows()
         deliverReviewHandoffs()
         notifier.deliver(state.nudges, post: config.notificationsEnabled && allSourcesReported)
     }
@@ -241,17 +240,19 @@ final class AppModel {
         return nil
     }
 
-    /// Why Merge is dead for this flow's PR; nil when it may be pressed.
-    func mergeBlocker(_ flow: Flow, _ pr: PullRequest) -> String? {
-        if busyFlows.contains(flow.id) { return "Merging…" }
-        if pr.mergeState == .dirty { return "Conflicts with \(pr.baseRef)" }
+    /// Why nothing can be sent to this PR's session now, in the words beside the button that would; nil when it can.
+    /// An instruction never cuts in: the session must be done with its turn.
+    func sendBlocker(_ pr: PullRequest) -> String? {
+        guard let session = state.session(for: pr) else { return "No session" }
+        if busyFlows.contains(pr.url) { return "Sending…" }
+        if session.state == "blocked" { return "The session is asking you something" }
+        if !session.isIdle || session.sessionId == nil { return "The session is busy" }
         return nil
     }
 
-    /// Why Approve is dead on a draft's flow; nil when it may be pressed.
-    func approveBlocker(_ flow: Flow, _ pr: PullRequest) -> String? {
-        if flow.paused { return "Paused" }
-        if flow.pending != nil || flow.awaiting != nil { return "Waiting on the session" }
+    /// Why Approve is dead on a draft; nil when it may be pressed.
+    func approveBlocker(_ pr: PullRequest) -> String? {
+        if let blocker = sendBlocker(pr) { return blocker }
         if state.reviewSkill(for: pr)?.isReady != true { return "Review skill missing" }
         return nil
     }
@@ -275,7 +276,7 @@ final class AppModel {
     private func handOff(_ run: ReviewRun, of pr: PullRequest) {
         guard !run.findings.isEmpty || !run.summary.isEmpty else { return }
         handoffErrors[pr.url] = nil
-        setHandoff(pr.url, DeskService.reviewHandoffPrompt(for: pr, run: run, config: config))
+        reviewHandoffs[pr.url] = DeskService.reviewHandoffPrompt(for: pr, run: run, config: config)
         deliverReviewHandoffs()
     }
 
@@ -285,17 +286,6 @@ final class AppModel {
         deliverReviewHandoffs()
     }
 
-    private static let handoffsFile = "handoffs.json"
-
-    private func setHandoff(_ url: String, _ text: String?) {
-        reviewHandoffs[url] = text
-        do {
-            try support.save(reviewHandoffs, to: Self.handoffsFile)
-        } catch {
-            Self.log.error("handoffs: \(String(describing: error), privacy: .public)")
-        }
-    }
-
     /// Sends each waiting hand-off whose session is idle, by the flow's rule: never while it works or asks you
     /// something. A session with no id recorded yet cannot be resumed, so it waits too. Runs after every refresh.
     private func deliverReviewHandoffs() {
@@ -303,7 +293,7 @@ final class AppModel {
         guard let github = state.github else { return }
         for (url, text) in reviewHandoffs where !sendingHandoffs.contains(url) && handoffErrors[url] == nil {
             guard let pr = github.allOpen.first(where: { $0.url == url }) else {
-                setHandoff(url, nil)  // Closed or merged: nothing left to talk through.
+                reviewHandoffs[url] = nil  // Closed or merged: nothing left to talk through.
                 continue
             }
             guard let job = state.claudeJobs(for: pr).first else {
@@ -316,16 +306,14 @@ final class AppModel {
                 startSession(for: pr, opening: text)
                 continue
             }
-            guard job.sessionId != nil, FlowEngine.canSend(job, automatic: false, now: Date()) else { continue }
-            let root = state.localRepo(for: pr)?.root ?? job.cwd
-            let candidates = state.worktrees.filter { $0.repoRoot == root }.map(\.path) + [job.cwd, root].filter { !$0.isEmpty }
-            let cwd = job.sessionId.flatMap { DeskService.resumeDirectory(sessionId: $0, candidates: candidates) } ?? root
+            guard job.sessionId != nil, job.isIdle else { continue }
+            let cwd = resumeDirectory(job, for: pr)
             sendingHandoffs.insert(url)
             Task {
                 defer { sendingHandoffs.remove(url) }
                 do {
                     try await service.send(text, to: job, cwd: cwd)
-                    setHandoff(url, nil)
+                    reviewHandoffs[url] = nil
                 } catch {
                     handoffErrors[url] = "Couldn't hand the review to the session: \(error)"
                     Self.log.error("review hand-off: \(String(describing: error), privacy: .public)")
@@ -403,11 +391,9 @@ final class AppModel {
             defer { planningTickets.remove(key) }
             do {
                 let id = try await service.startTicketSession(ticket: ticket, repoRoot: repo.root, note: note)
-                state.flows.append(Flow(jobId: id, ticketKey: key, repoRoot: repo.root, startedAt: Date()))
-                saveFlows()
-                // Held until the next scan reads the same session off disk.
+                // Held until the next scan reads the same session off disk, the ticket's key out of its prompt.
                 state.claudeJobs.insert(
-                    ClaudeJob(id: id, name: key, state: "working", cwd: repo.root, prKeys: [], updatedAt: Date()), at: 0
+                    ClaudeJob(id: id, name: key, state: "working", cwd: repo.root, prKeys: [], updatedAt: Date(), ticketKey: key), at: 0
                 )
                 sessionErrors[key] = nil
             } catch {
@@ -465,8 +451,7 @@ final class AppModel {
         return nil
     }
 
-    /// Squash-merges a PR from its page, in a flow or not: a flow sees it merged on the next poll, as it does when its
-    /// own Merge does it. Why it failed, or nil.
+    /// Squash-merges a PR from its page or its flow, and shows it merged at once. Why it failed, or nil.
     func squashMerge(_ pr: PullRequest) async -> String? {
         do {
             try await service.squashMerge(pr)
@@ -580,13 +565,11 @@ final class AppModel {
             defer { startingSessions.remove(pr.url) }
             do {
                 let job = try await service.startClaudeSession(pr: pr, repoRoot: repo.root, worktree: existing, opening: opening)
-                // Held until the next scan reads the same session off disk.
+                // Held until the next scan reads the same session off disk. On your own PR it puts the PR in the flow.
                 state.claudeJobs.insert(job, at: 0)
-                // Only your own PRs have a flow; a session on a teammate's, from Reviews, is just a session.
-                if state.mine.contains(where: { $0.url == pr.url }) { joinFlow(job, pr) }
                 sessionErrors[pr.url] = nil
                 // Opened with a review's findings: that hand-off is done.
-                if opening != nil, reviewHandoffs[pr.url] == opening { setHandoff(pr.url, nil) }
+                if opening != nil, reviewHandoffs[pr.url] == opening { reviewHandoffs[pr.url] = nil }
                 if existing == nil { Task { await refresh(.git) } }
             } catch {
                 if opening != nil, reviewHandoffs[pr.url] == opening {
@@ -627,247 +610,69 @@ final class AppModel {
 
     // MARK: Flows
 
-    /// Moves every flow along on what the last polls said, saves only when something moved, then sends what the
-    /// moves queued. Not before GitHub has answered: without it no PR can be found, and a merge cannot be told
-    /// from a poll that failed.
-    private func advanceFlows() {
-        guard let github = state.github else { return }
-        var effects: [(Flow, FlowEffect)] = []
-        let moved = state.flows.map { flow in
-            let input = FlowInput(
-                job: state.job(id: flow.jobId), mine: github.mine, merged: github.mergedRecent, ticketKeys: state.ticketKeys,
-                result: flow.awaiting == nil ? nil : DeskService.result(jobId: flow.jobId, step: flow.step),
-                login: github.login, bots: config.botLoginSet
-            )
-            let (next, queued) = FlowEngine.advance(flow, input)
-            effects += queued.map { (next, $0) }
-            return next
-        }
-        let live = Self.prune(moved, github: github, jobs: state.claudeJobs, scanned: state.gitScan != nil)
-        if live != state.flows {
-            state.flows = live
-            saveFlows()
-        }
-        for (flow, effect) in effects { perform(effect, for: flow) }
+    /// Approve on a draft: its session gets the self-review.
+    func approveDraft(_ pr: PullRequest) {
+        guard approveBlocker(pr) == nil else { return }
+        send(.selfReview, for: pr)
     }
 
-    /// A flow ends with its PR: it is kept while GitHub still lists the PR, open or merged, so the ticket shows how
-    /// it ended, and dropped once the PR is closed or has aged out of the merged list. A session that never opened
-    /// a PR is kept until the session itself is deleted — and for its first hour whatever the scan says, which may
-    /// not have read a session that has only just started.
-    private static func prune(_ flows: [Flow], github: GitHubSnapshot, jobs: [ClaudeJob], scanned: Bool, now: Date = Date()) -> [Flow] {
-        let known = Set((github.mine + github.mergedRecent).map(\.url))
-        let sessions = Set(jobs.map(\.id))
-        return flows.filter { flow in
-            if let url = flow.prURL { return known.contains(url) }
-            return !scanned || sessions.contains(flow.jobId) || now.timeIntervalSince(flow.startedAt) < 3_600
-        }
-    }
-
-    private func perform(_ effect: FlowEffect, for flow: Flow) {
-        switch effect {
-        case .send(let prompt): send(prompt, for: flow)
-        case .requestTeam: requestTeam(flow)
-        }
-    }
-
-    /// Fixes went in and the PR is still not approved: the review team is asked again.
-    private func requestTeam(_ flow: Flow) {
-        guard let pr = state.pullRequest(of: flow) else { return }
+    /// Approve on the self-review's fixes: the PR leaves draft and the review team is asked. Shown ready at once: the
+    /// search lags the write, and the stage would offer Approve again until it caught up.
+    func approveFixes(_ pr: PullRequest) {
+        guard busyFlows.insert(pr.url).inserted else { return }
+        flowErrors[pr.url] = nil
         Task {
+            defer { busyFlows.remove(pr.url) }
             do {
+                try await service.markReady(pr)
+                if let index = state.github?.mine.firstIndex(where: { $0.url == pr.url }) { state.github?.mine[index].isDraft = false }
                 try await service.requestTeamReview(pr)
             } catch {
-                updateFlow(flow.id) { $0.note = "Could not ask \(config.reviewTeam) again: \(error)" }
+                flowErrors[pr.url] = "\(error)"
             }
+            state.recompute()
+            await refresh(.github)
         }
     }
 
-    /// Sends the instruction the engine just marked as gone out. A send that fails pauses the flow with the reason
-    /// and puts the instruction back in the queue: retrying on every poll could keep stopping the session.
-    private func send(_ prompt: FlowPrompt, for flow: Flow) {
-        guard let job = state.job(id: flow.jobId), let pr = state.pullRequest(of: flow) else {
-            requeue(prompt, flow, because: "The session or the PR is gone, so nothing was sent.")
-            return
-        }
-        let worktrees = state.worktrees.filter { $0.repoRoot == flow.repoRoot }
-        let branchWorktree = worktrees.first { $0.branch == pr.headRef }?.path
-        let text = DeskService.flowPrompt(
-            prompt, pr: pr, worktree: branchWorktree, resultFile: DeskService.resultFile(jobId: flow.jobId, step: flow.step),
-            fixes: FlowEngine.approvedFixes(flow.proposals), config: config
-        )
-        let candidates = worktrees.map(\.path) + [job.cwd, flow.repoRoot].filter { !$0.isEmpty }
-        let cwd = job.sessionId.flatMap { DeskService.resumeDirectory(sessionId: $0, candidates: candidates) } ?? flow.repoRoot
-        busyFlows.insert(flow.id)
+    /// Merge on an approved PR: always a squash.
+    func merge(_ pr: PullRequest) {
+        guard busyFlows.insert(pr.url).inserted else { return }
         Task {
-            defer { busyFlows.remove(flow.id) }
+            defer { busyFlows.remove(pr.url) }
+            flowErrors[pr.url] = await squashMerge(pr)
+        }
+    }
+
+    /// Sends the PR's session one flow instruction; the session going to work is what moves the stage.
+    private func send(_ prompt: PromptID, for pr: PullRequest) {
+        guard let session = state.session(for: pr), busyFlows.insert(pr.url).inserted else { return }
+        flowErrors[pr.url] = nil
+        let root = state.localRepo(for: pr)?.root ?? session.cwd
+        let worktree = state.worktrees.first { $0.repoRoot == root && $0.branch == pr.headRef }?.path
+        // Numbered by when it went out, so an earlier instruction's file is never this one's.
+        let resultFile = DeskService.resultFile(jobId: session.id, step: Int(Date().timeIntervalSince1970))
+        let text = DeskService.flowPrompt(prompt, pr: pr, worktree: worktree, resultFile: resultFile, config: config)
+        let cwd = resumeDirectory(session, for: pr)
+        Task {
+            defer { busyFlows.remove(pr.url) }
             do {
-                try await service.send(text, to: job, cwd: cwd)
-                Self.log.info("flow \(flow.id, privacy: .public): sent \(prompt.rawValue, privacy: .public)")
+                try await service.send(text, to: session, cwd: cwd)
+                Self.log.info("flow \(pr.url, privacy: .public): sent \(prompt.rawValue, privacy: .public)")
             } catch {
-                requeue(prompt, flow, because: "Could not send \(prompt.title.lowercased()): \(error)")
-                Self.log.error("flow \(flow.id, privacy: .public): \(String(describing: error), privacy: .public)")
+                flowErrors[pr.url] = "Couldn't send it to the session: \(error)"
+                Self.log.error("flow \(pr.url, privacy: .public): \(String(describing: error), privacy: .public)")
             }
             await refresh(.git)
         }
     }
 
-    private func requeue(_ prompt: FlowPrompt, _ flow: Flow, because reason: String) {
-        updateFlow(flow.id) {
-            $0.awaiting = nil
-            $0.pending = prompt
-            $0.paused = true
-            $0.note = reason
-        }
-    }
-
-    /// Approve on a draft: queues the self-review, which goes out as soon as the session is free.
-    func approveDraft(_ flow: Flow) {
-        guard let pr = state.pullRequest(of: flow), state.reviewSkill(for: pr)?.isReady == true else { return }
-        updateFlow(flow.id) {
-            // Not over a fix already queued or running: it would be dropped, and its PR head never tried again.
-            guard $0.stage == .draft, $0.pending == nil, $0.awaiting == nil else { return }
-            $0.stage = .selfReview
-            // ponytail: the head as of the last poll; a push since then shows up in View changes too.
-            $0.baseSha = pr.headSha
-            $0.pending = .selfReview
-            $0.note = nil
-        }
-        advanceFlows()
-    }
-
-    /// Approve on the self-review's fixes: the PR leaves draft and the review team is asked.
-    func approveFixes(_ flow: Flow) {
-        guard flow.stage == .fixesToCheck, let pr = state.pullRequest(of: flow), !busyFlows.contains(flow.id) else { return }
-        busyFlows.insert(flow.id)
-        Task {
-            defer { busyFlows.remove(flow.id) }
-            do {
-                try await service.markReady(pr)
-                try await service.requestTeamReview(pr)
-                updateFlow(flow.id) {
-                    $0.stage = .inReview
-                    $0.reviewsSince = Date()
-                    $0.note = nil
-                }
-            } catch {
-                updateFlow(flow.id) { $0.note = "\(error)" }
-            }
-            await refresh(.github)
-        }
-    }
-
-    func setPaused(_ flow: Flow, _ paused: Bool) {
-        updateFlow(flow.id) {
-            $0.paused = paused
-            if !paused { $0.note = nil }
-        }
-        advanceFlows()
-    }
-
-    /// The session went quiet without writing its result: send the same instruction again…
-    func resendAwaited(_ flow: Flow) {
-        updateFlow(flow.id) {
-            guard let awaiting = $0.awaiting else { return }
-            $0.awaiting = nil
-            $0.pending = awaiting
-        }
-        advanceFlows()
-    }
-
-    /// …or go on as if it had written nothing.
-    func skipAwaited(_ flow: Flow) {
-        let pr = state.pullRequest(of: flow)
-        var effects: [FlowEffect] = []
-        updateFlow(flow.id) {
-            guard let awaiting = $0.awaiting else { return }
-            effects = FlowEngine.finish(&$0, awaiting, result: nil, pr: pr)
-        }
-        for effect in effects { perform(effect, for: flow) }
-        advanceFlows()
-    }
-
-    /// Merge on an approved PR: always a squash. The merge itself moves the flow to Merged, on the next poll.
-    func merge(_ flow: Flow) {
-        guard flow.stage == .approved, let pr = state.pullRequest(of: flow), !busyFlows.contains(flow.id) else { return }
-        busyFlows.insert(flow.id)
-        Task {
-            defer { busyFlows.remove(flow.id) }
-            do {
-                try await service.squashMerge(pr)
-                land(pr, as: .merged)
-                updateFlow(flow.id) { $0.note = nil }
-            } catch {
-                updateFlow(flow.id) { $0.note = "Could not merge: \(error)" }
-            }
-            await refresh(.github)
-        }
-    }
-
-    /// Your call on one proposed fix: apply it or skip it.
-    func decide(_ flow: Flow, proposal index: Int, apply: Bool) {
-        updateFlow(flow.id) { if $0.proposals.indices.contains(index) { $0.proposals[index].apply = apply } }
-    }
-
-    /// Whether the fix's thread is resolved once it is in.
-    func setResolve(_ flow: Flow, proposal index: Int, _ resolve: Bool) {
-        updateFlow(flow.id) { if $0.proposals.indices.contains(index) { $0.proposals[index].resolve = resolve } }
-    }
-
-    /// Sends the fixes you approved to the session. Skipping all of them changes nothing, so the PR goes back to
-    /// waiting for review without asking anyone again.
-    func applyProposals(_ flow: Flow) {
-        updateFlow(flow.id) {
-            guard $0.stage == .fixesProposed, !$0.proposals.contains(where: { $0.apply == nil }) else { return }
-            if $0.proposals.contains(where: { $0.apply == true }) {
-                $0.stage = .applying
-                $0.pending = .applyFixes
-            } else {
-                $0.stage = .inReview
-                $0.proposals = []
-            }
-            $0.note = nil
-        }
-        advanceFlows()
-    }
-
-    /// Carries a PR in the flow with a session that works on it, at the stage GitHub says it is in — for a PR you
-    /// did not start from a ticket. It replaces a flow the PR already had, whose session is gone.
-    func joinFlow(_ job: ClaudeJob, _ pr: PullRequest) {
-        guard let repo = state.localRepo(for: pr) else { return }
-        state.flows.removeAll { $0.prURL == pr.url }
-        state.flows.append(Flow(
-            jobId: job.id, ticketKey: state.ticketKeys[pr.url]?.first, repoRoot: repo.root, prURL: pr.url,
-            stage: pr.isDraft ? .draft : .inReview, startedAt: Date(), reviewsSince: Date()
-        ))
-        saveFlows()
-    }
-
-    private func updateFlow(_ id: String, _ change: (inout Flow) -> Void) {
-        guard let index = state.flows.firstIndex(where: { $0.id == id }) else { return }
-        change(&state.flows[index])
-        saveFlows()
-    }
-
-    private func saveFlows() {
-        do {
-            try support.save(state.flows, to: DeskService.flowsFile)
-        } catch {
-            Self.log.error("flows: \(String(describing: error), privacy: .public)")
-        }
-    }
-
-    /// A file that does not decode is moved aside rather than read as empty, or the next save would overwrite
-    /// every stage in it.
-    private static func loadFlows(support: AppSupport) -> [Flow] {
-        do {
-            return try support.load([Flow].self, from: DeskService.flowsFile) ?? []
-        } catch {
-            log.error("flows.json unreadable, moved aside: \(String(describing: error), privacy: .public)")
-            let file = support.url(DeskService.flowsFile)
-            try? FileManager.default.moveItem(at: file, to: file.appendingPathExtension("bad"))
-            return []
-        }
+    /// Where to resume a PR's session from: whichever of the clone's worktrees, the session's own folder and the clone
+    /// holds its transcript, or the clone.
+    private func resumeDirectory(_ session: ClaudeJob, for pr: PullRequest) -> String {
+        let root = state.localRepo(for: pr)?.root ?? session.cwd
+        let candidates = state.worktrees.filter { $0.repoRoot == root }.map(\.path) + [session.cwd, root].filter { !$0.isEmpty }
+        return session.sessionId.flatMap { DeskService.resumeDirectory(sessionId: $0, candidates: candidates) } ?? root
     }
 
     /// Runs one AppleScript, returning what went wrong or nil.

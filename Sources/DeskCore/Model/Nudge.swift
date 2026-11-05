@@ -5,7 +5,7 @@ public enum NudgeKind: String, Codable, Sendable {
     case reviewRequested, reviewReady
     /// A flow stage that moves only when you press something.
     case flowWaiting
-    /// A flow's session is asking you something, or the flow hit a problem it will not retry on its own.
+    /// A flow's session is asking you something.
     case sessionNeedsYou
 
     /// Which screen handles this one.
