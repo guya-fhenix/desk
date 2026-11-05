@@ -136,7 +136,7 @@ public actor GitHubProvider {
             return GitHubSnapshot(login: login, mine: [], reviewRequests: [], mergedRecent: [], fetchedAt: now)
         }
         let queries = GitHubQueries.searches(login: login, repos: repos, since: since)
-        async let mine = search(queries.mine, first: 50)
+        async let mine = search(queries.mine, first: 50, query: GitHubQueries.mineSearchQuery)
         async let reviews = search(queries.reviews, first: 50)
         async let merged = search(queries.merged, first: 100)
         async let open = search(queries.openForReview, first: 100)
@@ -150,13 +150,13 @@ public actor GitHubProvider {
     /// a page of 25 takes about 3 s.
     private static let searchPageSize = 25
 
-    private func search(_ query: String, first: Int) async throws -> [PullRequest] {
+    private func search(_ search: String, first: Int, query: String = GitHubQueries.searchQuery) async throws -> [PullRequest] {
         var prs: [PullRequest] = []
         var after: String?
         repeat {
-            var variables: [String: any Sendable] = ["q": query, "first": min(Self.searchPageSize, first - prs.count)]
+            var variables: [String: any Sendable] = ["q": search, "first": min(Self.searchPageSize, first - prs.count)]
             if let after { variables["after"] = after }
-            let data = try await graphQL(query: GitHubQueries.searchQuery, variables: variables)
+            let data = try await graphQL(query: query, variables: variables)
             let page = try GitHubDecoding.pullRequests(from: data)
             prs += page.prs
             after = page.next
@@ -264,7 +264,21 @@ public enum GitHubQueries {
     }
     """
 
-    public static let searchQuery = """
+    public static let searchQuery = searchQuery(
+        threads: "reviewThreads(first: 100) { nodes { id isResolved comments(first: 1) { nodes { author { __typename login } } } } }"
+    )
+
+    /// Your own PRs' search: each thread in full, for the PR page's list, and the comments the /pre-pr evidence is one
+    /// of. /pre-pr edits its one evidence comment in place, and posts it while the PR is a draft, so it is early on.
+    /// ponytail: the first 50 comments; read the evidence by REST if a PR ever has more before it.
+    public static let mineSearchQuery = searchQuery(threads: """
+      reviewThreads(first: 100) { nodes { id isResolved isOutdated path line originalLine
+        comments(first: 1) { totalCount nodes { author { __typename login } body url } } } }
+      comments(first: 50) { nodes { author { __typename login } body } }
+      """)
+
+    private static func searchQuery(threads: String) -> String {
+        """
     query($q: String!, $first: Int!, $after: String) {
       search(query: $q, type: ISSUE, first: $first, after: $after) { pageInfo { hasNextPage endCursor } nodes { ...PR } }
     }
@@ -275,7 +289,10 @@ public enum GitHubQueries {
       reviewDecision
       mergeStateStatus
       baseRef { rules(first: 20) { nodes { type parameters { ... on PullRequestParameters { requiredApprovingReviewCount requireCodeOwnerReview } } } } }
-      commits(last: 1) { nodes { commit { oid statusCheckRollup { state contexts(first: 0) { totalCount } } } } }
+      commits(last: 1) { nodes { commit {
+        oid statusCheckRollup { state contexts(first: 0) { totalCount } }
+        status { context(name: "\(ApprovalGate.context)") { description } }
+      } } }
       reviews(first: 100) { nodes { state submittedAt author { __typename login } } }
       pending: reviews(states: PENDING, first: 1) {
         nodes { id commit { oid } comments(first: 100) { totalCount nodes { body } } }
@@ -284,10 +301,11 @@ public enum GitHubQueries {
       timelineItems(itemTypes: [REVIEW_REQUESTED_EVENT], first: 50) {
         nodes { ... on ReviewRequestedEvent { createdAt requestedReviewer { __typename ... on User { login } ... on Team { name } } } }
       }
-      reviewThreads(first: 100) { nodes { id isResolved comments(first: 1) { nodes { author { __typename login } } } } }
+      \(threads)
       labels(first: 20) { nodes { name } }
     }
     """
+    }
 }
 
 public enum GitHubDecoding {
@@ -424,7 +442,23 @@ public enum GitHubDecoding {
                 )
             },
             labels: node.labels?.nodes.map(\.name) ?? [],
-            codeRabbitThreads: node.reviewThreads?.nodes.filter { !$0.isResolved && $0.starter == PullRequest.codeRabbit }.count ?? 0
+            codeRabbitThreads: node.reviewThreads?.nodes.filter { !$0.isResolved && $0.starter == PullRequest.codeRabbit }.count ?? 0,
+            threads: (node.reviewThreads?.nodes ?? []).filter { !$0.isResolved }.compactMap { thread in
+                // Only your own PRs' search asks for the path and the comment.
+                guard let id = thread.id, let path = thread.path, let first = thread.comments?.nodes.first, let body = first.body
+                else { return nil }
+                return ReviewThread(
+                    id: id, path: path, line: thread.line ?? thread.originalLine, isOutdated: thread.isOutdated ?? false,
+                    url: first.url ?? node.url, author: first.author?.name ?? "ghost", body: body,
+                    comments: thread.comments?.totalCount ?? 1
+                )
+            },
+            // The author's, as the review gate reads it: anyone can paste the marker into a comment.
+            evidence: node.comments?.nodes.last { comment in
+                comment.author?.name == node.author?.name
+                    && comment.body.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix(PrePR.evidenceMarker)
+            }?.body,
+            approvalStatus: commit?.status?.context.map { $0.description ?? "" }
         )
     }
 
@@ -572,6 +606,14 @@ public enum GitHubDecoding {
         var timelineItems: Timeline
         var reviewThreads: ReviewThreads?
         var labels: Labels?
+        /// The PR's conversation, your own PRs' only.
+        var comments: IssueComments?
+    }
+
+    private struct IssueComments: Decodable { var nodes: [IssueComment] }
+    private struct IssueComment: Decodable {
+        var author: Login?
+        var body: String
     }
 
     private struct Labels: Decodable { var nodes: [Label] }
@@ -603,19 +645,34 @@ public enum GitHubDecoding {
     private struct ReviewThreadNode: Decodable {
         var id: String?
         var isResolved: Bool
-        /// The first comment only, for who started the thread.
+        var isOutdated: Bool?
+        var path: String?
+        var line: Int?
+        var originalLine: Int?
+        /// The first comment only, for who started the thread and what it says.
         var comments: ThreadComments?
         var starter: String? { comments?.nodes.first?.author?.name }
     }
-    private struct ThreadComments: Decodable { var nodes: [ThreadComment] }
-    private struct ThreadComment: Decodable { var author: Login? }
+    private struct ThreadComments: Decodable {
+        var totalCount: Int?
+        var nodes: [ThreadComment]
+    }
+    private struct ThreadComment: Decodable {
+        var author: Login?
+        var body: String?
+        var url: String?
+    }
 
     private struct Commits: Decodable { var nodes: [CommitNode] }
     private struct CommitNode: Decodable { var commit: Commit }
     private struct Commit: Decodable {
         var oid: String
         var statusCheckRollup: Rollup?
+        /// The review gate's status alone, asked for by its context.
+        var status: Status?
     }
+    private struct Status: Decodable { var context: StatusContext? }
+    private struct StatusContext: Decodable { var description: String? }
     private struct Rollup: Decodable {
         var state: String
         var contexts: Count

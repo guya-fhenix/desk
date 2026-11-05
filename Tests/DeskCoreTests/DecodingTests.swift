@@ -38,6 +38,37 @@ import Testing
         #expect(pr.pendingReview == PendingReview(id: "PRR_1", commitId: "abc", comments: 4, claudeComments: 2))
     }
 
+    /// Your own PR's search: its open threads in full, the author's /pre-pr evidence comment, and the review gate's words.
+    @Test func decodesThreadsEvidenceAndTheApprovalsStatus() throws {
+        let json = """
+        {"data":{"search":{"nodes":[{"number":7,"title":"t","url":"https://github.com/o/r/pull/7","isDraft":true,"createdAt":"2026-08-27T11:12:21Z",
+          "updatedAt":"2026-08-27T12:26:33Z","mergedAt":null,"state":"OPEN","baseRefName":"main","headRefName":"h","additions":0,"deletions":0,
+          "author":{"login":"me"},"repository":{"nameWithOwner":"o/r"},"reviewDecision":null,"mergeStateStatus":null,
+          "commits":{"nodes":[{"commit":{"oid":"abc","statusCheckRollup":null,
+            "status":{"context":{"description":"medium risk: 0 of 1 approvals on the latest commit"}}}}]},
+          "reviews":{"nodes":[]},"reviewRequests":{"nodes":[]},"timelineItems":{"nodes":[]},
+          "reviewThreads":{"nodes":[
+            {"id":"PRRT_1","isResolved":false,"isOutdated":true,"path":"src/a.rs","line":null,"originalLine":12,
+             "comments":{"totalCount":3,"nodes":[{"author":{"__typename":"Bot","login":"coderabbitai"},"body":"**Minor** · x","url":"https://github.com/o/r/pull/7#discussion_r1"}]}},
+            {"id":"PRRT_2","isResolved":true,"isOutdated":false,"path":"src/b.rs","line":4,"originalLine":4,
+             "comments":{"totalCount":1,"nodes":[{"author":{"login":"me"},"body":"done","url":"u2"}]}}]},
+          "comments":{"nodes":[
+            {"author":{"login":"alice"},"body":"<!-- pre-pr:start -->\\n## Testing\\nnot mine"},
+            {"author":{"login":"me"},"body":"<!-- pre-pr:start -->\\n## Testing\\n- ok"},
+            {"author":{"login":"me"},"body":"thanks"}]}}]}}}
+        """
+        let pr = try #require(GitHubDecoding.pullRequests(from: Data(json.utf8)).prs.first)
+        #expect(pr.unresolvedThreads == 1)
+        #expect(pr.threads == [ReviewThread(
+            id: "PRRT_1", path: "src/a.rs", line: 12, isOutdated: true, url: "https://github.com/o/r/pull/7#discussion_r1",
+            author: "coderabbitai[bot]", body: "**Minor** · x", comments: 3
+        )])
+        #expect(pr.threads.first?.source == .codeRabbit)
+        #expect(pr.evidence == "<!-- pre-pr:start -->\n## Testing\n- ok")
+        #expect(pr.approvalStatus == "medium risk: 0 of 1 approvals on the latest commit")
+        #expect(pr.approvalGate?.state == .counted(have: 0, needed: 1))
+    }
+
     @Test func missingReviewThreadsMeanNoneUnresolved() throws {
         let json = """
         {"data":{"search":{"nodes":[{"number":1,"title":"t","url":"u","isDraft":false,"createdAt":"2026-08-27T11:12:21Z","updatedAt":"2026-08-27T12:26:33Z",
@@ -47,6 +78,8 @@ import Testing
         """
         let pr = try #require(GitHubDecoding.pullRequests(from: Data(json.utf8)).prs.first)
         #expect(pr.unresolvedThreads == 0)
+        // No gate status: a repo without the review flow.
+        #expect(pr.threads.isEmpty && pr.evidence == nil && pr.approvalStatus == nil)
     }
 
     @Test func reviewDecisionFallsBackToReviewsAndRulesets() throws {

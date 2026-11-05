@@ -125,6 +125,13 @@ public struct PullRequest: Codable, Sendable, Hashable, Identifiable {
     public var labels: [String]
     /// Unresolved threads CodeRabbit started: its actionable findings, since its nitpicks stay in its review body.
     public var codeRabbitThreads: Int
+    /// The unresolved threads in full, for your PR's page. Only your own PRs' search asks for them: empty on the rest,
+    /// where `unresolvedThreads` still counts them.
+    public var threads: [ReviewThread]
+    /// The body of the author's /pre-pr evidence comment; nil without one, and on PRs not yours.
+    public var evidence: String?
+    /// The description of the `review-gate/approvals` status on the head commit; nil where the repo posts none.
+    public var approvalStatus: String?
 
     /// CodeRabbit's login as the app spells a bot's, `[bot]` and all.
     public static let codeRabbit = "coderabbitai[bot]"
@@ -133,6 +140,12 @@ public struct PullRequest: Codable, Sendable, Hashable, Identifiable {
     public var needsHuman: Bool { labels.contains("needs-human") }
     /// CodeRabbit's risk tier, "low" to "critical", once it has set one.
     public var risk: String? { labels.first { $0.hasPrefix("risk:") }.map { String($0.dropFirst("risk:".count)) } }
+    /// The review gate's verdict, where the repo has one.
+    public var approvalGate: ApprovalGate? { approvalStatus.map(ApprovalGate.init(description:)) }
+    /// Has the approvals it needs: by the review gate where the repo has one, by GitHub's review decision where not.
+    public var approvalsMet: Bool { approvalGate?.isMet ?? (reviewDecision == .approved) }
+    /// Still short of approvals, not known yet, or in a repo without the review gate: the review queue's default.
+    public var needsApproval: Bool { approvalGate?.isMet != true }
 
     public init(
         number: Int, title: String, body: String = "", url: String, repo: String, isDraft: Bool = false,
@@ -142,7 +155,7 @@ public struct PullRequest: Codable, Sendable, Hashable, Identifiable {
         checks: CheckState = .none, checkCount: Int = 0, reviews: [Review] = [],
         requestedReviewers: [String] = [], reviewRequestEvents: [ReviewRequestEvent] = [], unresolvedThreads: Int = 0,
         resolvedThreads: Set<String> = [], pendingReview: PendingReview? = nil, labels: [String] = [],
-        codeRabbitThreads: Int = 0
+        codeRabbitThreads: Int = 0, threads: [ReviewThread] = [], evidence: String? = nil, approvalStatus: String? = nil
     ) {
         self.number = number
         self.title = title
@@ -172,6 +185,9 @@ public struct PullRequest: Codable, Sendable, Hashable, Identifiable {
         self.pendingReview = pendingReview
         self.labels = labels
         self.codeRabbitThreads = codeRabbitThreads
+        self.threads = threads
+        self.evidence = evidence
+        self.approvalStatus = approvalStatus
     }
 
     public var repoName: String { repo.split(separator: "/").last.map(String.init) ?? repo }
@@ -187,6 +203,56 @@ public struct PullRequest: Codable, Sendable, Hashable, Identifiable {
     /// Bot accounts, and PRs a workflow opens under a human token (detected by title).
     public func isAutomated(_ automation: Automation) -> Bool {
         author.hasSuffix("[bot]") || automation.logins.contains(author) || automation.titlePrefixes.contains { title.hasPrefix($0) }
+    }
+}
+
+/// The `review-gate/approvals` commit status, read from its description: until a repo turns on Enforce the status is
+/// always a success, so the words are what say where the PR stands. Its forms, each maybe followed by "; " and a note:
+/// "Draft: approvals are checked once the PR is ready", "Waiting for CodeRabbit's review of the latest commit",
+/// "<tier> risk: no approval needed", "<tier> risk: <have> of <needed> approvals on the latest commit".
+public struct ApprovalGate: Sendable, Hashable {
+    public static let context = "review-gate/approvals"
+
+    public enum State: Sendable, Hashable {
+        case draft
+        /// CodeRabbit has not reviewed the latest commit, so no approval counts yet.
+        case waitingForCodeRabbit
+        /// `have` of `needed` approvals on the latest commit; "no approval needed" is 0 of 0.
+        case counted(have: Int, needed: Int)
+        /// Words this app does not know.
+        case unknown
+    }
+
+    public var state: State
+    /// The risk tier the description names, "low" to "high".
+    public var tier: String?
+
+    public init(description: String) {
+        let head = description.split(separator: ";", maxSplits: 1).first.map { $0.trimmingCharacters(in: .whitespaces) } ?? ""
+        tier = nil
+        if head.hasPrefix("Draft:") {
+            state = .draft
+        } else if head.hasPrefix("Waiting for CodeRabbit") {
+            state = .waitingForCodeRabbit
+        } else if let match = head.wholeMatch(of: /(\w+) risk: (.+)/) {
+            tier = String(match.output.1)
+            if match.output.2 == "no approval needed" {
+                state = .counted(have: 0, needed: 0)
+            } else if let count = match.output.2.wholeMatch(of: /(\d+) of (\d+) approvals? on the latest commit/),
+                      let have = Int(count.output.1), let needed = Int(count.output.2) {
+                state = .counted(have: have, needed: needed)
+            } else {
+                state = .unknown
+            }
+        } else {
+            state = .unknown
+        }
+    }
+
+    /// Enough approvals on the latest commit, or none needed.
+    public var isMet: Bool {
+        if case .counted(let have, let needed) = state { return have >= needed }
+        return false
     }
 }
 
