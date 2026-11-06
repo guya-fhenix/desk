@@ -7,6 +7,8 @@ struct FlowSection: View {
     var pr: PullRequest
     var session: ClaudeJob
     var model: AppModel
+    /// Approve on a self-reviewed draft without /pre-pr's label asks first.
+    @State private var confirmingReady = false
 
     var body: some View {
         let stage = FlowStage.of(pr)
@@ -53,18 +55,34 @@ struct FlowSection: View {
                     .disabled(blocker != nil)
             }
         case .selfReviewed:
-            Text("Self-reviewed: /pre-pr's evidence comment is on the PR, and its findings are threads there.")
-                .scaled(.caption).foregroundStyle(.secondary)
+            if pr.isLocallyReviewed {
+                Text("Self-reviewed: /pre-pr passed it, and its findings are threads on the PR.")
+                    .scaled(.caption).foregroundStyle(.secondary)
+            } else {
+                // No label: /pre-pr left an Important finding open, or stopped before its label. Ready without it fails
+                // the local-review-evidence check from Enforce on.
+                Text("Self-reviewed, but without the local-reviewed label: an Important finding is open. Settle it with the session, or resolve its thread as your decision, then run /pre-pr again.")
+                    .scaled(.caption).foregroundStyle(.orange)
+            }
             HStack {
                 Spacer()
                 if busy { ProgressView().controlSize(.mini) }
                 // A self-review still running may push again: the PR goes ready only once the session is done.
                 let blocker = busy ? nil : session.isBusy ? "The session is busy" : nil
                 DisabledReason(text: blocker)
-                Button("Approve") { model.approveFixes(pr) }
+                Button("Approve") { if pr.isLocallyReviewed { model.approveFixes(pr) } else { confirmingReady = true } }
                     .buttonStyle(.borderedProminent).handCursor()
                     .disabled(busy || blocker != nil)
                     .help("Marks the PR ready for review and asks \(model.config.reviewTeam) to review it")
+            }
+            .confirmationDialog(
+                // Verbatim: a localized title prints the number as "1,082".
+                Text(verbatim: "Mark #\(pr.number) ready without local-reviewed?"),
+                isPresented: $confirmingReady
+            ) {
+                Button("Mark it ready anyway") { model.approveFixes(pr) }
+            } message: {
+                Text("/pre-pr has not passed it: an Important finding is open. From Enforce on, its local-review-evidence check fails without the label.")
             }
         case .inReview:
             Text("Waiting for a review from \(model.config.reviewTeam).").scaled(.caption).foregroundStyle(.secondary)

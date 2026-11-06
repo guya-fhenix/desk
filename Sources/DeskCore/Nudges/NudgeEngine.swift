@@ -123,7 +123,10 @@ public enum NudgeEngine {
             let title: String
             switch stage {
             case .draft: title = "\(label) is a draft waiting for your approval"
-            case .selfReviewed: title = "\(label) is self-reviewed: approve it to go ready" + (threads > 0 ? ", \(open) left" : "")
+            case .selfReviewed:
+                title = pr.isLocallyReviewed
+                    ? "\(label) is self-reviewed: approve it to go ready" + (threads > 0 ? ", \(open) left" : "")
+                    : "\(label) is self-reviewed, but an Important finding is open: settle it before it goes ready"
             case .approved: title = "\(label) is approved: merge it"
             default:
                 // Open threads wait on you at any stage; a stage that waits on you already says so.

@@ -62,4 +62,7 @@ extension Array where Element == ReviewThread {
 public enum PrePR {
     public static let evidenceMarker = "<!-- pre-pr:start -->"
     public static let findingMarker = "<!-- pre-pr:finding -->"
+    /// The label /pre-pr adds once none of its Important findings is open, and takes off while one is: the one the
+    /// review flow's `local-review-evidence` check looks for.
+    public static let reviewedLabel = "local-reviewed"
 }

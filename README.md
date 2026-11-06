@@ -102,7 +102,7 @@ it is saved: every refresh works it out again from GitHub and the session, so a 
 |---|---|
 | Working | the ticket's session has not opened its PR yet |
 | Draft | a draft without /pre-pr's evidence comment; Approve sends the session the self-review: one `/fhenix-workflow:pre-pr` run where the repo has adopted the review flow, one `reviewing-code` pass elsewhere, posted as threads; it changes no code, and its findings come back as threads on the PR, each with a suggested fix |
-| Self-reviewed | a draft with the author's evidence comment (it starts `<!-- pre-pr:start -->`); Approve, once the session is done, marks it ready and asks the review team |
+| Self-reviewed | a draft with the author's evidence comment (it starts `<!-- pre-pr:start -->`); Approve, once the session is done, marks it ready and asks the review team. Without /pre-pr's `local-reviewed` label an Important finding is still open: the page says so, and Approve asks before it marks the PR ready |
 | In review | ready, until it has the approvals it needs and nothing open |
 | Ready to merge | approved with nothing open; Merge squashes it |
 | Merged, Closed | as GitHub says |
