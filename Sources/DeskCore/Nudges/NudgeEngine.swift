@@ -1,19 +1,5 @@
 import Foundation
 
-/// A draft review with Claude's comments in it, waiting on you.
-public struct ReadyReview: Sendable, Hashable {
-    public var pr: PullRequest
-    /// Every comment in the draft, yours included.
-    public var comments: Int
-    public var draftId: String
-
-    public init(pr: PullRequest, comments: Int, draftId: String) {
-        self.pr = pr
-        self.comments = comments
-        self.draftId = draftId
-    }
-}
-
 public struct NudgeInput: Sendable {
     public var now: Date
     public var login: String
@@ -22,7 +8,6 @@ public struct NudgeInput: Sendable {
     public var reviewRequests: [PullRequest]
     public var openHeadsByRepo: [String: Set<String>]
     public var defaultBranches: [String: String]
-    public var readyReviews: [ReadyReview]
     /// The background sessions, newest first: one on a PR of yours puts it in the flow.
     public var sessions: [ClaudeJob]
     /// The Jira keys each PR of yours names, by PR url: a ticket's session carries its PRs.
@@ -30,7 +15,7 @@ public struct NudgeInput: Sendable {
 
     public init(
         now: Date, login: String, config: DeskConfig, mine: [PullRequest], reviewRequests: [PullRequest],
-        openHeadsByRepo: [String: Set<String>], defaultBranches: [String: String], readyReviews: [ReadyReview] = [],
+        openHeadsByRepo: [String: Set<String>], defaultBranches: [String: String],
         sessions: [ClaudeJob] = [], ticketKeys: [String: [String]] = [:]
     ) {
         self.now = now
@@ -40,7 +25,6 @@ public struct NudgeInput: Sendable {
         self.reviewRequests = reviewRequests
         self.openHeadsByRepo = openHeadsByRepo
         self.defaultBranches = defaultBranches
-        self.readyReviews = readyReviews
         self.sessions = sessions
         self.ticketKeys = ticketKeys
     }
@@ -80,18 +64,6 @@ public enum NudgeEngine {
         for pr in input.reviewRequests {
             let waiting = input.now.timeIntervalSince(pr.createdAt)
             nudges.append(Nudge(id: "review:\(pr.url)", kind: .reviewRequested, severity: waiting > 86_400 ? .warning : .info, title: "Needs review: \(pr.repoName)#\(pr.number)", detail: "\(pr.title) · \(pr.author) · \(TimeText.duration(waiting))", url: pr.url))
-        }
-
-        for review in input.readyReviews {
-            let pr = review.pr
-            // The Files tab, which is where a pending review's comments are read and finished. Keyed by
-            // the draft, so a new draft on the same PR is news again.
-            nudges.append(Nudge(
-                id: "prereview:\(review.draftId)", kind: .reviewReady, severity: .info,
-                title: "Claude reviewed \(pr.repoName)#\(pr.number)",
-                detail: "\(review.comments) \(review.comments == 1 ? "comment" : "comments") waiting in your draft review",
-                url: "\(pr.url)/files"
-            ))
         }
 
         nudges += flowNudges(input)

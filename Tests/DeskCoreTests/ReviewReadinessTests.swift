@@ -2,32 +2,19 @@ import DeskCore
 import Foundation
 import Testing
 
-/// Whether a PR wants a Claude run, from GitHub alone plus the runs going this session.
+/// Whether a PR in the queue waits on your review, from GitHub alone.
 @Suite struct ReviewReadinessTests {
-    let repos = [Fixtures.repo()]
-
-    func needs(_ queue: [PullRequest], runs: [String: ReviewRun] = [:], repos: [RepoRef]? = nil) -> [String: ReviewNeed] {
-        ReviewReadiness.needs(ReviewReadinessInput(login: "me", queue: queue, runs: runs, repos: repos ?? self.repos))
+    func needs(_ queue: [PullRequest]) -> [String: ReviewNeed] {
+        ReviewReadiness.needs(login: "me", queue: queue)
     }
 
-    @Test func aPullRequestYouHaveNotReviewedIsReadyToRun() {
+    @Test func aPullRequestYouHaveNotReviewedNeedsReview() {
         let pr = Fixtures.pr(number: 1, head: "a", author: "alice")
         #expect(needs([pr]) == [pr.url: .notReviewed])
-    }
-
-    @Test func nothingIsReadyWithoutALocalClone() {
-        // There would be nothing to check the PR out into. The row says "no local clone" instead.
-        let pr = Fixtures.pr(number: 1, head: "a", author: "alice")
-        #expect(needs([pr], repos: []).isEmpty)
-    }
-
-    /// A draft with Claude's comments waits on you; one you started by hand does not stop a run.
-    @Test func aDraftWithClaudesCommentsIsNotReadyAgain() {
-        var pr = Fixtures.pr(number: 1, head: "a", author: "alice")
-        pr.pendingReview = Fixtures.pending(claude: 2)
-        #expect(needs([pr]).isEmpty)
-        pr.pendingReview = Fixtures.pending(comments: 1, claude: 0)
-        #expect(needs([pr]) == [pr.url: .notReviewed])
+        // A draft you have not submitted is not a review yet.
+        var drafted = pr
+        drafted.pendingReview = Fixtures.pending()
+        #expect(needs([drafted]) == [pr.url: .notReviewed])
     }
 
     @Test func aReviewYouSubmittedIsDoneUntilYouAreAskedAgain() {
@@ -51,21 +38,5 @@ import Testing
         var pr = Fixtures.pr(number: 1, head: "a", author: "alice")
         pr.reviews = [Fixtures.review("APPROVED", at: Fixtures.hours(1), by: "bob")]
         #expect(needs([pr]) == [pr.url: .notReviewed])
-    }
-
-    /// This session's run decides while it is going and once it has failed; after a clean run that found
-    /// nothing there is no draft to show for it, and the run itself is what says it is done.
-    @Test func thisSessionsRunDecidesWhileItLasts() {
-        let pr = Fixtures.pr(number: 1, head: "a", author: "alice")
-        #expect(needs([pr], runs: [pr.url: ReviewRun(phase: .running)]).isEmpty)
-        #expect(needs([pr], runs: [pr.url: ReviewRun(phase: .failed, error: "boom")]) == [pr.url: .failed])
-        #expect(needs([pr], runs: [pr.url: ReviewRun(phase: .posted)]).isEmpty)
-    }
-
-    @Test func newCommitsAloneNeverAskForARun() {
-        // GitHub marks the draft's comments on changed lines outdated by itself; a run costs money.
-        var pr = Fixtures.pr(number: 1, head: "a", author: "alice")
-        pr.pendingReview = Fixtures.pending(commit: "older")
-        #expect(needs([pr]).isEmpty)
     }
 }

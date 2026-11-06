@@ -4,9 +4,7 @@ import Testing
 
 @Suite struct DeskStateTests {
     var state: DeskState {
-        var config = DeskConfig()
-        config.reviewRoot = "/r/.reviews"
-        var state = DeskState(config: config)
+        var state = DeskState(config: DeskConfig())
         state.github = GitHubSnapshot(login: "me", mine: [], reviewRequests: [], mergedRecent: [], fetchedAt: Fixtures.t0)
         return state
     }
@@ -74,40 +72,14 @@ import Testing
         #expect(Fixtures.pr(number: 1, head: "x", checks: .failure, review: .approved, merge: .blocked).mergeBlocker == "Required checks are failing")
     }
 
-    @Test func reviewWorktreesAreKeptApartFromWorkingOnes() {
-        var state = state
-        let main = Fixtures.worktree(path: "/r/cofhe", branch: "master", isMain: true)
-        let review = Fixtures.worktree(path: "/r/.reviews/cofhe/pr-9", branch: nil)
-        state.gitScan = GitScan(repos: [Fixtures.repo()], worktrees: [main, review])
-        #expect(state.worktrees.map(\.path) == ["/r/cofhe"])
-        #expect(state.reviewWorktrees.map(\.path) == ["/r/.reviews/cofhe/pr-9"])
-    }
-
-    @Test func reviewStatusComesFromThePullRequestAndThisSessionsRun() {
+    @Test func reviewStatusComesFromThePullRequest() {
         var state = state
         var pr = Fixtures.pr(number: 9, head: "y")
-        pr.pendingReview = Fixtures.pending(comments: 4, claude: 3, commit: "older")
+        pr.pendingReview = Fixtures.pending(comments: 4, commit: "older")
         state.github?.reviewRequests = [pr]
-        state.reviewRuns[pr.url] = ReviewRun(phase: .posted, posted: 3)
         let status = state.reviewStatus(for: pr)
-        #expect(status.run?.phase == .posted)
         #expect(status.headMoved)
-        #expect(status.draft == .pending(comments: 4, claude: 3))
-    }
-
-    /// The "Claude reviewed" nudge is for a draft with Claude's comments that is still waiting.
-    @Test func aPendingDraftIsWhatNudges() {
-        var state = state
-        var waiting = Fixtures.pr(number: 1, head: "a", author: "alice")
-        waiting.pendingReview = Fixtures.pending(comments: 3, claude: 2)
-        var yours = Fixtures.pr(number: 2, head: "b", author: "alice")
-        yours.pendingReview = Fixtures.pending(comments: 1, claude: 0)
-        let sent = Fixtures.pr(number: 3, head: "c", author: "alice")
-        state.github?.reviewRequests = [waiting, yours, sent]
-        state.recompute(now: Fixtures.t0)
-        let ready = state.nudges.filter { $0.kind == .reviewReady }
-        #expect(ready.map(\.url) == ["\(waiting.url)/files"])
-        #expect(ready.first?.detail == "3 comments waiting in your draft review")
+        #expect(status.draft == .pending(comments: 4))
     }
 
     @Test func draftsAndBotPullRequestsStayOutOfTheReviewQueue() {
@@ -171,9 +143,8 @@ import Testing
         #expect(state.ticketsToStart.map(\.key) == ["PRO-1"])
     }
 
-    @Test func stateMarksWhichPullRequestsAreReadyToRun() {
+    @Test func stateMarksWhichPullRequestsWaitOnYourReview() {
         var state = state
-        state.gitScan = GitScan(repos: [Fixtures.repo()], worktrees: [])
         let fresh = Fixtures.pr(number: 1, head: "a", author: "alice")
         var reRequested = Fixtures.pr(number: 2, head: "b", author: "alice")
         reRequested.reviews = [Fixtures.review(at: Fixtures.t0)]
@@ -185,18 +156,14 @@ import Testing
         #expect(state.reviewNeed(for: fresh) == .notReviewed)
         #expect(state.reviewNeed(for: reRequested) == .reRequested)
         #expect(state.reviewNeed(for: done) == nil)
-        // Oldest first, so the row worth pressing first is at the top.
-        #expect(state.reviewsToRun.map(\.number) == [1, 2])
+        // Oldest first, so the one waiting longest is at the top.
+        #expect(state.reviewsToDo.map(\.number) == [1, 2])
     }
-
-
 }
 
 @Suite struct ReviewScopeTests {
     var state: DeskState {
-        var config = DeskConfig()
-        config.reviewRoot = "/r/.reviews"
-        var state = DeskState(config: config)
+        var state = DeskState(config: DeskConfig())
         state.github = GitHubSnapshot(login: "me", mine: [], reviewRequests: [], mergedRecent: [], fetchedAt: Fixtures.t0)
         return state
     }

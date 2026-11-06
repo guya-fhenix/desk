@@ -693,14 +693,10 @@ struct ClaudeUsageCard: View {
         }
     }
 
-    /// The reviews and background sessions at work now.
+    /// The background sessions at work now.
     private var running: String? {
-        let reviews = model.busyReviews.count
         let sessions = model.state.claudeJobs.count { $0.isRunning }
-        var parts: [String] = []
-        if reviews > 0 { parts.append("\(reviews) \(reviews == 1 ? "review" : "reviews")") }
-        if sessions > 0 { parts.append("\(sessions) \(sessions == 1 ? "session" : "sessions")") }
-        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+        return sessions > 0 ? "\(sessions) \(sessions == 1 ? "session" : "sessions")" : nil
     }
 
     private struct LimitRow: View {

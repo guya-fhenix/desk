@@ -29,20 +29,12 @@ public actor DeskService {
     private var github: GitHubProvider?
     private let git = GitProvider()
     private var jira: JiraProvider?
-    private let reviews: ReviewRunner
-    private let diffs: ReviewDiffs
-    /// Shared with the runner: two git commands in one repo must not race, and that is what serialises them.
-    private let worktrees = ReviewWorktrees()
+    private let worktrees = BranchWorktrees()
 
     public init(config: DeskConfig, support: AppSupport) {
         self.config = config
         self.support = support
-        let providers = Self.makeProviders(config)
-        (github, jira) = providers
-        // One diff cache, shared by the runner and its housekeeping.
-        let diffs = ReviewDiffs(ghPath: config.resolvedGhPath, support: support)
-        self.diffs = diffs
-        reviews = ReviewRunner(config: config, support: support, github: providers.0, worktrees: worktrees, diffs: diffs)
+        (github, jira) = Self.makeProviders(config)
     }
 
     public static func loadConfig(support: AppSupport) -> DeskConfig {
@@ -52,8 +44,6 @@ public actor DeskService {
     public func update(config: DeskConfig) async {
         self.config = config
         (github, jira) = Self.makeProviders(config)
-        await diffs.update(ghPath: config.resolvedGhPath)
-        await reviews.update(config: config, github: github)
     }
 
     private static func makeProviders(_ config: DeskConfig) -> (GitHubProvider?, JiraProvider?) {
@@ -104,7 +94,7 @@ public actor DeskService {
     /// Claude Code reads the project's settings, plugins and memory from, and a worktree is a different
     /// directory to it. The prompt sends it on to the branch, and carries the PR url, which is what ties
     /// the session to this PR until it has touched it itself.
-    public func startClaudeSession(pr: PullRequest, repoRoot: String, worktree: String?, opening extra: String? = nil) async throws -> ClaudeJob {
+    public func startClaudeSession(pr: PullRequest, repoRoot: String, worktree: String?) async throws -> ClaudeJob {
         guard let claude = config.resolvedClaudePath else { throw DeskError.claudeNotFound }
         let path: String
         if let worktree {
@@ -112,9 +102,7 @@ public actor DeskService {
         } else {
             path = try await worktrees.prepareBranch(pr: pr, repoRoot: repoRoot)
         }
-        // A session started for a review's hand-off opens with it, after the usual brief.
-        let prompt = [Self.sessionPrompt(for: pr, worktree: path == repoRoot ? nil : path, config: config), extra]
-            .compactMap { $0 }.joined(separator: "\n\n")
+        let prompt = Self.sessionPrompt(for: pr, worktree: path == repoRoot ? nil : path, config: config)
         let output = try await Shell.output(claude, ["--bg", prompt], cwd: repoRoot, timeout: 120)
         guard let id = ClaudeJobs.startedID(in: output) else { throw DeskError.sessionNotStarted(output) }
         return ClaudeJob(
@@ -162,22 +150,6 @@ public actor DeskService {
         )
     }
 
-    /// What a review found, for the PR's session to talk through: its summary, and each comment as "path:line — body".
-    public static func reviewHandoffPrompt(for pr: PullRequest, run: ReviewRun, config: DeskConfig = DeskConfig()) -> String {
-        let findings = run.findings.map { finding in
-            let place = finding.line.map { "\(finding.path):\($0)" } ?? finding.path
-            // The comment as it reads, without the app's marker; a body over several lines stays one item of the list.
-            let read = DraftThreads.read(finding.body)
-            let severity = read.severity.map { " (\($0.title))" } ?? ""
-            return "- \(place)\(severity) — " + read.text.replacingOccurrences(of: "\n", with: "\n  ")
-        }
-        let summary = run.summary.trimmingCharacters(in: .whitespacesAndNewlines)
-        let values = [
-            "repo": pr.repo, "number": String(pr.number), "title": pr.title, "url": pr.url, "baseRef": pr.baseRef,
-            "posted": String(run.posted), "summary": summary, "findings": findings.joined(separator: "\n"),
-        ]
-        return config.prompt(.reviewHandoff, values, when: ["summary": !summary.isEmpty, "findings": !findings.isEmpty])
-    }
 
     // MARK: Flows
 
@@ -258,11 +230,6 @@ public actor DeskService {
         return try await github.checks(repo: pr.repo, number: pr.number)
     }
 
-    public func draftComments(for pr: PullRequest) async throws -> [DraftReviewComment] {
-        guard let github else { throw DeskError.ghNotFound }
-        return try await github.draftComments(repo: pr.repo, number: pr.number)
-    }
-
     public func retitle(_ pr: PullRequest, to title: String) async throws {
         guard let github else { throw DeskError.ghNotFound }
         try await github.retitle(repo: pr.repo, number: pr.number, title: title)
@@ -315,28 +282,4 @@ public actor DeskService {
         guard let jira else { throw DeskError.jiraNotConfigured }
         return try await jira.projectKeys()
     }
-
-    // MARK: Reviews
-
-    /// This session's review runs. Where each review stands after that is the PR's to say.
-    public func reviewRuns() async -> [String: ReviewRun] { await reviews.runs }
-
-    /// How many reviews are running, for the button that must not start a fifth.
-    public func runningReviews() async -> Int { await reviews.running }
-
-    /// Runs one review and posts what it found into your pending review on the PR. The app's only write
-    /// to GitHub, and never more than a draft: submitting it is yours to do there.
-    @discardableResult
-    public func review(pr: PullRequest, gitScan: GitScan) async -> ReviewRun {
-        await reviews.review(pr, repos: gitScan.repos)
-    }
-
-    public func removeReviewWorktree(for pr: PullRequest, gitScan: GitScan) async throws {
-        try await reviews.removeWorktree(for: pr, repos: gitScan.repos)
-    }
-
-    public func cleanupClosedReviews(github: GitHubSnapshot, reviewWorktrees: [Worktree], repos: [RepoRef]) async {
-        await reviews.cleanupClosed(github: github, reviewWorktrees: reviewWorktrees, repos: repos)
-    }
-
 }

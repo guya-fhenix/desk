@@ -4,7 +4,7 @@ import Foundation
 /// takes as `{name}`, and wraps what only belongs on some tickets or PRs in `{#name}…{/name}`, with an
 /// optional `{else}` for the text that goes in when the condition does not hold.
 public enum PromptID: String, CaseIterable, Sendable, Identifiable {
-    case ticketPlan, session, selfReview, fixConflict, fixChecks, review, reviewSystem, reviewReformat, reviewHandoff
+    case ticketPlan, session, selfReview, fixConflict, fixChecks
 
     public var id: String { rawValue }
 
@@ -15,10 +15,6 @@ public enum PromptID: String, CaseIterable, Sendable, Identifiable {
         case .selfReview: "Flow › Self-review"
         case .fixConflict: "Flow › Fix the conflict"
         case .fixChecks: "Flow › Fix CI"
-        case .review: "Review"
-        case .reviewSystem: "Review › System prompt"
-        case .reviewReformat: "Review › Reformat pass"
-        case .reviewHandoff: "Review › Hand-off to the session"
         }
     }
 
@@ -30,10 +26,6 @@ public enum PromptID: String, CaseIterable, Sendable, Identifiable {
         case .selfReview: "Sent to the PR's session when you approve its draft. It reviews once and changes no code: the findings come back as threads with suggested fixes, for you to read on the PR and settle with the session. Add --fix to its /pre-pr command to have it fix them itself. Writing the JSON described here to {resultFile} is its last step. The session shows as working while it runs; the PR is Self-reviewed once /pre-pr's evidence is on it."
         case .fixConflict: "Sent to the PR's session when you press Fix it on a PR that conflicts with its base branch. Writing the JSON described here to {resultFile} is its last step. Nothing is sent on its own."
         case .fixChecks: "Sent to the PR's session when you press Fix it on a PR whose CI failed. Writing the JSON described here to {resultFile} is its last step. Nothing is sent on its own."
-        case .review: "Sent with `claude -p` when you press Review. The app reads the answer as the JSON described here, so keep its field names."
-        case .reviewSystem: "Sent as `--append-system-prompt` on every review run."
-        case .reviewReformat: "Sent with `claude -p` only when a review answer does not parse; that answer follows on stdin. Keep the JSON shape."
-        case .reviewHandoff: "Sent to the PR's background session once a review has put its comments in your draft, so you can talk them through there: as soon as the session is idle, never while it works or waits on you. With no session on the PR, a new one starts with it."
         }
     }
 
@@ -55,15 +47,6 @@ public enum PromptID: String, CaseIterable, Sendable, Identifiable {
             return pr + [("headRef", "the PR branch"), ("worktree", "the worktree path"), ("resultFile", "where the session writes its summary")]
         case .fixConflict, .fixChecks:
             return pr + [("headRef", "the PR branch"), ("worktree", "the worktree path"), ("resultFile", "where the session writes its summary")]
-        case .review:
-            return pr + [("author", "the PR author"), ("headSha", "the PR head commit"), ("repos", "one line per other clone")]
-        case .reviewSystem, .reviewReformat:
-            return []
-        case .reviewHandoff:
-            return pr + [
-                ("posted", "how many comments went into the draft"), ("summary", "what the review said overall"),
-                ("findings", "the comments, one per line with file and line"),
-            ]
         }
     }
 
@@ -78,9 +61,6 @@ public enum PromptID: String, CaseIterable, Sendable, Identifiable {
             ]
         case .selfReview, .fixChecks: [("worktree", "the branch is checked out in a worktree")]
         case .fixConflict: [("worktree", "the branch is checked out in a worktree"), ("draft", "the PR is still a draft")]
-        case .review: [("otherRepos", "there are other clones under the repo roots")]
-        case .reviewSystem, .reviewReformat: []
-        case .reviewHandoff: [("summary", "the review wrote a summary"), ("findings", "the review placed comments on lines")]
         }
     }
 
@@ -196,116 +176,6 @@ public enum PromptID: String, CaseIterable, Sendable, Identifiable {
 
             When you are done, write this JSON to {resultFile} and nothing else:
             {"fixed": true, "summary": "what was wrong and what you did, in one plain sentence"}
-            """
-        // Other clones are read at the branch the app just fetched and never at their checkout, so the review
-        // sees current code and not someone's half-done branch; the list comes before the answer format, or it
-        // reads as part of it. `lineText` is the field that matters most: models miscount `@@` offsets, so the
-        // quoted line is what the app corrects the number against before GitHub sees it.
-        case .review:
-            """
-            Review pull request #{number} in {repo}: "{title}" by {author} ({url}) for me, the requested \
-            reviewer. This directory is a detached git worktree at the PR head {headSha}; the base branch is \
-            {baseRef}, so the files here are the PR's code.
-
-            Read before you judge:
-            1. `gh pr view {number} --repo {repo} --comments` for the description and the discussion so far.
-            2. `gh pr diff {number} --repo {repo}` for the diff. Every line number you report must come from \
-            this diff and nowhere else.
-            3. The changed files here in full, with enough surrounding code to judge them. `git log \
-            origin/{baseRef}..HEAD` shows the commits.
-
-            Review it with the fhenix-workflow:reviewing-code skill, the team's checklist, on that diff, and report \
-            only: post nothing and change nothing. A step that needs a tool you do not have, such as a subagent, you \
-            do yourself or skip. Its findings become the comments below, with its severity: Important, Nit or \
-            Pre-existing. If the skill is not available here, look for correctness bugs, missing error handling, \
-            concurrency and security problems, untested behaviour, and anything that contradicts the conventions in \
-            the surrounding code. Either way, prefer few strong findings to many weak ones: at most 15 comments, and \
-            no comment that only restates what the code does.
-
-            {#otherRepos}Other repositories under my repo roots, each fetched just now. Read them directly from \
-            the remote default branch named below and never from their working trees, which may be on any branch \
-            with local edits: `git -C <root> show <ref>:<file>`, `git -C <root> ls-tree -r --name-only <ref>`, \
-            `git -C <root> grep <pattern> <ref>`, `git -C <root> log <ref> -- <file>`.
-            {repos}{/otherRepos}
-
-            Answer with one JSON object and nothing else. No prose before or after it, no code fence.
-
-            {
-              "comments": [
-                {
-                  "path": "src/gauge.rs",
-                  "side": "RIGHT",
-                  "line": 42,
-                  "lineText": "        let mut n = 0;",
-                  "severity": "important" | "nit" | "pre-existing" | "question",
-                  "body": "At most three lines as GitHub shows them, about 250 characters in all: one or two \
-            short sentences on what goes wrong and when, then one on what to do about it, in plain words, the way \
-            you would say it to the author sitting next to you. No headings, lists or blank lines. A ```suggestion \
-            block is welcome below those lines when the fix fits on the line."
-                }
-              ]
-            }
-
-            How to write each comment — like a teammate talking to the author, not like a linter or a spec:
-            - Say what actually goes wrong, with a concrete case: "if the list is empty, this crashes on the first \
-            item" rather than "missing bounds check".
-            - Use everyday words. Skip jargon and acronyms (TOCTOU, idempotent, invariant, UB…); when a technical \
-            word really is the clearest one, add a few words saying what it means here.
-            - Name a function or variable only when that is the quickest way to point at it. The comment already \
-            sits on the line, so do not restate the code, quote signatures or paste stack traces.
-            - Say what to do about it in one plain sentence. Do not write step-by-step instructions or rewrite the \
-            change for the author.
-            - Be direct and friendly: no hedging ("it might be worth considering…"), no lecturing, no padding.
-            - A `question` is a real question you would ask out loud: "Is this meant to skip archived repos?"
-
-            Rules for comments:
-            - `path` is exactly the path as it appears after `+++ b/` in the diff, without the `b/`.
-            - `side` is "RIGHT" for a line the PR adds or leaves unchanged, "LEFT" only for a line it deletes.
-            - `line` is the line number in the new file for RIGHT, in the old file for LEFT. Count down from the \
-            `@@ -old,n +new,m @@` header of the hunk the line sits in.
-            - `lineText` is that line copied verbatim, without its leading `+`, `-` or space. It is how I check \
-            your line number, so copy it exactly, spaces included.
-            - Comment only on lines inside a hunk of that diff. Leave out points about code the PR did not touch.
-            - One comment per line: if two things are wrong on one line, say both in one body.
-            - `severity`: `important` only for what has to be fixed before merging; that is what I judge the \
-            verdict by. `nit` for what could be better but need not block, `pre-existing` for a real problem on a \
-            line of the hunk that the PR did not change, and `question` for a question. No findings is a fine answer \
-            for good work: `{"comments": []}`.
-
-            Post nothing to GitHub and edit nothing: I put your comments into a draft review on the PR, and I \
-            decide there what to keep and what verdict to send.
-            """
-        case .reviewSystem:
-            """
-            You are a code reviewer run by Fhenix Desk with read-only tools, once, non-interactively. Never post \
-            comments, reviews or approvals to GitHub, and never modify files or git state. If a tool call is \
-            denied, continue without it. Your entire final message must be the single JSON object the prompt \
-            describes: no preamble, no closing remarks, no code fence.
-            """
-        // Into a session that can push and post: the review is the user's to finish, so it says so, and it hands over
-        // the talk, not a task.
-        case .reviewHandoff:
-            """
-            Claude just reviewed {repo}#{number} — {title} ({url}) and put {posted} comments into my pending review \
-            on GitHub. Nobody else can see that draft yet.
-
-            {#summary}Its summary: {summary}{/summary}
-
-            {#findings}The comments:
-
-            {findings}{/findings}
-
-            I want to talk them through with you: which hold up, which are wrong, and how to word them. Read the code \
-            they point at as you need to. Don't post, comment, approve or push anything: the review is mine to finish \
-            on GitHub. Wait for my questions.
-            """
-        case .reviewReformat:
-            """
-            The text below is a code review. Re-emit it as the single JSON object described here and nothing else: \
-            {"verdict": "APPROVE" | "REQUEST_CHANGES" | "COMMENT", "summary": "...", "comments": [{"path": "...", \
-            "side": "RIGHT" | "LEFT", "line": 1, "lineText": "...", "severity": "important" | "nit" | \
-            "pre-existing" | "question", "body": "..."}]}. Invent nothing, and drop any finding that has no file and \
-            line.
             """
         }
     }

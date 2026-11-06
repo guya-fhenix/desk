@@ -2,22 +2,22 @@ import DeskCore
 import Foundation
 import Testing
 
-/// A review's state is read off the PR; only a run going this session comes from anywhere else.
+/// Where your review stands is read off the PR alone.
 @Suite struct ReviewStatusTests {
     let pr = Fixtures.pr(number: 9, head: "y", author: "alice")
 
-    func status(pending: PendingReview? = nil, reviews: [Review] = [], events: [ReviewRequestEvent] = [], run: ReviewRun? = nil) -> ReviewStatus {
+    func status(pending: PendingReview? = nil, reviews: [Review] = [], events: [ReviewRequestEvent] = []) -> ReviewStatus {
         var pr = pr
         pr.pendingReview = pending
         pr.reviews = reviews
         pr.reviewRequestEvents = events
-        return ReviewStatus.derive(pr: pr, run: run, login: "me")
+        return ReviewStatus.derive(pr: pr, login: "me")
     }
 
     @Test func aPendingReviewIsTheDraft() {
-        #expect(status(pending: Fixtures.pending(comments: 5, claude: 3)).draft == .pending(comments: 5, claude: 3))
+        #expect(status(pending: Fixtures.pending(comments: 5)).draft == .pending(comments: 5))
         // Even with a review submitted earlier: the draft is what waits on you now.
-        #expect(status(pending: Fixtures.pending(), reviews: [Fixtures.review(at: Fixtures.hours(1))]).draft == .pending(comments: 3, claude: 3))
+        #expect(status(pending: Fixtures.pending(), reviews: [Fixtures.review(at: Fixtures.hours(1))]).draft == .pending(comments: 3))
     }
 
     @Test func withoutADraftYourLatestReviewIsTheState() {
@@ -46,16 +46,5 @@ import Testing
         #expect(!status(reviews: reviews, events: [Fixtures.event(at: Fixtures.hours(2), team: true)]).reRequested)
         // Never reviewed: a request is the first one, not a re-request.
         #expect(!status(events: [Fixtures.event(at: Fixtures.hours(2))]).reRequested)
-    }
-
-    @Test func busyCoversEverythingWithWorkInFlight() {
-        #expect(ReviewPhase.preparing.isBusy)
-        #expect(ReviewPhase.running.isBusy)
-        // Posting too: a second run then would race the first for the same draft.
-        #expect(ReviewPhase.posting.isBusy)
-        #expect(!ReviewPhase.posted.isBusy)
-        #expect(!ReviewPhase.failed.isBusy)
-        #expect(status(run: ReviewRun(phase: .running)).isBusy)
-        #expect(!status().isBusy)
     }
 }

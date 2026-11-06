@@ -40,8 +40,6 @@ public struct DeskState: Sendable {
     public var config: DeskConfig
     public var github: GitHubSnapshot?
     public var gitScan: GitScan?
-    /// Claude review runs this session, by PR url. Where each review stands is read off the PR itself.
-    public var reviewRuns: [String: ReviewRun] = [:]
     public var tickets: [Ticket] = []
     /// Claude Code's background sessions that mention a PR or were started on a ticket, newest first. Local files, so
     /// they ride the git poll rather than being a polled `Source` of their own.
@@ -51,8 +49,6 @@ public struct DeskState: Sendable {
     /// Whether each clone's sessions can run the team review skill, by repo root. Read with the git poll.
     public var reviewSkills: [String: ReviewSkill] = [:]
     public var errors: [Source: String] = [:]
-    /// The last review failure. Reviews are not a polled source, so they do not belong in `errors`.
-    public var reviewError: String?
     public var lastRefresh: [Source: Date] = [:]
 
     public private(set) var nudges: [Nudge] = []
@@ -66,8 +62,7 @@ public struct DeskState: Sendable {
     /// The suggested moves you dismissed, by `TicketDrift.moveKey`.
     public var dismissedMoves: Set<String> = []
     public private(set) var defaultBranches: [String: String] = [:]
-    /// Which queued PRs are waiting for you to run a review, and why. Nothing acts on this: it is what
-    /// the Reviews tab shows so the press is an informed one.
+    /// Which queued PRs wait on your review, and why.
     public private(set) var reviewNeeds: [String: ReviewNeed] = [:]
 
     public init(config: DeskConfig) {
@@ -83,14 +78,10 @@ public struct DeskState: Sendable {
     public var reviewRequests: [PullRequest] {
         (github?.reviewRequests ?? []).filter { !$0.isDraft && !$0.isAutomated(config.automation) }
     }
-    /// Worktrees the user works in. Review worktrees are detached PR heads the app owns; they would
-    /// otherwise read as local work and raise "unpushed work" nudges. A prunable one is a record git
-    /// still keeps for a directory the disk no longer has — every background Claude session whose job
-    /// has since been deleted leaves one behind — and it is no place to start anything.
-    public var worktrees: [Worktree] {
-        (gitScan?.worktrees ?? []).filter { !isReviewWorktree($0.path) && !$0.isPrunable }
-    }
-    public var reviewWorktrees: [Worktree] { (gitScan?.worktrees ?? []).filter { isReviewWorktree($0.path) } }
+    /// Worktrees the user works in. A prunable one is a record git still keeps for a directory the disk no longer
+    /// has — every background Claude session whose job has since been deleted leaves one behind — and it is no place
+    /// to start anything.
+    public var worktrees: [Worktree] { (gitScan?.worktrees ?? []).filter { !$0.isPrunable } }
 
     /// Open PRs nobody has put on you and you have not reviewed. Once you review one it drops out of
     /// here; if the author re-requests you it comes back through `reviewRequests` instead.
@@ -172,8 +163,6 @@ public struct DeskState: Sendable {
     /// Where this ticket should move, or nil when Jira already agrees with GitHub.
     public func drift(forKey key: String) -> TicketDrift? { ticketDrifts.first { $0.ticket.key == key } }
 
-    public func isReviewWorktree(_ path: String) -> Bool { ClaudePaths.path(path, isUnder: [config.expandedReviewRoot]) }
-
     /// Ticket keys seen in PRs and worktrees. Jira fetches them even when they are assigned to someone else.
     public var referencedTicketKeys: [String] {
         let matcher = TicketKeyMatcher(projectKeys: config.jiraProjectKeys)
@@ -186,9 +175,7 @@ public struct DeskState: Sendable {
         stackParents = Linker.stackParents(openAll)
         let merged = github?.mergedRecent ?? []
         defaultBranches = Linker.defaultBranches(worktrees: worktrees, pullRequests: openAll + merged)
-        reviewNeeds = ReviewReadiness.needs(ReviewReadinessInput(
-            login: login, queue: reviewRequests + openForReview, runs: reviewRuns, repos: gitScan?.repos ?? []
-        ))
+        reviewNeeds = ReviewReadiness.needs(login: login, queue: reviewRequests + openForReview)
         let matcher = TicketKeyMatcher(projectKeys: config.jiraProjectKeys)
         // The merged ones too, so their rows name the ticket they closed.
         ticketKeys = Dictionary((mine + merged).map { ($0.url, TicketSync.keys(for: $0, matcher: matcher)) }, uniquingKeysWith: { first, _ in first })
@@ -198,7 +185,7 @@ public struct DeskState: Sendable {
         )).filter { !dismissedMoves.contains($0.moveKey) }
         nudges = NudgeEngine.nudges(NudgeInput(
             now: now, login: login, config: config, mine: mine, reviewRequests: reviewRequests,
-            openHeadsByRepo: Linker.openHeadsByRepo(openAll), defaultBranches: defaultBranches, readyReviews: readyReviews,
+            openHeadsByRepo: Linker.openHeadsByRepo(openAll), defaultBranches: defaultBranches,
             sessions: claudeJobs, ticketKeys: ticketKeys
         ))
     }
@@ -255,8 +242,6 @@ public struct DeskState: Sendable {
         gitScan.flatMap { Linker.repo(for: pr, in: $0.repos) }
     }
 
-    public func reviewRun(for pr: PullRequest) -> ReviewRun? { reviewRuns[pr.url] }
-
     /// Whether a session on this PR's clone can run the team review skill; nil without a clone.
     public func reviewSkill(for pr: PullRequest) -> ReviewSkill? { localRepo(for: pr).flatMap { reviewSkills[$0.root] } }
 
@@ -266,25 +251,15 @@ public struct DeskState: Sendable {
         return repo.flatMap { reviewSkills[$0.root] }
     }
 
-    /// Why this PR wants a review run on it, or nil when it does not.
+    /// Why this PR waits on your review, or nil when it does not.
     public func reviewNeed(for pr: PullRequest) -> ReviewNeed? { reviewNeeds[pr.url] }
 
-    /// PRs waiting for you to press Review, oldest first.
-    public var reviewsToRun: [PullRequest] {
+    /// PRs asked of you that wait on your review, oldest first.
+    public var reviewsToDo: [PullRequest] {
         reviewRequests.filter { reviewNeeds[$0.url] != nil }.sorted { $0.createdAt < $1.createdAt }
     }
 
-    public func reviewStatus(for pr: PullRequest) -> ReviewStatus {
-        ReviewStatus.derive(pr: pr, run: reviewRuns[pr.url], login: login)
-    }
-
-    /// Drafts with Claude's comments that still wait on you, for the nudge that says so.
-    private var readyReviews: [ReadyReview] {
-        reviewRequests.compactMap { pr in
-            guard let pending = pr.pendingReview, pending.claudeComments > 0 else { return nil }
-            return ReadyReview(pr: pr, comments: pending.comments, draftId: pending.id)
-        }
-    }
+    public func reviewStatus(for pr: PullRequest) -> ReviewStatus { ReviewStatus.derive(pr: pr, login: login) }
 }
 
 /// Up Next's sections, in the order the screen lists them: what you can finish now, what is yours to fix, the reviews

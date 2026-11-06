@@ -1,63 +1,41 @@
 # Fhenix Desk
 
 Menu bar app that tracks the Fhenix development cycle and carries your own work from a ticket to its merge.
-Everything it writes is either a press of yours — putting a Claude review into your draft review on a PR,
-starting a background session, and the flow's Approve, Fix it and Merge — or the one move it makes on its own:
-moving a Jira ticket that has fallen behind its PRs.
+Everything it writes is either a press of yours — starting a background session, and the flow's Approve, Fix it and
+Merge — or the one move it makes on its own: moving a Jira ticket that has fallen behind its PRs.
 
 Sources: GitHub PRs (`gh`), local git worktrees, Claude Code sessions (`~/.claude`), Jira. What it shows is read
 off them on every refresh; under `~/Library/Application Support/Fhenix Desk` it keeps only your settings
-(`config.json`), which nudges it has already notified (`notified.json`) and a cache of PR diffs (`diffs/`).
+(`config.json`) and which nudges it has already notified (`notified.json`).
 
 ```sh
 make doctor   # print all data as text
 make run      # run from the build tree
 make install  # build .app, copy to ~/Applications, open
-swift run FhenixDesk --review <pr-url>   # review one PR headlessly into your draft review on it
 ```
 
 Jira goes through the Atlassian CLI: run `acli jira auth login --web` once, then Settings (⌘,) → Jira →
 Recheck. Desk stores no Jira token.
 
 The window opens on Up Next: every nudge (CI failed, changes requested, needs rebase, ready to merge, review
-waiting, Claude reviewed, quiet PRs) and every ticket the app could not move to where its PRs say, each
+waiting, quiet PRs) and every ticket the app could not move to where its PRs say, each
 with the button that deals with it. Pull Requests and Jira show a details panel on the right for the selected row, and Settings (⌘,) open inside the same window. Search (⌘K) finds any open PR by `repo#number`, title or branch, and any screen by name: ↩ opens it on its screen here, ⌘↩ on GitHub.
 
-Claude reviews: the Reviews tab lists the PRs waiting on you and marks which are ready to run — ones you
-have not reviewed, ones re-requested since your last review, and a run that failed. By default it keeps to the
-ones that still **need an approval**, read off the `review-gate/approvals` status on each PR's head commit: fewer
-approvals on the latest commit than the risk tier needs, CodeRabbit not done reviewing it yet, or a repo that posts
-no such status at all. "low risk: no approval needed" and a met count drop out; All, one click away, shows them,
-and Up Next, the sidebar badge and the menu bar follow the same choice. The tier shows as a Risk chip on each row,
-and PRs CodeRabbit labels `needs-human` still come first. Nothing starts on its own; you press
-Review on the ones you want. Each press checks the PR head out into a detached worktree under
-`~/Repos/.reviews/<repo>/pr-<n>` and runs `claude -p` there once, with read-only tools and no session to
-attach to. Every other clone under the repo roots is fetched first and offered at its remote default
-branch (`git -C <root> show origin/main:<file>`), so the review reads current code there, not whatever
-branch happens to be checked out.
+Reviews: the Reviews tab lists the PRs waiting on your review — ones you have not reviewed, and ones re-requested
+since your last review. By default it keeps to the ones that still **need an approval**, read off the
+`review-gate/approvals` status on each PR's head commit: fewer approvals on the latest commit than the risk tier needs,
+CodeRabbit not done reviewing it yet, or a repo that posts no such status at all. "low risk: no approval needed" and
+a met count drop out; All, one click away, shows them, and Up Next, the sidebar badge and the menu bar follow the same
+choice. The tier shows as a Risk chip on each row, and PRs CodeRabbit labels `needs-human` come first. Drafts and bot
+PRs stay out of the queue altogether.
 
-When the run finishes, its comments go into your **pending review** on the PR — a draft only you can see,
-which notifies nobody. Each comment starts with its severity (`**Blocker**`, `**Nit**`, …); one whose line
-has left the diff, in a file the PR changes, becomes a comment on that file naming the line. Then you
-finish the review on GitHub, in the PR's Files tab: edit or delete comments, write the body, pick the
-verdict, submit. The row says where your review stands — `draft · 7`, or the verdict you sent — and Open
-on GitHub goes straight there. Claude itself cannot reach GitHub; the app never submits, approves or
-requests changes.
-
-None of that is stored. The app keeps no review records: every poll reads your pending review and your
-submitted reviews off the PR, and each comment it posts ends with an invisible `<!-- fhenix-desk -->`
-marker, which is how a draft's comments are told apart as Claude's or yours. A run in progress, or one
-that failed, lives in memory until the app quits. Review worktrees sit at a fixed path, so the path
-alone says which PR one belongs to.
-
-GitHub allows one pending review per person per PR, so a draft you already started by hand is added to,
-never replaced. Review again adds only comments on lines the draft does not already cover. New commits
-start nothing: GitHub marks the draft's comments on changed lines outdated by itself. Drafts and bot PRs
-stay out of the queue altogether, and the app removes a review worktree once its PR is merged or closed —
-the draft, if you left one, stays on GitHub.
-
-Runs are capped at two at once so a review cannot starve the git and GitHub polls, and each run has its
-own dollar cap, which `claude` enforces.
+Desk does not review for you. By the time a PR is ready, /pre-pr and CodeRabbit have run the review checklist on it;
+what is left is the person's part — does it do what the ticket asks, is the approach right, is the risk tier right and
+would How to revert work, does Testing prove it, and do you agree with each thread under "Resolved by the author" in
+the /pre-pr evidence. A PR's page shows its description, checks and risk; Review on GitHub opens its Files tab, where
+you read the evidence and CodeRabbit's walkthrough, the diff, and submit. The row says where your review stands —
+`draft · 7` while you have a pending review, or the verdict you sent. Nothing of it is stored: every poll reads your
+pending and submitted reviews off the PR.
 
 ## Ticket sync
 
@@ -76,7 +54,7 @@ status names in Settings → Jira, exactly as Jira spells them; empty turns that
 
 ## Background sessions
 
-The Agent column on the Pull Requests screen, and the same button on the Reviews queue, say whether one of
+The Agent column on the Pull Requests screen, and the same button on a review's page, say whether one of
 Claude Code's background sessions (`claude agents`, the ones under `~/.claude/jobs`) is about that PR. A
 filled terminal means yes, and pressing it runs `claude attach <id>` in Terminal — the only way into a
 background session from outside the terminal that started it, and it works whether the session is still
@@ -133,8 +111,7 @@ flow at its current stage once you Start a session on it.
 ## Prompts
 
 Every text the app sends Claude is editable in Settings → Prompts, one text each: starting a ticket, the PR
-session, the flow's self-review and its Fix it prompts, the review, the review's system prompt, its
-reformat pass and its hand-off to the PR's session. `{name}` placeholders are filled
-when the prompt is sent, and `{#name}…{/name}` wraps what only applies sometimes — a ticket description,
-unresolved threads, a conflict, other repos — with `{else}` for the other case. Only edits are stored, in
+session, and the flow's self-review and its Fix it prompts. `{name}` placeholders are filled when the prompt is
+sent, and `{#name}…{/name}` wraps what only applies sometimes — a ticket description, unresolved threads, a
+conflict — with `{else}` for the other case. Only edits are stored, in
 `config.json`, so an untouched prompt follows the app's own text; Reset to default removes an edit.

@@ -4,7 +4,7 @@ import UniformTypeIdentifiers
 
 /// The parts of Settings, each a page of its own in the Settings sidebar.
 enum SettingsPane: String, CaseIterable, Identifiable {
-    case general, github, repos, jira, reviews, prompts
+    case general, github, repos, jira, prompts
 
     var id: Self { self }
 
@@ -14,7 +14,6 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         case .github: return "GitHub"
         case .repos: return "Repos"
         case .jira: return "Jira"
-        case .reviews: return "Reviews"
         case .prompts: return "Prompts"
         }
     }
@@ -25,7 +24,6 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         case .github: return "chevron.left.forwardslash.chevron.right"
         case .repos: return "folder"
         case .jira: return SidebarIcon.jira
-        case .reviews: return "bubble.left.and.text.bubble.right"
         case .prompts: return "text.bubble"
         }
     }
@@ -138,7 +136,6 @@ struct SettingsView: View {
         case .github: FormPage(title: pane.title) { GitHubSettings() }
         case .repos: ReposSettings()
         case .jira: FormPage(title: pane.title) { JiraSettings() }
-        case .reviews: FormPage(title: pane.title) { ReviewsSettings() }
         case .prompts: PromptsSettings()
         }
     }
@@ -331,45 +328,6 @@ private struct StatusField: View {
     }
 }
 
-/// One of a short list of values, or the default; a value typed into config.json by hand stays pickable.
-private struct ChoiceField: View {
-    var label: String
-    @Binding var value: String
-    var choices: [String]
-    var defaultLabel = "Default"
-
-    var body: some View {
-        Picker(label, selection: $value) {
-            Text(defaultLabel).tag("")
-            ForEach(choices + (value.isEmpty || choices.contains(value) ? [] : [value]), id: \.self) { Text($0).tag($0) }
-        }
-        .labelsHidden()
-        .handCursor()
-        .frame(maxWidth: 300, alignment: .leading)
-    }
-}
-
-/// The review's model, from Claude Code's own list: its default, the main models, then the rest under More models, as
-/// `/model` groups them. A saved model the list no longer has stays on offer, so opening Settings never changes it.
-private struct ModelField: View {
-    @Binding var value: String
-    var catalog: ClaudeModelCatalog?
-
-    var body: some View {
-        let models = catalog?.models ?? []
-        let defaultName = catalog?.defaultModel.flatMap { catalog?.model($0)?.name }
-        Picker("Model", selection: $value) {
-            Text(defaultName.map { "Default · \($0)" } ?? "Default").tag("")
-            Section { ForEach(models.filter(\.isMain)) { Text($0.name).tag($0.id) } }
-            Section("More models") { ForEach(models.filter { !$0.isMain }) { Text($0.name).tag($0.id) } }
-            if !value.isEmpty, catalog?.model(value) == nil { Text(value).tag(value) }
-        }
-        .labelsHidden()
-        .handCursor()
-        .frame(maxWidth: 300, alignment: .leading)
-    }
-}
-
 /// The folders clones live under: picked in a folder dialog rather than typed, and flagged when one is gone.
 private struct RepoRootsField: View {
     @Binding var text: String
@@ -433,7 +391,7 @@ private struct GitHubSettings: View {
         }
         FieldGroup(
             title: "Local clones",
-            note: "Where your clones live. Only used to run a review against a checked-out repo — the list of repos comes from GitHub."
+            note: "Where your clones live: sessions start in them, and their worktrees show as your work. The list of repos comes from GitHub."
         ) {
             Field(label: "Repo roots", hint: "One folder per line; type a path and press Return, or add one with the folder dialog.") {
                 RepoRootsField(text: $draft.repoRootsText)
@@ -506,73 +464,6 @@ private struct JiraSettings: View {
         return model.settings.config.resolvedAcliPath == nil
             ? "acli not found. Install it with `brew install acli`, or set the path below."
             : "Not signed in. Run `acli jira auth login --web` in a terminal, then press Recheck."
-    }
-}
-
-private struct ReviewsSettings: View {
-    @Environment(AppModel.self) private var model
-    /// What Claude Code's `/model` offers this account; nil until read, or when Claude Code has not cached it.
-    @State private var catalog: ClaudeModelCatalog?
-
-    var body: some View {
-        @Bindable var draft = model.settings
-        let chosen = catalog?.model(draft.config.reviewModel.isEmpty ? catalog?.defaultModel ?? "" : draft.config.reviewModel)
-        FieldGroup(title: "Claude") {
-            Field(label: "claude path", hint: "Leave empty to find claude on your PATH.") {
-                VStack(alignment: .leading, spacing: 4) {
-                    BoxedText(placeholder: "Automatic", text: $draft.config.claudePath)
-                    Text(draft.config.resolvedClaudePath.map { "Using \($0)" } ?? "claude not found. Install it or set the path.")
-                        .scaled(.caption).foregroundStyle(draft.config.resolvedClaudePath == nil ? .red : .secondary)
-                }
-            }
-            Field(
-                label: "Model",
-                hint: catalog == nil ? "Claude Code's model list was not found; run claude once to fetch it." : "The models Claude Code's /model offers you."
-            ) {
-                ModelField(value: $draft.config.reviewModel, catalog: catalog)
-            }
-            Field(label: "Effort") {
-                if let chosen, chosen.efforts.isEmpty {
-                    Text("\(chosen.name) takes no effort level.").scaled(.callout).foregroundStyle(.secondary)
-                } else {
-                    ChoiceField(
-                        label: "Effort", value: $draft.config.reviewEffort,
-                        choices: chosen?.efforts ?? ["low", "medium", "high", "xhigh", "max"],
-                        defaultLabel: chosen?.defaultEffort.map { "Default · \($0)" } ?? "Default"
-                    )
-                }
-            }
-        }
-        .task { catalog = ClaudeModelCatalog.read() }
-        // An effort the new model does not take would be refused: back to the model's own default.
-        .onChange(of: draft.config.reviewModel) {
-            if let chosen, !draft.config.reviewEffort.isEmpty, !chosen.efforts.contains(draft.config.reviewEffort) {
-                draft.config.reviewEffort = ""
-            }
-        }
-        FieldGroup(title: "Limits") {
-            Field(label: "Parallel reviews") {
-                BoxedStepper(label: "Parallel reviews", value: $draft.config.reviewConcurrency, range: 1...4, step: 1, text: "\(draft.config.reviewConcurrency)")
-            }
-            Field(label: "Review time limit") {
-                BoxedStepper(label: "Review time limit", value: $draft.config.reviewTimeoutMinutes, range: 5...90, step: 5, text: "\(draft.config.reviewTimeoutMinutes) min")
-            }
-        }
-        FieldGroup(
-            title: "Worktrees",
-            note: """
-            Reviews never start on their own. The Reviews tab marks which PRs need review and you press Review \
-            on the ones you want. Each run is one `claude -p` in a detached worktree of the PR, with read-only tools, \
-            and cannot reach GitHub. When it finishes, the app puts its comments into your pending review on the PR — \
-            visible only to you — and you finish it on GitHub: edit or drop comments, pick the verdict, submit.
-            """
-        ) {
-            Field(label: "Review worktrees root") { BoxedText(placeholder: "~/Repos/.reviews", text: $draft.config.reviewRoot) }
-            Field(label: "When the PR is merged") {
-                Toggle("Remove the review and its worktree", isOn: $draft.config.cleanupReviewsOnMerge)
-                    .toggleStyle(.switch).handCursor().controlSize(.small)
-            }
-        }
     }
 }
 

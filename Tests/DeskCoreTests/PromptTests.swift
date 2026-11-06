@@ -2,11 +2,11 @@ import DeskCore
 import Foundation
 import Testing
 
-/// Prompts edited in Settings. The defaults are pinned by the session, ticket and review prompt tests;
-/// these cover the template syntax and what an edit does.
+/// Prompts edited in Settings. The defaults are pinned by the session and ticket prompt tests; these cover the
+/// template syntax and what an edit does.
 @Suite struct PromptTests {
-    /// One pass: a value is never searched for placeholders, and braces that name nothing stay as typed —
-    /// the review's answer format is JSON.
+    /// One pass: a value is never searched for placeholders, and braces that name nothing stay as typed — the flow
+    /// prompts' result format is JSON.
     @Test func fillIsOnePassAndLeavesOtherBracesAlone() {
         let filled = PromptTemplate.fill(#"{a} {b} {"x": 1} {unknown} {"#, ["a": "{b}", "b": "B"])
         #expect(filled == #"{b} B {"x": 1} {unknown} {"#)
@@ -53,19 +53,6 @@ import Testing
         #expect(DeskService.ticketPrompt(for: ticket, config: config) == DeskService.ticketPrompt(for: ticket))
     }
 
-    @Test func reviewEditsReachTheArguments() {
-        var config = DeskConfig()
-        config.prompts[PromptID.review.rawValue] = "Review {url}. Answer as {\"comments\": []}."
-        config.prompts[PromptID.reviewSystem.rawValue] = "Be brief."
-        config.prompts[PromptID.reviewReformat.rawValue] = "Fix the JSON."
-        let pr = Fixtures.pr(number: 928, head: "feat/gauge")
-        let arguments = ReviewCommand.reviewArguments(pr: pr, otherRepos: [], config: config)
-        #expect(arguments[0] == "Review \(pr.url). Answer as {\"comments\": []}.")
-        let system = try! #require(arguments.firstIndex(of: "--append-system-prompt"))
-        #expect(arguments[system + 1] == "Be brief.")
-        #expect(ReviewCommand.reformatArguments(config: config)[0] == "Fix the JSON.")
-    }
-
     /// The Settings legend never advertises a name that does nothing: a prompt made of nothing but its
     /// legend's names comes out with every placeholder filled and every section marker gone.
     @Test func everyNameInALegendWorks() {
@@ -73,19 +60,14 @@ import Testing
         ticket.description = "D"
         var pr = Fixtures.pr(number: 1, head: "h", merge: .dirty)
         pr.unresolvedThreads = 2
-        let repos = [OtherRepo(name: "a", root: "/r/a", ref: "origin/main", fetched: true)]
-        let run = ReviewRun(phase: .posted, posted: 1, summary: "S", findings: [DraftThread(path: "a.swift", line: 3, body: "B")])
-        for id in [PromptID.ticketPlan, .session, .selfReview, .fixConflict, .fixChecks, .review, .reviewHandoff] {
+        for id in PromptID.allCases {
             var config = DeskConfig()
             config.prompts[id.rawValue] = (id.placeholders.map { "{\($0.name)}" } + id.conditions.map { "{#\($0.name)}C{/\($0.name)}" })
                 .joined(separator: " ")
             let text = switch id {
             case .ticketPlan: DeskService.ticketPrompt(for: ticket, note: "N", config: config)
-            case .review: ReviewCommand.prompt(pr, otherRepos: repos, config: config)
-            case .selfReview: DeskService.flowPrompt(.selfReview, pr: pr, worktree: "/w", resultFile: "/f", config: config)
-            case .fixConflict, .fixChecks: DeskService.flowPrompt(id, pr: pr, worktree: "/w", resultFile: "/f", config: config)
-            case .reviewHandoff: DeskService.reviewHandoffPrompt(for: pr, run: run, config: config)
-            default: DeskService.sessionPrompt(for: pr, worktree: "/w", config: config)
+            case .selfReview, .fixConflict, .fixChecks: DeskService.flowPrompt(id, pr: pr, worktree: "/w", resultFile: "/f", config: config)
+            case .session: DeskService.sessionPrompt(for: pr, worktree: "/w", config: config)
             }
             #expect(!text.contains("{"), "\(id) left a marker: \(text)")
         }
@@ -101,25 +83,6 @@ import Testing
         #expect(DeskService.flowPrompt(.fixConflict, pr: ready, worktree: nil, resultFile: "/f").contains("merge origin/"))
     }
 
-    /// The session is told what the review found, line by line, and that the review stays the user's to finish.
-    @Test func aReviewHandsItsFindingsToTheSession() {
-        let pr = Fixtures.pr(number: 9, head: "h")
-        let run = ReviewRun(phase: .posted, posted: 2, summary: "Mostly fine.", findings: [
-            DraftThread(path: "src/a.rs", line: 12, body: "**Major** · Unchecked unwrap.\nIt panics on empty input.\n\n<!-- fhenix-desk -->"),
-            DraftThread(path: "README.md", line: nil, body: "Typo in the title."),
-        ])
-        let text = DeskService.reviewHandoffPrompt(for: pr, run: run)
-        #expect(text.contains("put 2 comments into my pending review"))
-        #expect(text.contains("Its summary: Mostly fine."))
-        // The severity in words and the marker gone: the session reads the comment as it reads on GitHub.
-        #expect(text.contains("- src/a.rs:12 (Important) — Unchecked unwrap.\n  It panics on empty input."))
-        #expect(!text.contains("fhenix-desk"))
-        #expect(text.contains("- README.md — Typo in the title."))
-        #expect(text.contains("Don't post, comment, approve or push anything"))
-        // Nothing found: no empty heading.
-        #expect(!DeskService.reviewHandoffPrompt(for: pr, run: ReviewRun(phase: .posted)).contains("The comments:"))
-    }
-
     /// Every condition the legend lists is one the default text uses.
     @Test func everyDefaultUsesItsConditions() {
         for id in PromptID.allCases {
@@ -131,7 +94,7 @@ import Testing
 
     @Test func editsRoundTripThroughConfigJSON() throws {
         var config = DeskConfig()
-        config.prompts[PromptID.review.rawValue] = "Review {url}."
+        config.prompts[PromptID.session.rawValue] = "Work on {url}."
         let decoded = try JSON.decoder().decode(DeskConfig.self, from: JSON.encoder().encode(config))
         #expect(decoded.prompts == config.prompts)
         #expect(try JSON.decoder().decode(DeskConfig.self, from: Data("{}".utf8)).prompts.isEmpty)

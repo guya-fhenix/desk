@@ -28,17 +28,6 @@ public struct DeskConfig: Codable, Sendable, Equatable {
     public var claudePath: String = ""
     /// The Atlassian CLI. It owns the Jira credentials, the way `gh` owns the GitHub ones.
     public var acliPath: String = ""
-    /// Where review worktrees live: `<reviewRoot>/<repoName>/pr-<number>`.
-    public var reviewRoot: String = "~/Repos/.reviews"
-    public var reviewModel: String = ""
-    public var reviewEffort: String = ""
-    public var cleanupReviewsOnMerge: Bool = true
-    /// How many reviews may run at once. `Shell` allows 8 processes and `GitProvider.scanRepo` wants 6 of
-    /// them, so 2 is what is left; more and every git scan and gh call queues behind a review that runs
-    /// for minutes. Reviews are started by hand, so this only bounds how many you can have going.
-    public var reviewConcurrency: Int = 2
-    /// A headless run is one long process. `Shell`'s 90 s default would kill every review.
-    public var reviewTimeoutMinutes: Int = 20
     /// Prompt texts edited in Settings, by `PromptID`. Only edits are kept: a prompt you never touched
     /// follows the app's own text when that changes.
     public var prompts: [String: String] = [:]
@@ -50,8 +39,7 @@ public struct DeskConfig: Codable, Sendable, Equatable {
         case jiraInProgressStatus, jiraReviewStatus, jiraDoneStatus
         case githubPollSeconds, gitPollSeconds, jiraPollSeconds
         case notificationsEnabled
-        case claudePath, acliPath, reviewRoot, reviewModel, reviewEffort, cleanupReviewsOnMerge
-        case reviewConcurrency, reviewTimeoutMinutes, prompts
+        case claudePath, acliPath, prompts
     }
 
     /// Every key is optional so a config.json written before a field existed still loads. Synthesized
@@ -76,12 +64,6 @@ public struct DeskConfig: Codable, Sendable, Equatable {
         notificationsEnabled = try c.decodeIfPresent(Bool.self, forKey: .notificationsEnabled) ?? d.notificationsEnabled
         claudePath = try c.decodeIfPresent(String.self, forKey: .claudePath) ?? d.claudePath
         acliPath = try c.decodeIfPresent(String.self, forKey: .acliPath) ?? d.acliPath
-        reviewRoot = try c.decodeIfPresent(String.self, forKey: .reviewRoot) ?? d.reviewRoot
-        reviewModel = try c.decodeIfPresent(String.self, forKey: .reviewModel) ?? d.reviewModel
-        reviewEffort = try c.decodeIfPresent(String.self, forKey: .reviewEffort) ?? d.reviewEffort
-        cleanupReviewsOnMerge = try c.decodeIfPresent(Bool.self, forKey: .cleanupReviewsOnMerge) ?? d.cleanupReviewsOnMerge
-        reviewConcurrency = try c.decodeIfPresent(Int.self, forKey: .reviewConcurrency) ?? d.reviewConcurrency
-        reviewTimeoutMinutes = try c.decodeIfPresent(Int.self, forKey: .reviewTimeoutMinutes) ?? d.reviewTimeoutMinutes
         prompts = try c.decodeIfPresent([String: String].self, forKey: .prompts) ?? d.prompts
     }
 
@@ -91,7 +73,6 @@ public struct DeskConfig: Codable, Sendable, Equatable {
     public var botLoginSet: Set<String> { Set(botLogins) }
     public var automation: Automation { Automation(logins: botLoginSet, titlePrefixes: automatedTitlePrefixes) }
     public var expandedRepoRoots: [String] { repoRoots.map { ($0 as NSString).expandingTildeInPath } }
-    public var expandedReviewRoot: String { (reviewRoot as NSString).expandingTildeInPath }
     public var resolvedGhPath: String? { ghPath.isEmpty ? Shell.which("gh") : ghPath }
     public var resolvedClaudePath: String? { claudePath.isEmpty ? Shell.which("claude") : claudePath }
     public var resolvedAcliPath: String? { acliPath.isEmpty ? Shell.which("acli") : acliPath }

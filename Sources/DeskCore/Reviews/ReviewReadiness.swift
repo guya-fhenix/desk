@@ -1,20 +1,17 @@
 import Foundation
 
-/// Why a PR is waiting for you to run a review on it.
+/// Why a PR in the queue waits on your review.
 public enum ReviewNeed: String, Sendable, Hashable {
     /// Waiting on your review, and you have not reviewed it.
     case notReviewed
     /// Your review was requested again after the last one you submitted.
     case reRequested
-    /// This session's run failed, so there is nothing to read.
-    case failed
 
     public var title: String {
         switch self {
         // One name for this state across the app: the Reviews header, Up Next and the menu panel say the same.
         case .notReviewed: return "Needs review"
         case .reRequested: return "Review again"
-        case .failed: return "Run failed"
         }
     }
 
@@ -22,51 +19,21 @@ public enum ReviewNeed: String, Sendable, Hashable {
         switch self {
         case .notReviewed: return "This PR waits on your review and you have not reviewed it yet."
         case .reRequested: return "Your review was requested again after the last one you submitted."
-        case .failed: return "The last run failed. Press Review to try again."
         }
     }
 }
 
-public struct ReviewReadinessInput: Sendable {
-    public var login: String
-    /// Already free of drafts and bot PRs.
-    public var queue: [PullRequest]
-    /// This session's runs, by PR url.
-    public var runs: [String: ReviewRun]
-    public var repos: [RepoRef]
-
-    public init(login: String, queue: [PullRequest], runs: [String: ReviewRun], repos: [RepoRef]) {
-        self.login = login
-        self.queue = queue
-        self.runs = runs
-        self.repos = repos
-    }
-}
-
-/// What the review queue is waiting for, read off GitHub. Nothing here starts a review: running one costs
-/// money and is always a deliberate press. The app's whole job is to make it obvious which PRs are worth
-/// pressing.
+/// What the review queue is waiting for, read off GitHub.
 public enum ReviewReadiness {
-    /// Which queued PRs want a review run on them, and why. Keyed by PR url.
-    public static func needs(_ input: ReviewReadinessInput) -> [String: ReviewNeed] {
+    /// Which queued PRs wait on your review, and why. Keyed by PR url. `queue` is already free of drafts and bot PRs.
+    public static func needs(login: String, queue: [PullRequest]) -> [String: ReviewNeed] {
         var needs: [String: ReviewNeed] = [:]
-        for pr in input.queue {
-            // Nothing to check out, so nothing to review. The row says so on its own.
-            guard Linker.repo(for: pr, in: input.repos) != nil else { continue }
-            let run = input.runs[pr.url]
-            if run?.phase.isBusy == true { continue }
-            if run?.phase == .failed {
-                needs[pr.url] = .failed
-                continue
-            }
-            // A draft with Claude's comments in it waits on you, not on another run; so does a run that
-            // finished this session and found nothing to say.
-            if (pr.pendingReview?.claudeComments ?? 0) > 0 || run?.phase == .posted { continue }
-            guard let answered = ReviewStatus.lastSubmitted(pr, by: input.login) else {
+        for pr in queue {
+            guard let answered = ReviewStatus.lastSubmitted(pr, by: login) else {
                 needs[pr.url] = .notReviewed
                 continue
             }
-            if ReviewStatus.requested(pr, by: input.login, after: answered.submittedAt) {
+            if ReviewStatus.requested(pr, by: login, after: answered.submittedAt) {
                 needs[pr.url] = .reRequested
             }
         }

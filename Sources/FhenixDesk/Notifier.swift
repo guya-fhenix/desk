@@ -14,7 +14,7 @@ final class Notifier {
     /// What a click on a notification does with its url: the model opens it on its screen in the window.
     static var onShow: ((String) -> Void)?
     private static let retention: TimeInterval = 30 * 86_400
-    private static let notifiedKinds: Set<NudgeKind> = [.ciFailed, .changesRequested, .readyToMerge, .needsRebase, .reviewRequested, .reviewReady]
+    private static let notifiedKinds: Set<NudgeKind> = [.ciFailed, .changesRequested, .readyToMerge, .needsRebase, .reviewRequested]
 
     private let support: AppSupport
     private var delivered: [String: Date]
@@ -39,7 +39,7 @@ final class Notifier {
     /// nudges that exist before all sources report once never fire.
     func deliver(_ nudges: [Nudge], post: Bool) {
         let now = Date()
-        let fresh = nudges.filter { delivered[$0.id] == nil && Self.notifiedKinds.contains($0.kind) && ($0.severity >= .warning || $0.kind == .readyToMerge || $0.kind == .reviewReady) }
+        let fresh = nudges.filter { delivered[$0.id] == nil && Self.notifiedKinds.contains($0.kind) && ($0.severity >= .warning || $0.kind == .readyToMerge) }
         for nudge in fresh {
             delivered[nudge.id] = now
             guard post, let center else { continue }

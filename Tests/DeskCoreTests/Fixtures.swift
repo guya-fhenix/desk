@@ -28,20 +28,13 @@ enum Fixtures {
         RepoRef(name: name, root: "/r/\(name)", remote: remote)
     }
 
-    /// Your pending review, with `claude` of its comments carrying the app's marker.
-    static func pending(comments: Int = 3, claude: Int = 3, commit: String = "") -> PendingReview {
-        PendingReview(id: "draft1", commitId: commit, comments: comments, claudeComments: claude)
+    /// Your pending review.
+    static func pending(comments: Int = 3, commit: String = "") -> PendingReview {
+        PendingReview(id: "draft1", commitId: commit, comments: comments)
     }
 
     static func review(_ state: String = "COMMENTED", at: Date, by author: String = "me") -> Review {
         Review(state: state, submittedAt: at, author: author)
-    }
-
-    static func comment(
-        path: String = "src/gauge.rs", line: Int = 41, side: DiffSide = .right, severity: CommentSeverity = .important,
-        body: String = "Off by one.", unverified: Bool = false
-    ) -> DraftComment {
-        DraftComment(path: path, line: line, side: side, severity: severity, body: body, isUnverified: unverified)
     }
 
     static func event(reviewer: String = "me", at: Date, team: Bool = false) -> ReviewRequestEvent {

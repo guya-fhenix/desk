@@ -51,19 +51,15 @@ public struct Review: Codable, Sendable, Hashable {
 /// Your own unsubmitted review on a PR. GitHub shows a pending review to its author only, so any pending
 /// review the snapshot sees is yours — and there is at most one per PR.
 public struct PendingReview: Codable, Sendable, Hashable {
-    /// GraphQL node id, the handle every review mutation takes.
     public var id: String
     /// The commit its comments were written against.
     public var commitId: String
     public var comments: Int
-    /// Comments carrying the app's marker: Claude's, as opposed to ones you wrote.
-    public var claudeComments: Int
 
-    public init(id: String, commitId: String = "", comments: Int, claudeComments: Int = 0) {
+    public init(id: String, commitId: String = "", comments: Int) {
         self.id = id
         self.commitId = commitId
         self.comments = comments
-        self.claudeComments = claudeComments
     }
 }
 

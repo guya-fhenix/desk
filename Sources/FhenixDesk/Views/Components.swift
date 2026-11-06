@@ -344,19 +344,20 @@ struct AddDeleteCounts: View {
     }
 }
 
-/// Where a review stands, as chips: this session's run while it is going, then what GitHub says — your
-/// draft, or the review you sent — and what changed since.
+/// Where your review stands on GitHub, as chips — your draft, or the review you sent — and what changed since.
 struct ReviewStatusChip: View {
     var status: ReviewStatus
-    /// False where the Review button shows the run's progress itself.
-    var showsRun = true
 
     var body: some View {
         HStack(spacing: 4) {
-            if !showsRun && status.isBusy {
-                github
-            } else {
-                run
+            switch status.draft {
+            case .pending(let comments):
+                Chip(text: "Draft · \(comments)", color: .blue)
+                    .help("Your pending review on GitHub: \(comments) \(comments == 1 ? "comment" : "comments"). Only you can see it.")
+            case .submitted(let state):
+                Chip(text: Self.submittedTitle(state), color: .green).help("Your latest review on GitHub")
+            case nil:
+                EmptyView()
             }
             if status.headMoved {
                 Chip(text: "New commits", color: .orange)
@@ -366,42 +367,6 @@ struct ReviewStatusChip: View {
                 Chip(text: "Re-requested", color: .orange).help("Your review was requested again after you last submitted one")
             }
         }
-    }
-
-    /// This session's run while it goes, then what GitHub says.
-    @ViewBuilder private var run: some View {
-        switch status.run?.phase {
-        // Chips like the states after them, so a run under way reads as plainly as a draft or a failure.
-        case .preparing:
-            Chip(text: "Starting", color: .teal, spinning: true)
-        case .running:
-            Chip(text: "Reviewing", color: .teal, spinning: true)
-        case .posting:
-            Chip(text: "Posting draft", color: .teal, spinning: true)
-        case .failed:
-            Chip(text: "Failed", color: .red).help(status.run?.error ?? "")
-        case .posted, nil:
-            github
-        }
-    }
-
-    @ViewBuilder private var github: some View {
-        switch status.draft {
-        case .pending(let comments, let claude):
-            Chip(text: "Draft · \(comments)", color: .blue)
-                .help("Your pending review on GitHub: \(comments) \(comments == 1 ? "comment" : "comments"), \(claude) of them Claude's. Only you can see it.")
-        case .submitted(let state):
-            Chip(text: Self.submittedTitle(state), color: .green).help("Your latest review on GitHub")
-        case nil:
-            if status.run?.phase == .posted {
-                Chip(text: "No comments", color: .green).help(noCommentsHelp)
-            }
-        }
-    }
-
-    private var noCommentsHelp: String {
-        let skipped = status.run?.skipped ?? 0
-        return skipped == 0 ? "Claude found nothing to comment on" : "Nothing posted; \(skipped) could not be placed on this PR's lines"
     }
 
     private static func submittedTitle(_ state: String) -> String {

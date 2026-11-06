@@ -2,7 +2,7 @@ import Foundation
 
 public enum NudgeKind: String, Codable, Sendable {
     case ciFailed, changesRequested, readyToMerge, needsRebase
-    case reviewRequested, reviewReady
+    case reviewRequested
     /// A flow stage that moves only when you press something.
     case flowWaiting
     /// A flow's session is asking you something.
@@ -13,7 +13,7 @@ public enum NudgeKind: String, Codable, Sendable {
         switch self {
         case .ciFailed, .changesRequested, .readyToMerge, .needsRebase, .flowWaiting, .sessionNeedsYou:
             return .pullRequests
-        case .reviewRequested, .reviewReady: return .reviews
+        case .reviewRequested: return .reviews
         }
     }
 }

@@ -12,8 +12,7 @@ import Testing
           "commits":{"nodes":[{"commit":{"oid":"abc","statusCheckRollup":{"state":"SUCCESS","contexts":{"totalCount":9}}}}]},
           "reviews":{"nodes":[{"state":"COMMENTED","submittedAt":"2026-08-27T11:12:25Z","author":{"__typename":"Bot","login":"coderabbitai"}},
             {"state":"PENDING","submittedAt":null,"author":{"login":"me"}}]},
-          "pending":{"nodes":[{"id":"PRR_1","commit":{"oid":"abc"},"comments":{"totalCount":4,
-            "nodes":[{"body":"**Nit**\\n\\nx\\n\\n<!-- fhenix-desk -->"},{"body":"mine"},{"body":"**Major**\\n\\ny <!-- fhenix-desk -->"},{"body":"also mine"}]}}]},
+          "pending":{"nodes":[{"id":"PRR_1","commit":{"oid":"abc"},"comments":{"totalCount":4}}]},
           "reviewRequests":{"nodes":[{"requestedReviewer":{"__typename":"Team","name":"Protocol Team"}}]},
           "timelineItems":{"nodes":[{"createdAt":"2026-08-27T11:12:22Z","requestedReviewer":{"__typename":"Team","name":"Protocol Team"}},{}]},
           "reviewThreads":{"nodes":[{"id":"PRRT_1","isResolved":false},{"id":"PRRT_2","isResolved":true},{"isResolved":false}]}}]}}}
@@ -33,10 +32,9 @@ import Testing
         // GraphQL drops a bot's `[bot]`; it is put back, so the bot checks see it.
         #expect(pr.reviews.first?.author == "coderabbitai[bot]")
         #expect(pr.author == "me")
-        // Your own draft review: not a submitted review, but where the review's state is read from —
-        // including which of its comments are Claude's, by the marker.
+        // Your own draft review: not a submitted review, but where the review's state is read from.
         #expect(pr.reviews.count == 1)
-        #expect(pr.pendingReview == PendingReview(id: "PRR_1", commitId: "abc", comments: 4, claudeComments: 2))
+        #expect(pr.pendingReview == PendingReview(id: "PRR_1", commitId: "abc", comments: 4))
     }
 
     /// Your own PR's search: its open threads in full, the author's /pre-pr evidence comment, and the review gate's words.
@@ -145,24 +143,6 @@ import Testing
     }
 
     /// A PR's checks: Actions jobs by workflow with the failed step and its errors, another app's check, a status.
-    /// Your draft's comments, most severe first and then in file order; a file comment has only its original line.
-    @Test func decodesYourDraftReviewComments() throws {
-        let json = #"""
-            {"data":{"repository":{"pullRequest":{"reviews":{"nodes":[{"comments":{"nodes":[
-              {"id":"c1","path":"index.mdx","line":35,"originalLine":35,"body":"**Nit** · Label it.\n\n<!-- fhenix-desk -->"},
-              {"id":"c2","path":"docs.json","line":356,"originalLine":356,"body":"**Major**\n\nRedirects break.\n\n<!-- fhenix-desk -->"},
-              {"id":"c3","path":"STYLE.md","line":null,"originalLine":60,"body":"Mine, no severity."}
-            ]}}]}}}}}
-            """#
-        let comments = try GitHubDecoding.draftComments(from: Data(json.utf8))
-        #expect(comments.map(\.id) == ["c2", "c1", "c3"])
-        #expect(comments[0].severity == .important && comments[0].text == "Redirects break." && comments[0].isClaude)
-        #expect(comments[2].line == 60 && comments[2].severity == nil && !comments[2].isClaude)
-        // No pending review: nothing to list.
-        let none = #"{"data":{"repository":{"pullRequest":{"reviews":{"nodes":[]}}}}}"#
-        #expect(try GitHubDecoding.draftComments(from: Data(none.utf8)).isEmpty)
-    }
-
     @Test func decodesPullRequestChecks() throws {
         let json = #"""
         {"data":{"repository":{"pullRequest":{"commits":{"nodes":[{"commit":{"statusCheckRollup":{"contexts":{"nodes":[

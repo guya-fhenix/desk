@@ -100,18 +100,6 @@ public actor GitHubProvider {
         return try GitHubDecoding.checks(from: data)
     }
 
-    /// The comments of your pending review on a PR, most severe first, then in file order; empty without one. For the
-    /// review page, one PR at a time.
-    public func draftComments(repo: String, number: Int) async throws -> [DraftReviewComment] {
-        let parts = repo.split(separator: "/", maxSplits: 1)
-        guard parts.count == 2 else { throw GitHubError.graphQL(["not an owner/name repository: \(repo)"]) }
-        let data = try await graphQL(
-            query: GitHubQueries.draftQuery,
-            variables: ["owner": String(parts[0]), "name": String(parts[1]), "number": number]
-        )
-        return try GitHubDecoding.draftComments(from: data)
-    }
-
     /// Every repository in the org, newest push first, so Settings can offer them.
     public func repositories() async throws -> [GitHubRepo] {
         var repos: [GitHubRepo] = []
@@ -227,15 +215,6 @@ public enum GitHubQueries {
     """
 
     /// ponytail: the first 100 contexts and 50 steps of each; a PR with more checks than that loses the rest.
-    /// Your pending review on one PR: GitHub shows a pending review to its author only, so the first is yours.
-    public static let draftQuery = """
-    query($owner: String!, $name: String!, $number: Int!) {
-      repository(owner: $owner, name: $name) { pullRequest(number: $number) {
-        reviews(states: PENDING, first: 1) { nodes { comments(first: 100) { nodes { id path line originalLine body } } } }
-      } }
-    }
-    """
-
     public static let checksQuery = """
     query($owner: String!, $name: String!, $number: Int!) {
       repository(owner: $owner, name: $name) { pullRequest(number: $number) {
@@ -298,7 +277,7 @@ public enum GitHubQueries {
       } } }
       reviews(first: 100) { nodes { state submittedAt author { __typename login } } }
       pending: reviews(states: PENDING, first: 1) {
-        nodes { id commit { oid } comments(first: 100) { totalCount nodes { body } } }
+        nodes { id commit { oid } comments { totalCount } }
       }
       reviewRequests(first: 20) { nodes { requestedReviewer { __typename ... on User { login } ... on Team { name } } } }
       timelineItems(itemTypes: [REVIEW_REQUESTED_EVENT], first: 50) {
@@ -335,21 +314,6 @@ public enum GitHubDecoding {
         guard let state = response.data?.repository?.pullRequest?.state else { throw GitHubError.emptyResponse }
         guard let parsed = PullRequestState(rawValue: state) else { throw GitHubError.graphQL(["unknown pull request state: \(state)"]) }
         return parsed
-    }
-
-    public static func draftComments(from data: Data) throws -> [DraftReviewComment] {
-        let response = try JSON.decoder().decode(Response<DraftData>.self, from: data)
-        if let errors = response.errors, !errors.isEmpty { throw GitHubError.graphQL(errors.map(\.message)) }
-        guard let pr = response.data?.repository?.pullRequest else { throw GitHubError.emptyResponse }
-        let comments = (pr.reviews.nodes.first?.comments.nodes ?? []).map { node in
-            let read = DraftThreads.read(node.body)
-            return DraftReviewComment(
-                id: node.id, path: node.path, line: node.line ?? node.originalLine, severity: read.severity, text: read.text,
-                isClaude: read.isClaude
-            )
-        }
-        let order = { (c: DraftReviewComment) in (c.severity?.rank ?? CommentSeverity.allCases.count, c.path, c.line ?? 0) }
-        return comments.sorted { order($0) < order($1) }
     }
 
     public static func checks(from data: Data) throws -> [PullRequestCheck] {
@@ -448,10 +412,7 @@ public enum GitHubDecoding {
             },
             unresolvedThreads: node.reviewThreads?.nodes.filter { !$0.isResolved }.count ?? 0,
             pendingReview: node.pending?.nodes.first.map { review in
-                PendingReview(
-                    id: review.id, commitId: review.commit?.oid ?? "", comments: review.comments.totalCount,
-                    claudeComments: review.comments.nodes.count { $0.body.contains(DraftThreads.marker) }
-                )
+                PendingReview(id: review.id, commitId: review.commit?.oid ?? "", comments: review.comments.totalCount)
             },
             labels: node.labels?.nodes.map(\.name) ?? [],
             threads: (node.reviewThreads?.nodes ?? []).filter { !$0.isResolved }.compactMap { thread in
@@ -508,20 +469,6 @@ public enum GitHubDecoding {
         }
     }
     private struct Repository: Decodable { var nameWithOwner: String }
-
-    private struct DraftData: Decodable { var repository: DraftRepository? }
-    private struct DraftRepository: Decodable { var pullRequest: DraftPR? }
-    private struct DraftPR: Decodable { var reviews: DraftReviews }
-    private struct DraftReviews: Decodable { var nodes: [DraftReview] }
-    private struct DraftReview: Decodable { var comments: DraftCommentNodes }
-    private struct DraftCommentNodes: Decodable { var nodes: [DraftCommentNode] }
-    private struct DraftCommentNode: Decodable {
-        var id: String
-        var path: String
-        var line: Int?
-        var originalLine: Int?
-        var body: String
-    }
 
     private struct ChecksData: Decodable { var repository: ChecksRepository? }
     private struct ChecksRepository: Decodable { var pullRequest: ChecksPR? }
@@ -705,11 +652,7 @@ public enum GitHubDecoding {
         var comments: PendingComments
     }
     private struct CommitRef: Decodable { var oid: String }
-    private struct PendingComments: Decodable {
-        var totalCount: Int
-        var nodes: [Body]
-    }
-    private struct Body: Decodable { var body: String }
+    private struct PendingComments: Decodable { var totalCount: Int }
     private struct ReviewRequests: Decodable { var nodes: [ReviewRequestNode] }
     private struct ReviewRequestNode: Decodable { var requestedReviewer: Reviewer? }
     private struct Reviewer: Decodable {

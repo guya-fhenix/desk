@@ -35,8 +35,6 @@ final class AppModel {
     var inspectorToggleRequest = 0
     /// What Settings is editing, kept here so leaving Settings and coming back keeps what you had typed.
     let settings = SettingsDraft()
-    /// PR urls with a review running from this side, for spinners and disabled buttons.
-    var busyReviews: Set<String> = []
     /// Ticket keys with a transition in flight, so a poll that lands mid-move does not start another.
     var movingTickets: Set<String> = []
     /// Why Jira refused the last move of a ticket, by key; cleared by a move that works or a dismissal.
@@ -45,14 +43,6 @@ final class AppModel {
     var planningTickets: Set<String> = []
     /// PR urls with a background session being started, for the same reason.
     var startingSessions: Set<String> = []
-    /// A finished review's findings waiting for the PR's session, by PR url: the session was working or waiting on you
-    /// when the review landed, and an instruction never cuts in. Sent once a scan finds it idle. In memory only: a quit
-    /// before then drops it, and the review itself stays in your draft on GitHub.
-    private(set) var reviewHandoffs: [String: String] = [:]
-    /// Why a waiting hand-off could not go out, by PR url: no session would start, or the session refused it. It waits
-    /// for Try again on the review page rather than retrying every poll.
-    var handoffErrors: [String: String] = [:]
-    private var sendingHandoffs: Set<String> = []
     /// Your PRs this app merged or closed, by url, as they now stand and when. GitHub's search lags a write by up to a
     /// minute or so, and until it agrees each refresh is corrected by these, so a PR's page and the lists show how it
     /// ended at once instead of on some later poll.
@@ -103,7 +93,6 @@ final class AppModel {
 
     func start() async {
         jiraAccount = await service.jiraAccount()
-        await mergeReviews()
         for source in Source.allCases where loops[source] == nil {
             loops[source] = Task { [weak self] in
                 while !Task.isCancelled {
@@ -140,9 +129,6 @@ final class AppModel {
                 let snapshot = try await service.refreshGitHub()
                 state.github = snapshot
                 applyLanded()
-                await service.cleanupClosedReviews(
-                    github: snapshot, reviewWorktrees: state.reviewWorktrees, repos: state.gitScan?.repos ?? []
-                )
             case .git:
                 let scan = await service.refreshGit()
                 state.gitScan = scan
@@ -165,14 +151,8 @@ final class AppModel {
             state.errors[source] = "\(error)"
             Self.log.error("\(source.title, privacy: .public): \(String(describing: error), privacy: .public)")
         }
-        await mergeReviews()
         state.recompute()
-        deliverReviewHandoffs()
         notifier.deliver(state.nudges, post: config.notificationsEnabled && allSourcesReported)
-    }
-
-    private func mergeReviews() async {
-        state.reviewRuns = await service.reviewRuns()
     }
 
     private var allSourcesReported: Bool {
@@ -217,33 +197,6 @@ final class AppModel {
         }
     }
 
-    // MARK: Claude reviews
-
-    /// Reviews one PR and posts what it found as your draft review on it. Always from a press.
-    func review(_ pr: PullRequest) {
-        guard let gitScan = state.gitScan else {
-            state.reviewError = "Repos are still being scanned; try again in a moment."
-            return
-        }
-        run(pr, gitScan: gitScan)
-    }
-
-    /// True when another review may start. `Shell` runs 8 processes at once and the git scan wants 6 of
-    /// them, so a fifth review would stall every other source for minutes.
-    var canStartReview: Bool { busyReviews.count < max(1, config.reviewConcurrency) }
-
-    /// Whether the Review button for this PR may be pressed now: a local clone to run in, nothing already
-    /// running on it, and a free slot.
-    func canReview(_ pr: PullRequest) -> Bool { reviewBlocker(pr) == nil }
-
-    /// Why Review is dead for this PR, in the words its button shows beside it; nil when it may be pressed.
-    func reviewBlocker(_ pr: PullRequest) -> String? {
-        if state.localRepo(for: pr) == nil { return "No local clone" }
-        if busyReviews.contains(pr.url) || state.reviewRun(for: pr)?.phase.isBusy == true { return "Reviewing" }
-        if !canStartReview { return "\(busyReviews.count) reviews running" }
-        return nil
-    }
-
     /// Why nothing can be sent to this PR's session now, in the words beside the button that would; nil when it can.
     /// An instruction never cuts in: the session must be done with its turn.
     func sendBlocker(_ pr: PullRequest) -> String? {
@@ -261,89 +214,8 @@ final class AppModel {
         return nil
     }
 
-    private func run(_ pr: PullRequest, gitScan: GitScan) {
-        guard !busyReviews.contains(pr.url), canStartReview else { return }
-        busyReviews.insert(pr.url)
-        Task {
-            defer { busyReviews.remove(pr.url) }
-            let run = await service.review(pr: pr, gitScan: gitScan)
-            await mergeReviews()
-            state.recompute()
-            // The draft is on GitHub now, and the row reads it from there.
-            await refresh(.github)
-            if run.phase == .posted { handOff(run, of: pr) }
-        }
-    }
-
-    /// Gives a review's findings to the PR's session to talk through: at once if it is idle, once it is if it is busy,
-    /// and in a new session when the PR has none. The review itself stays the locked-down run that wrote the draft.
-    private func handOff(_ run: ReviewRun, of pr: PullRequest) {
-        guard !run.findings.isEmpty || !run.summary.isEmpty else { return }
-        handoffErrors[pr.url] = nil
-        reviewHandoffs[pr.url] = DeskService.reviewHandoffPrompt(for: pr, run: run, config: config)
-        deliverReviewHandoffs()
-    }
-
-    /// Sends a hand-off that failed once more, on your press.
-    func retryHandoff(_ pr: PullRequest) {
-        handoffErrors[pr.url] = nil
-        deliverReviewHandoffs()
-    }
-
-    /// Sends each waiting hand-off whose session is idle, by the flow's rule: never while it works or asks you
-    /// something. A session with no id recorded yet cannot be resumed, so it waits too. Runs after every refresh.
-    private func deliverReviewHandoffs() {
-        // Not before GitHub has answered: until then every PR would look closed, and every hand-off would be dropped.
-        guard let github = state.github else { return }
-        for (url, text) in reviewHandoffs where !sendingHandoffs.contains(url) && handoffErrors[url] == nil {
-            guard let pr = github.allOpen.first(where: { $0.url == url }) else {
-                reviewHandoffs[url] = nil  // Closed or merged: nothing left to talk through.
-                continue
-            }
-            guard let job = state.claudeJobs(for: pr).first else {
-                // No session on the PR, or its session went while the review waited: a new one opens with the
-                // findings, and the hand-off is done once it has started.
-                guard state.localRepo(for: pr) != nil else {
-                    handoffErrors[url] = "No local clone of \(pr.repo) to start a session in"
-                    continue
-                }
-                startSession(for: pr, opening: text)
-                continue
-            }
-            guard job.sessionId != nil, job.isIdle else { continue }
-            let cwd = resumeDirectory(job, for: pr)
-            sendingHandoffs.insert(url)
-            Task {
-                defer { sendingHandoffs.remove(url) }
-                do {
-                    try await service.send(text, to: job, cwd: cwd)
-                    reviewHandoffs[url] = nil
-                } catch {
-                    handoffErrors[url] = "Couldn't hand the review to the session: \(error)"
-                    Self.log.error("review hand-off: \(String(describing: error), privacy: .public)")
-                }
-                await refresh(.git)
-            }
-        }
-    }
-
     /// The PR's Files tab, where a pending review's comments are read, edited and submitted.
     func openDraft(_ pr: PullRequest) { open("\(pr.url)/files") }
-
-    /// Deletes the PR's review worktree when it is clean. The review on GitHub stays.
-    func removeReviewWorktree(_ pr: PullRequest) {
-        guard let gitScan = state.gitScan else { return }
-        Task {
-            do {
-                try await service.removeReviewWorktree(for: pr, gitScan: gitScan)
-            } catch {
-                state.reviewError = "\(error)"
-            }
-            await mergeReviews()
-            state.recompute()
-            Task { await refresh(.git) }
-        }
-    }
 
     // MARK: Jira
 
@@ -533,36 +405,26 @@ final class AppModel {
     /// A PR's checks in full, for its page. Not kept: the page asks again each time it shows the PR.
     func checks(for pr: PullRequest) async throws -> [PullRequestCheck] { try await service.checks(for: pr) }
 
-    func draftComments(for pr: PullRequest) async throws -> [DraftReviewComment] { try await service.draftComments(for: pr) }
-
     /// Opens the window on the screen a PR lives on, its row selected — your own in Pull Requests, one in the queue in
-    /// Reviews — and GitHub for one on no screen here. A finished review's url points at its Files tab; the PR is the
-    /// part before it.
-    func show(_ url: String) {
-        let pr = url.hasSuffix("/files") ? String(url.dropLast("/files".count)) : url
+    /// Reviews — and GitHub for one on no screen here.
+    func show(_ pr: String) {
         if state.mine.contains(where: { $0.url == pr }) {
             pendingTab = .pullRequests
         } else if state.reviewQueue(.all).contains(where: { $0.url == pr }) {
             pendingTab = .reviews
         } else {
-            open(url)
+            open(pr)
             return
         }
         selectPullRequest = pr
         AppDelegate.openDesk?()
     }
 
-    func reveal(_ path: String?) {
-        guard let path else { return }
-        NSWorkspace.shared.selectFile(path, inFileViewerRootedAtPath: "")
-    }
-
     // MARK: Background sessions
 
     /// Starts a background Claude session on the PR's branch. The button that calls this is the one shown
     /// when no session mentions the PR yet; the row flips to Attach as soon as this one lands.
-    /// `opening` goes after the usual brief: a review's findings, for one started to talk them through.
-    func startSession(for pr: PullRequest, opening: String? = nil) {
+    func startSession(for pr: PullRequest) {
         guard let repo = state.localRepo(for: pr), !startingSessions.contains(pr.url) else { return }
         startingSessions.insert(pr.url)
         // A checkout the user already has on that branch is the session's home; nothing else touches git.
@@ -570,19 +432,13 @@ final class AppModel {
         Task {
             defer { startingSessions.remove(pr.url) }
             do {
-                let job = try await service.startClaudeSession(pr: pr, repoRoot: repo.root, worktree: existing, opening: opening)
+                let job = try await service.startClaudeSession(pr: pr, repoRoot: repo.root, worktree: existing)
                 // Held until the next scan reads the same session off disk. On your own PR it puts the PR in the flow.
                 state.claudeJobs.insert(job, at: 0)
                 sessionErrors[pr.url] = nil
-                // Opened with a review's findings: that hand-off is done.
-                if opening != nil, reviewHandoffs[pr.url] == opening { reviewHandoffs[pr.url] = nil }
                 if existing == nil { Task { await refresh(.git) } }
             } catch {
-                if opening != nil, reviewHandoffs[pr.url] == opening {
-                    handoffErrors[pr.url] = "Couldn't start a session for the review: \(error)"
-                } else {
-                    sessionErrors[pr.url] = "\(error)"
-                }
+                sessionErrors[pr.url] = "\(error)"
                 Self.log.error("session: \(String(describing: error), privacy: .public)")
             }
         }

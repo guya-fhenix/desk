@@ -1,9 +1,8 @@
-import CryptoKit
 import DeskCore
 import SwiftUI
 
-/// The PRs waiting on your review, and the press that has Claude review one. What it finds goes into your
-/// draft review on GitHub; this screen follows that draft and opens it, and nothing more.
+/// The PRs waiting on your review. You read and review each one yourself on GitHub — its description, the /pre-pr
+/// evidence, CodeRabbit's walkthrough, the diff; this screen finds them and says where your review stands.
 struct ReviewsTab: View {
     @Environment(AppModel.self) private var model
     @State private var sortOrder: [KeyPathComparator<PullRequest>] = []
@@ -118,12 +117,6 @@ struct ReviewsTab: View {
                 .contextMenu(forSelectionType: String.self) { urls in
                     if let pr = rows.first(where: { urls.contains($0.url) }) {
                         PullRequestMenu(pr: pr, model: model)
-                        Divider()
-                        Button(model.state.reviewStatus(for: pr).draft == nil ? "Review" : "Review Again") { model.review(pr) }
-                            .disabled(!model.canReview(pr))
-                        Button("Reveal Worktree") {
-                            model.reveal(ReviewPlanner.worktreePath(reviewRoot: model.config.expandedReviewRoot, pr: pr))
-                        }
                     }
                 } primaryAction: { urls in
                     if let url = urls.first { open(url) }
@@ -157,9 +150,9 @@ struct ReviewsTab: View {
         }
     }
 
-    /// The answer to "what should I press Review on?", which is the only thing that starts a review.
-    /// Counted over the rows on screen, like the scope counts beside it: a number that outlived the
-    /// filters would point at rows the table is not showing.
+    /// The scopes, the approval filter and how many of the rows still wait on your review. Counted over the rows on
+    /// screen, like the scope counts beside it: a number that outlived the filters would point at rows the table is not
+    /// showing.
     private var header: some View {
         let ready = rows.count { model.state.reviewNeed(for: $0) != nil }
         return FilterBar {
@@ -179,12 +172,9 @@ struct ReviewsTab: View {
             // Only when it says something the row count beside the scopes does not.
             if ready > 0, ready != rows.count {
                 Chip(text: "\(ready) need review", color: .orange)
-                    .help("Of the rows shown. Press Review on one to run it; nothing runs on its own.")
+                    .help("Of the rows shown: the ones you have not reviewed, or were asked to review again.")
             }
         } trailing: {
-            if !model.canStartReview {
-                Text("\(model.busyReviews.count) running").scaled(.caption).foregroundStyle(.secondary)
-            }
             AuthorsFilter(queue: model.state.reviewQueue(.all, days: window, needingApproval: filters.needsApproval), filters: filters)
             DaysFilter(limited: filters.$limited, days: filters.$days)
             SortMenu(sort: Self.sort, order: $sortOrder)
@@ -379,32 +369,19 @@ private struct QueueReviewCell: View {
     var body: some View {
         let need = model.state.reviewNeed(for: pr)
         HStack(spacing: 6) {
-            if model.busyReviews.contains(pr.url), model.state.reviewRun(for: pr) == nil {
-                Chip(text: "Starting", color: .teal, spinning: true)
-            } else if model.state.localRepo(for: pr) == nil {
-                Chip(text: "No local clone", color: .secondary)
-                    .help("Clone \(pr.repo) under a repo root to review it here")
-            } else {
-                // A readiness chip only for the exceptions, "Review again" and "Run failed": the Review button
-                // already marks the plain "needs review" rows.
-                if need == .failed {
-                    Chip(text: ReviewNeed.failed.title, color: .red)
-                        .help(model.state.reviewRun(for: pr)?.error ?? ReviewNeed.failed.detail)
-                } else {
-                    if need == .reRequested {
-                        Chip(text: ReviewNeed.reRequested.title, color: .orange).help(ReviewNeed.reRequested.detail)
-                    }
-                    // Without its own "Re-requested" chip when "Review again" already says so.
-                    let status = model.state.reviewStatus(for: pr)
-                    ReviewStatusChip(status: need == .reRequested ? { var s = status; s.reRequested = false; return s }() : status)
-                }
+            // A chip only for "Review again": the plain "needs review" rows are the queue itself.
+            if need == .reRequested {
+                Chip(text: ReviewNeed.reRequested.title, color: .orange).help(ReviewNeed.reRequested.detail)
             }
+            // Without its own "Re-requested" chip when "Review again" already says so.
+            let status = model.state.reviewStatus(for: pr)
+            ReviewStatusChip(status: need == .reRequested ? { var s = status; s.reRequested = false; return s }() : status)
         }
     }
 }
 
-/// The one press left on a row: your draft, once there is one. Review and the background session are in the
-/// details panel, with the rest of what acts on the PR.
+/// The one press on a row: your review on GitHub, once you have started one. The background session is on the PR's
+/// page, with the rest of what acts on the PR.
 private struct QueueActions: View {
     var pr: PullRequest
     var model: AppModel
@@ -421,8 +398,9 @@ private struct QueueActions: View {
 }
 
 /// A PR in the queue on its own page, laid out as a PR page is: what it is and its status line — checks, whether it is
-/// on you, where your draft stands — with Review and the session on the right; the description in the wide column;
-/// the details and the checks beside it.
+/// on you, the risk, where your review stands — with Review on GitHub and the session on the right; the description in
+/// the wide column; the details and the checks beside it. The review itself is yours: read the description, the /pre-pr
+/// evidence and CodeRabbit's walkthrough, then the diff, and write it on GitHub.
 struct ReviewPage: View {
     var pr: PullRequest
     var model: AppModel
@@ -432,220 +410,30 @@ struct ReviewPage: View {
     var onBack: () -> Void
 
     var body: some View {
-        let status = model.state.reviewStatus(for: pr)
-        let ran = status.draft != nil || model.state.reviewRun(for: pr) != nil
-        let error = model.state.reviewRun(for: pr)?.error
         DetailPage(back: back, onBack: onBack) {
-            // Someone else's PR: its title is theirs to change. GitHub opens on the Files tab, where your draft is.
-            PageHeadline(pr: pr, model: model, gitHub: "\(pr.url)/files", editable: false)
+            // Someone else's PR: its title is theirs to change.
+            PageHeadline(pr: pr, model: model, gitHub: pr.url, editable: false)
             HStack(spacing: 8) {
                 ChecksPill(pr: pr)
-                // Each only when it says something: GitHub asked you, and your draft's state, which is blank without one.
+                // Each only when it says something: GitHub asked you, and your review's state, which is blank without one.
                 if onMe { Chip(text: "On you", color: .orange) }
                 RiskChip(pr: pr)
                 if pr.needsHuman { Chip(text: "Needs a person", color: .purple) }
-                // The run's progress is on the Review button, so the chip keeps to what GitHub says.
-                ReviewStatusChip(status: status, showsRun: false)
-                // The page's actions on the right, where a status line's presses go; why Review is dead, beside it.
+                ReviewStatusChip(status: model.state.reviewStatus(for: pr))
                 Spacer(minLength: 8)
-                if let progress = reviewProgress {
-                    Button {} label: {
-                        HStack(spacing: 6) {
-                            ProgressView().controlSize(.small)
-                            Text(progress)
-                        }
-                    }
-                    .buttonStyle(.borderedProminent)
-                    // At full strength, as a running state, not greyed out as a dead button; a press does nothing.
-                    .allowsHitTesting(false)
-                } else {
-                    DisabledReason(text: model.reviewBlocker(pr))
-                    Button(ran ? "Review again" : "Review") { model.review(pr) }
-                        .buttonStyle(.borderedProminent).handCursor()
-                        .disabled(!model.canReview(pr))
-                        .help(
-                            (ran ? "Adds only what your draft does not already have" : "Run Claude on this PR and put its comments in your draft review")
-                                + ", then hands them to the PR's session to talk through"
-                        )
-                }
-                ClaudeSessionButton(pr: pr, model: model, prominent: true).fixedSize()
-            }
-            if model.reviewHandoffs[pr.url] != nil {
-                if let failed = model.handoffErrors[pr.url] {
-                    HStack(spacing: 8) {
-                        Text(failed).scaled(.caption).foregroundStyle(.red).textSelection(.enabled)
-                        Button("Try again") { model.retryHandoff(pr) }.controlSize(.small)
-                    }
-                } else {
-                    Text("The review goes to the session once it is idle.").scaled(.caption).foregroundStyle(.secondary)
-                }
+                Button("Review on GitHub") { model.openDraft(pr) }
+                    .buttonStyle(.borderedProminent).handCursor()
+                    .help("The PR's Files tab, where you comment, pick the verdict and submit")
+                ClaudeSessionButton(pr: pr, model: model).fixedSize()
             }
             if let error = model.sessionErrors[pr.url] {
                 Text(error).scaled(.caption).foregroundStyle(.red).textSelection(.enabled)
             }
         } main: {
-            // What the review found, first: the draft is the page's reason to be open.
-            if pr.pendingReview != nil { DraftReviewCard(pr: pr, model: model) }
             PanelSection("Description") { PullRequestDescription(pr: pr) }
         } side: {
             DetailsCard(pr: pr)
             WorkflowsSection(pr: pr, model: model)
-            // The review's own leftovers: why the last run failed, and the checkout it ran in.
-            if ran || error != nil {
-                SideCard(title: "Review worktree") {
-                    if let error {
-                        Text(error).scaled(.caption).foregroundStyle(.red).textSelection(.enabled)
-                    }
-                    if ran {
-                        HStack {
-                            Button("Reveal worktree") { model.reveal(worktreePath) }
-                            Button("Remove worktree", role: .destructive) { model.removeReviewWorktree(pr) }
-                                .disabled(model.state.reviewRun(for: pr)?.phase.isBusy == true)
-                                .help("Deletes the review checkout when it is clean; the review on GitHub stays")
-                        }
-                        .controlSize(.small)
-                    }
-                }
-            }
-        }
-    }
-
-    private var worktreePath: String {
-        ReviewPlanner.worktreePath(reviewRoot: model.config.expandedReviewRoot, pr: pr)
-    }
-
-    /// Where a running review is, in the words its button shows while it runs; nil when none is.
-    private var reviewProgress: String? {
-        let phase = model.state.reviewRun(for: pr)?.phase
-        switch phase {
-        case .preparing?: return "Starting"
-        case .running?: return "Reviewing"
-        case .posting?: return "Posting draft"
-        default: return model.busyReviews.contains(pr.url) ? (phase == nil ? "Starting" : "Reviewing") : nil
-        }
-    }
-}
-
-/// Your draft review on the page: what the last run said overall, then each comment, most severe first — its severity,
-/// the line it sits on, which opens there in GitHub's Files tab, and what it says, three lines of it until opened. Read
-/// from GitHub, so it is there after a restart too, and read again whenever the draft changes.
-private struct DraftReviewCard: View {
-    var pr: PullRequest
-    var model: AppModel
-    @State private var loaded: (key: String, comments: [DraftReviewComment])?
-    @State private var error: String?
-
-    var body: some View {
-        // The draft's id and size: a run that adds comments, or an edit on GitHub that drops some, reloads it.
-        let key = "\(pr.url) \(pr.pendingReview?.id ?? "") \(pr.pendingReview?.comments ?? 0)"
-        let summary = model.state.reviewRun(for: pr)?.summary.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        VStack(alignment: .leading, spacing: Theme.Space.s) {
-            HStack {
-                Text("Your draft review").scaled(.callout.weight(.medium)).foregroundStyle(.secondary)
-                if let loaded, loaded.key == key {
-                    Text("\(loaded.comments.count)").scaled(.callout).monospacedDigit().foregroundStyle(.secondary)
-                }
-                Spacer()
-                Button("Open on GitHub") { model.openDraft(pr) }
-                    .controlSize(.small)
-                    .help("Your draft in the PR's Files tab: edit or drop comments, then pick the verdict and submit. Only you can see it.")
-            }
-            if !summary.isEmpty { MarkdownText(text: summary) }
-            if let loaded, loaded.key == key {
-                VStack(alignment: .leading, spacing: 0) {
-                    ForEach(loaded.comments) { comment in
-                        row(comment)
-                        if comment.id != loaded.comments.last?.id { Hairline() }
-                    }
-                }
-                .padding(.horizontal, Theme.Space.m)
-                .background(Theme.raised.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
-            } else if let error {
-                Text(error).scaled(.caption).foregroundStyle(.red).textSelection(.enabled)
-            } else {
-                ProgressView().controlSize(.small)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .task(id: key) {
-            error = nil
-            do {
-                loaded = (key, try await model.draftComments(for: pr))
-            } catch {
-                if !Task.isCancelled { self.error = "Couldn't load your draft: \(error)" }
-            }
-        }
-    }
-
-    private func row(_ comment: DraftReviewComment) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: Theme.Space.m) {
-            severityChip(comment).frame(width: 72, alignment: .leading)
-            VStack(alignment: .leading, spacing: 4) {
-                Button { model.open(fileLink(comment)) } label: {
-                    Text(verbatim: comment.line.map { "\(comment.path):\($0)" } ?? comment.path).scaled(.caption.monospaced())
-                }
-                .buttonStyle(.link).handCursor()
-                .help("Open this line in the PR's Files tab")
-                DraftCommentText(text: comment.text)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .padding(.vertical, Theme.Space.s + 2)
-    }
-
-    @ViewBuilder private func severityChip(_ comment: DraftReviewComment) -> some View {
-        if let severity = comment.severity {
-            let color: Color = switch severity {
-            case .important: .red
-            case .nit: .yellow
-            case .preExisting: .secondary
-            case .question: .blue
-            }
-            Chip(text: severity.title, color: color)
-        } else {
-            Chip(text: comment.isClaude ? "Comment" : "Yours", color: .secondary)
-        }
-    }
-
-    /// The comment's line in the Files tab: GitHub anchors a file's diff by the SHA-256 of its path, and a line on the
-    /// new side by R and its number.
-    private func fileLink(_ comment: DraftReviewComment) -> String {
-        let hash = SHA256.hash(data: Data(comment.path.utf8)).map { String(format: "%02x", $0) }.joined()
-        return "\(pr.url)/files#diff-\(hash)" + (comment.line.map { "R\($0)" } ?? "")
-    }
-}
-
-/// A draft comment's words: three lines of its first paragraph, and More when there is more — a cut line, or a
-/// suggestion block below — which opens the whole of it, markdown and all. Whether the lines are cut is measured, so
-/// More shows only where something is hidden.
-private struct DraftCommentText: View {
-    var text: String
-    @State private var open = false
-    @State private var clamped: CGFloat = 0
-    @State private var full: CGFloat = 0
-
-    var body: some View {
-        let first = Markdown.inline(String(text.split(separator: "\n", maxSplits: 1).first ?? ""))
-        let more = text.contains("\n") || full > clamped + 1
-        VStack(alignment: .leading, spacing: 4) {
-            if open {
-                MarkdownText(text: text).textSelection(.enabled)
-            } else {
-                Text(first)
-                    .lineLimit(3)
-                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { clamped = $0 }
-                    // The same words uncut, unseen, at the same width: taller means the three lines hide some.
-                    .background(alignment: .topLeading) {
-                        Text(first)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .hidden()
-                            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { full = $0 }
-                    }
-            }
-            if more || open {
-                Button(open ? "Less" : "More") { open.toggle() }
-                    .buttonStyle(.link).handCursor().scaled(.caption)
-            }
         }
     }
 }

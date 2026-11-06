@@ -56,7 +56,7 @@ enum Doctor {
         section("Reviews")
         // Read off GitHub: the queue PRs you have a draft on, or have reviewed.
         let reviewed = state.reviewQueue(.all).filter { state.reviewStatus(for: $0).draft != nil }
-        print("\(reviewed.count) reviewed or drafted  root: \(config.expandedReviewRoot)  claude: \(config.resolvedClaudePath ?? "not found")")
+        print("\(reviewed.count) reviewed or drafted  claude: \(config.resolvedClaudePath ?? "not found")")
         for pr in reviewed {
             let status = state.reviewStatus(for: pr)
             let flags = [
@@ -82,9 +82,9 @@ enum Doctor {
             print("  \(pad("\(pr.repoName)#\(pr.number)", 22)) \(pad(stage.title, 18)) \(pr.approvalStatus ?? "no review gate")")
         }
 
-        section("Ready to run (\(state.reviewsToRun.count))")
-        if state.reviewsToRun.isEmpty { print("  nothing waiting; reviews only ever start from a press") }
-        for pr in state.reviewsToRun {
+        section("Waiting on your review (\(state.reviewsToDo.count))")
+        if state.reviewsToDo.isEmpty { print("  nothing asked of you") }
+        for pr in state.reviewsToDo {
             let need = state.reviewNeed(for: pr)?.title ?? ""
             print("  \(pad("\(pr.repoName)#\(pr.number)", 22)) \(pad(need, 16)) \(pr.title)")
         }
@@ -107,35 +107,9 @@ enum Doctor {
         for nudge in state.nudges { print("  [\(nudge.severity)] \(nudge.title) — \(nudge.detail)") }
     }
 
-    /// Runs the Claude review of one PR into your draft review on it, and prints what the run did.
-    static func review(url: String) async {
-        let support = AppSupport()
-        let config = DeskService.loadConfig(support: support)
-        let service = DeskService(config: config, support: support)
-        var state = DeskState(config: config)
-        do {
-            state.gitScan = await service.refreshGit()
-            state.github = try await service.refreshGitHub()
-            guard let pr = (state.github?.allOpen ?? []).first(where: { $0.url == url }) else {
-                print("not an open PR of mine or waiting on me: \(url)")
-                return
-            }
-            print("reviewing \(pr.repoName)#\(pr.number) \(pr.title) @ \(pr.headSha.prefix(12)) into \(pr.baseRef)")
-            print("this runs claude -p and waits; it can take several minutes")
-            let run = await service.review(pr: pr, gitScan: state.gitScan!)
-            print("phase: \(run.phase.label)")
-            print("worktree: \(ReviewPlanner.worktreePath(reviewRoot: config.expandedReviewRoot, pr: pr))")
-            if let error = run.error { print("error: \(error)") }
-            print("added \(run.posted) comments to your draft review, skipped \(run.skipped)")
-            if run.posted > 0 { print("read and submit it at \(pr.url)/files") }
-        } catch {
-            print("error: \(error)")
-        }
-    }
-
     private static func draftText(_ status: DraftStatus?) -> String {
         switch status {
-        case .pending(let comments, let claude): return "draft: \(comments) comments (\(claude) Claude)"
+        case .pending(let comments): return "draft: \(comments) comments"
         case .submitted(let state): return "submitted: \(state.lowercased())"
         case nil: return "not reviewed"
         }
