@@ -353,3 +353,40 @@ extension Array where Element == PullRequest {
     /// The PRs that need a person first, each group in the order it came in.
     public var needsHumanFirst: [PullRequest] { filter(\.needsHuman) + filter { !$0.needsHuman } }
 }
+
+extension PullRequestCheck {
+    /// The newest run of each check, as GitHub's merge box judges a commit: a run of the same check on the same commit — a
+    /// re-run, or a newer event whose run cancelled the older one — replaces the one before. A check is its workflow and
+    /// its name; a run with no start time counts as the oldest. GitHub's own sum of a commit, its rollup state, counts every
+    /// run, so a superseded cancel turns it red while the merge box shows all green.
+    public static func newest(_ checks: [PullRequestCheck]) -> [PullRequestCheck] {
+        var kept: [String: PullRequestCheck] = [:]
+        var order: [String] = []
+        for check in checks {
+            let key = "\(check.workflow ?? "")\u{0}\(check.name)"
+            if let current = kept[key] {
+                if (check.startedAt ?? .distantPast) > (current.startedAt ?? .distantPast) { kept[key] = check }
+            } else {
+                kept[key] = check
+                order.append(key)
+            }
+        }
+        return order.compactMap { kept[$0] }
+    }
+}
+
+extension CheckState {
+    /// What the newest runs add up to: a failed or cancelled one is a failure, then one still running is pending, then
+    /// success; no checks at all is none.
+    public init(newest checks: [PullRequestCheck]) {
+        if checks.isEmpty {
+            self = .none
+        } else if checks.contains(where: { $0.outcome == .failed || $0.outcome == .cancelled }) {
+            self = .failure
+        } else if checks.contains(where: { $0.outcome == .running }) {
+            self = .pending
+        } else {
+            self = .success
+        }
+    }
+}

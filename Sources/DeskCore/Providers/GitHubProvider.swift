@@ -289,7 +289,11 @@ public enum GitHubQueries {
       mergeStateStatus
       baseRef { rules(first: 20) { nodes { type parameters { ... on PullRequestParameters { requiredApprovingReviewCount requireCodeOwnerReview } } } } }
       commits(last: 1) { nodes { commit {
-        oid statusCheckRollup { state contexts(first: 0) { totalCount } }
+        oid statusCheckRollup { state contexts(first: 100) { totalCount nodes {
+          __typename
+          ... on CheckRun { name status conclusion startedAt checkSuite { workflowRun { workflow { name } } } }
+          ... on StatusContext { context state createdAt }
+        } } }
         status { context(name: "\(ApprovalGate.context)") { description } }
       } } }
       reviews(first: 100) { nodes { state submittedAt author { __typename login } } }
@@ -353,21 +357,24 @@ public enum GitHubDecoding {
         if let errors = response.errors, !errors.isEmpty { throw GitHubError.graphQL(errors.map(\.message)) }
         guard let pr = response.data?.repository?.pullRequest else { throw GitHubError.emptyResponse }
         let nodes = pr.commits.nodes.first?.commit.statusCheckRollup?.contexts.nodes ?? []
-        return nodes.map { node in
-            if let context = node.context {
-                return PullRequestCheck(
-                    name: context, outcome: outcome(state: node.state), url: node.targetUrl, startedAt: node.createdAt,
-                    errors: outcome(state: node.state) == .failed ? [node.description].compactMap { $0 } : []
-                )
-            }
-            let outcome = outcome(status: node.status, conclusion: node.conclusion)
+        return PullRequestCheck.newest(nodes.map(check))
+    }
+
+    /// A check run or a commit status, as the Checks card and the search's checks state read it.
+    private static func check(_ node: CheckNode) -> PullRequestCheck {
+        if let context = node.context {
             return PullRequestCheck(
-                name: node.name ?? "Unnamed check", workflow: node.checkSuite?.workflowRun?.workflow.name, outcome: outcome,
-                url: node.detailsUrl, startedAt: node.startedAt, completedAt: node.completedAt,
-                failedStep: node.steps?.nodes.first { $0.conclusion == "FAILURE" }?.name,
-                errors: (node.annotations?.nodes ?? []).filter { $0.annotationLevel == "FAILURE" }.map(\.message)
+                name: context, outcome: outcome(state: node.state), url: node.targetUrl, startedAt: node.createdAt,
+                errors: outcome(state: node.state) == .failed ? [node.description].compactMap { $0 } : []
             )
         }
+        return PullRequestCheck(
+            name: node.name ?? "Unnamed check", workflow: node.checkSuite?.workflowRun?.workflow.name,
+            outcome: outcome(status: node.status, conclusion: node.conclusion),
+            url: node.detailsUrl, startedAt: node.startedAt, completedAt: node.completedAt,
+            failedStep: node.steps?.nodes.first { $0.conclusion == "FAILURE" }?.name,
+            errors: (node.annotations?.nodes ?? []).filter { $0.annotationLevel == "FAILURE" }.map(\.message)
+        )
     }
 
     /// A check run: not finished is running, whatever it waits on; action required and timed out are failures.
@@ -401,6 +408,13 @@ public enum GitHubDecoding {
 
     private static func pullRequest(_ node: PRNode) -> PullRequest {
         let commit = node.commits.nodes.first?.commit
+        // The newest run of each check, as the merge box judges them, when every check came back; past 100, nil, and the
+        // state falls back to GitHub's own sum, which counts a superseded cancel as a failure.
+        let runs = commit?.statusCheckRollup.flatMap { rollup in
+            rollup.contexts.nodes.flatMap { nodes in
+                nodes.count >= rollup.contexts.totalCount ? PullRequestCheck.newest(nodes.map(check)) : nil
+            }
+        }
         let reviews = node.reviews.nodes.compactMap { review -> Review? in
             guard let submittedAt = review.submittedAt else { return nil }
             return Review(state: review.state, submittedAt: submittedAt, author: review.author?.name ?? "ghost")
@@ -424,8 +438,8 @@ public enum GitHubDecoding {
             author: node.author?.name ?? "ghost",
             reviewDecision: node.reviewDecision.flatMap(ReviewDecision.init) ?? decision(from: reviews, required: node.baseRef?.requiredApprovals ?? 0),
             mergeState: node.mergeStateStatus.flatMap(MergeState.init) ?? .unknown,
-            checks: commit?.statusCheckRollup.flatMap { CheckState(rawValue: $0.state) } ?? .none,
-            checkCount: commit?.statusCheckRollup?.contexts.totalCount ?? 0,
+            checks: runs.map { CheckState(newest: $0) } ?? commit?.statusCheckRollup.flatMap { CheckState(rawValue: $0.state) } ?? .none,
+            checkCount: runs?.count ?? commit?.statusCheckRollup?.contexts.totalCount ?? 0,
             reviews: reviews,
             requestedReviewers: node.reviewRequests.nodes.compactMap { $0.requestedReviewer?.displayName },
             reviewRequestEvents: node.timelineItems.nodes.compactMap { event in
@@ -671,7 +685,11 @@ public enum GitHubDecoding {
     private struct StatusContext: Decodable { var description: String? }
     private struct Rollup: Decodable {
         var state: String
-        var contexts: Count
+        var contexts: RollupContexts
+    }
+    private struct RollupContexts: Decodable {
+        var totalCount: Int
+        var nodes: [CheckNode]?
     }
     private struct Count: Decodable { var totalCount: Int }
     private struct Reviews: Decodable { var nodes: [ReviewNode] }
