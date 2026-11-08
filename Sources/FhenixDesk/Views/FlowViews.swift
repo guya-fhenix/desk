@@ -57,14 +57,8 @@ struct FlowSection: View {
                 if busy { ProgressView().controlSize(.mini) }
                 let blocker = busy ? nil : model.prePRBlocker(pr)
                 DisabledReason(text: blocker)
-                Button("Run /pre-pr") { model.runPrePR(pr) }
-                    .handCursor()
+                RunPrePRButton(startsSession: session == nil) { model.runPrePR(pr) }
                     .disabled(busy || blocker != nil)
-                    .help(session == nil ? "Starts a background session on the branch that runs /pre-pr once: report only, no code changed" : "Sends the session one /pre-pr run: report only, no code changed")
-                Image(systemName: "info.circle")
-                    .foregroundStyle(.secondary)
-                    .help("/pre-pr reviews the PR once and changes no code: its findings come back as threads on the PR, each with a suggested fix, and it adds the local-reviewed label once no Important finding is open.")
-                    .accessibilityLabel("About /pre-pr")
                 // A /pre-pr run still going may push again: the PR goes ready only once the session is done.
                 Button("Mark ready") { if pr.isLocallyReviewed { model.markReady(pr) } else { confirmingReady = true } }
                     .handCursor()
@@ -118,6 +112,48 @@ struct FlowSection: View {
         if pr.checks.isRed { return "Approved, but CI failed: GitHub may refuse the merge until it passes." }
         if pr.checks.isPending { return "Approved. CI is still running, so GitHub may refuse the merge until it passes." }
         return "Approved. Merge squashes it into \(pr.baseRef)."
+    }
+}
+
+/// Run /pre-pr with an ⓘ in its label: resting the pointer on it opens what /pre-pr does. A popover, not `.help`: the
+/// system tooltip comes late, or never, in this accessory app's window. AppKit draws the button, so the ⓘ inside it
+/// has no hover of its own; the whole button opens it.
+private struct RunPrePRButton: View {
+    var startsSession: Bool
+    var action: () -> Void
+    @State private var hovering = false
+    @State private var explaining = false
+
+    private var explanation: String {
+        "/pre-pr reviews the PR once and changes no code: its findings come back as threads on the PR, each with a "
+            + "suggested fix, and it adds the local-reviewed label once no Important finding is open. "
+            + (startsSession ? "The PR has no session, so this starts one on its branch." : "The PR's session runs it.")
+    }
+
+    var body: some View {
+        Button {
+            explaining = false
+            action()
+        } label: {
+            HStack(spacing: 4) {
+                Text("Run /pre-pr")
+                Image(systemName: "info.circle")
+            }
+        }
+        .handCursor()
+        .onHover { hovering = $0 }
+        .task(id: hovering) {
+            // A short rest first, so crossing it on the way to Mark ready opens nothing.
+            guard hovering, (try? await Task.sleep(for: .milliseconds(350))) != nil else {
+                explaining = false
+                return
+            }
+            explaining = true
+        }
+        .popover(isPresented: $explaining, arrowEdge: .bottom) {
+            Text(explanation).scaled(.callout).padding(12).frame(width: 300).fixedSize(horizontal: false, vertical: true)
+        }
+        .accessibilityHint(explanation)
     }
 }
 
