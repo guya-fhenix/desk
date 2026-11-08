@@ -8,9 +8,14 @@ public struct TicketGroup: Sendable, Identifiable {
     public var tickets: [Ticket]
 }
 
-/// Which slice of the review queue to show: the ones asked of you, the ones nobody asked you about, or both.
+/// Which slice of the review queue to show: the ones asked of you, the open ones you have not reviewed, the ones you
+/// reviewed that wait on their authors, or every open PR by someone else. `needsYou` — asked of you, or not yet
+/// reviewed — is what the sidebar badge, Up Next and the menu bar count; the screen does not offer it.
 public enum ReviewScope: String, CaseIterable, Sendable, Identifiable {
-    case onMe, open, all
+    case onMe, open, reviewed, all, needsYou
+
+    /// The scopes the Reviews screen offers, in order.
+    public static let offered: [ReviewScope] = [.onMe, .open, .reviewed, .all]
 
     public var id: ReviewScope { self }
 
@@ -18,7 +23,9 @@ public enum ReviewScope: String, CaseIterable, Sendable, Identifiable {
         switch self {
         case .onMe: return "On you"
         case .open: return "Open"
+        case .reviewed: return "Reviewed"
         case .all: return "All"
+        case .needsYou: return "Needs you"
         }
     }
 }
@@ -83,16 +90,22 @@ public struct DeskState: Sendable {
     /// to start anything.
     public var worktrees: [Worktree] { (gitScan?.worktrees ?? []).filter { !$0.isPrunable } }
 
-    /// Open PRs nobody has put on you and you have not reviewed. Once you review one it drops out of
-    /// here; if the author re-requests you it comes back through `reviewRequests` instead.
-    public var openForReview: [PullRequest] {
+    /// Open PRs nobody has put on you and you have not reviewed. Once you review one it moves to `reviewedByYou`; if
+    /// the author re-requests you it comes back through `reviewRequests` instead.
+    public var openForReview: [PullRequest] { notOnYou.filter { !hasYourReview($0) } }
+
+    /// Open PRs you reviewed that nobody has put back on you: they wait on their authors.
+    public var reviewedByYou: [PullRequest] { notOnYou.filter(hasYourReview) }
+
+    /// Open PRs by others, drafts and bots aside, that are not asked of you; oldest first.
+    private var notOnYou: [PullRequest] {
         let queued = Set(reviewRequests.map(\.url))
         return (github?.openForReview ?? [])
-            .filter { !$0.isDraft && !$0.isAutomated(config.automation) }
-            .filter { !queued.contains($0.url) }
-            .filter { pr in !pr.reviews.contains { $0.author == login } }
+            .filter { !$0.isDraft && !$0.isAutomated(config.automation) && !queued.contains($0.url) }
             .sorted { $0.createdAt < $1.createdAt }
     }
+
+    private func hasYourReview(_ pr: PullRequest) -> Bool { pr.reviews.contains { $0.author == login } }
 
     /// Everything the Reviews queue can show, in the order the scopes are offered. `days` keeps the PRs
     /// opened within that many days, which is what the Waiting column measures; nil keeps them all.
@@ -105,7 +118,9 @@ public struct DeskState: Sendable {
         switch scope {
         case .onMe: rows = reviewRequests
         case .open: rows = openForReview
-        case .all: rows = reviewRequests + openForReview
+        case .reviewed: rows = reviewedByYou
+        case .all: rows = reviewRequests + openForReview + reviewedByYou
+        case .needsYou: rows = reviewRequests + openForReview
         }
         if !hiding.isEmpty { rows.removeAll { hiding.contains($0.author) } }
         if needingApproval { rows.removeAll { !$0.needsApproval } }
@@ -318,7 +333,7 @@ extension DeskState {
             sections[section, default: []].append(pr)
         }
         sections[.draftsToSubmit] = reviewQueue(.all, hiding: hiding).filter { $0.pendingReview != nil }
-        sections[.toReview] = reviewQueue(.all, days: reviewDays, hiding: hiding, needingApproval: needingApproval, now: now)
+        sections[.toReview] = reviewQueue(.needsYou, days: reviewDays, hiding: hiding, needingApproval: needingApproval, now: now)
             .filter { $0.pendingReview == nil && reviewNeed(for: $0) != nil }
         return UpNextSection.allCases.compactMap { section in
             guard let prs = sections[section], !prs.isEmpty else { return nil }

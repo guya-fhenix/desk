@@ -142,15 +142,17 @@ struct ReviewsTab: View {
     private var emptyText: String {
         guard let window else {
             switch scope {
-            case .onMe: return "Nothing waits on your review."
+            case .onMe, .needsYou: return "Nothing waits on your review."
             case .open: return "No open PRs left unreviewed in the tracked repos."
-            case .all: return "Nothing to review."
+            case .reviewed: return "No open PRs you reviewed wait on their authors."
+            case .all: return "No open PRs by others in the tracked repos."
             }
         }
         let span = window == 1 ? "the last day" : "the last \(window) days"
         switch scope {
-        case .onMe: return "Nothing from \(span) waits on you."
+        case .onMe, .needsYou: return "Nothing from \(span) waits on you."
         case .open: return "No unreviewed PRs opened in \(span)."
+        case .reviewed: return "None you reviewed was opened in \(span)."
         case .all: return "Nothing opened in \(span)."
         }
     }
@@ -162,7 +164,7 @@ struct ReviewsTab: View {
         let ready = rows.count { model.state.reviewNeed(for: $0) != nil }
         return FilterBar {
             PillTabs(
-                options: ReviewScope.allCases.map { .init(value: $0, title: $0.title, count: queue($0).count) },
+                options: ReviewScope.offered.map { .init(value: $0, title: $0.title, count: queue($0).count) },
                 selection: $scope
             )
             Divider().frame(height: 18)

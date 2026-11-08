@@ -160,22 +160,34 @@ struct PillTabs<Value: Hashable>: View {
                     .contentShape(Capsule())
                 }
                 .buttonStyle(.plain).handCursor()
+                // A pill keeps its one line: squeezed, its title broke a letter a line. The bar wraps instead.
+                .fixedSize()
                 .accessibilityAddTraits(chosen ? .isSelected : [])
             }
         }
     }
 }
 
-/// The line between the page header and the list: tabs and filters on the left, search and sort on the right.
+/// The line between the page header and the list: tabs and filters on the left, search and sort on the right. Where
+/// they do not fit side by side, search and sort go to a second line, on the right.
 struct FilterBar<Leading: View, Trailing: View>: View {
     @ViewBuilder var leading: Leading
     @ViewBuilder var trailing: Trailing
 
     var body: some View {
-        HStack(spacing: Theme.Space.s) {
-            leading
-            Spacer(minLength: Theme.Space.m)
-            trailing
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: Theme.Space.s) {
+                leading
+                Spacer(minLength: Theme.Space.m)
+                trailing
+            }
+            VStack(alignment: .leading, spacing: Theme.Space.s) {
+                HStack(spacing: Theme.Space.s) { leading }
+                HStack(spacing: Theme.Space.s) {
+                    Spacer(minLength: 0)
+                    trailing
+                }
+            }
         }
         .padding(.vertical, Theme.Space.m)
     }

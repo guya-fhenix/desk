@@ -175,7 +175,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             for pr in mine { menu.addItem(Self.item(for: pr, model: model, tab: .pullRequests)) }
         }
         let reviews = model.state.reviewQueue(
-            .all, days: ReviewFilters.currentWindow, hiding: ReviewFilters.currentHidden, needingApproval: ReviewFilters.currentNeedsApproval
+            .needsYou, days: ReviewFilters.currentWindow, hiding: ReviewFilters.currentHidden, needingApproval: ReviewFilters.currentNeedsApproval
         )
         if !reviews.isEmpty {
             menu.addItem(.separator())
