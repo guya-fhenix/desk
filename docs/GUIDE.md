@@ -1,8 +1,8 @@
 # Fhenix Desk
 
 Menu bar app that tracks the Fhenix development cycle and carries your own work from a ticket to its merge.
-Everything it writes is either a press of yours — starting a background session, and the flow's Run /pre-pr, Mark ready, Fix it and
-Merge — or the one move it makes on its own: moving a Jira ticket that has fallen behind its PRs.
+Everything it writes is either a press of yours — starting a background session, the flow's Run /pre-pr, Mark ready, Fix it and
+Merge, and in a PR's conversation Reply, Resolve and Write a comment — or the one move it makes on its own: moving a Jira ticket that has fallen behind its PRs.
 
 Sources: GitHub PRs (`gh`), local git worktrees, Claude Code sessions (`~/.claude`), Jira. What it shows is read
 off them on every refresh; under `~/Library/Application Support/Fhenix Desk` it keeps only your settings
@@ -47,7 +47,8 @@ deploys, production — that the diff alone does not show. A PR's page shows its
 diff — by file, the file you are in pinned at the top — and opens a regular Claude session beside it, in the terminal
 panel, on the fhenix-workflow `review-pr` skill: it summarizes the description, CodeRabbit's walkthrough and the
 /pre-pr evidence, gives its take on each of those questions with where to look, and posts the comments and the
-verdict you decide on. The diff is only for reading. The two are linked: when the session points at a line, the diff
+verdict you decide on. Each review thread shows under the line it ends on, with Reply and Resolve; new line
+comments and the verdict stay the session's. The two are linked: when the session points at a line, the diff
 moves there (it runs `open fhenixdesk://show/…`, allowed for it without asking); select lines in the diff (click,
 shift-click) and Ask Claude (⌘↩) pastes them into its input for your question. To background the session, use
 Claude's own agents view. Review on GitHub still opens the Files tab. The row says where your review stands —
@@ -122,8 +123,17 @@ page and the ticket's repo menu say whether a repo's sessions can run `reviewing
 
 Your PR's page shows its description; beside it, an Open threads card counts the open threads by who started them —
 /pre-pr (the `<!-- pre-pr:finding -->` marker on the first comment), CodeRabbit (its login), and each person by name —
-with a link to read them on GitHub. They are answered there, or by telling the PR's session what to do with them; the
-app never writes to a thread.
+with a link to read them on GitHub.
+
+## Conversation
+
+Under the description, on your PR's page and on a review's page, is the PR's conversation: the open review threads
+first, each with its file and line, every reply, and **Reply** and **Resolve**; then the PR's comments and the reviews
+that say something (an approval, changes requested, a review with a body), oldest first; and the resolved threads,
+folded, with **Unresolve**. A long comment, such as CodeRabbit's walkthrough, shows its start until opened. **Write a
+comment** posts on the PR's conversation. Each goes to GitHub as you, through `gh`, and only on your press; Resolve
+and Unresolve show only where GitHub lets you. The conversation is fetched when the page shows the PR and again
+whenever the PR changes; a thread can still be answered by telling the PR's session what to do with it.
 
 The app talks to the session the only way a background session takes outside input: once it has finished its
 turn, it is stopped and resumed under the same id with the instruction, so the conversation carries on. It never

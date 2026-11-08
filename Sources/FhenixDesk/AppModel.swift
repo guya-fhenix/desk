@@ -75,6 +75,9 @@ final class AppModel {
     var diffErrors: [String: String] = [:]
     /// Where a review session's link asked the diff to go; the review screen moves there and clears it.
     var diffJump: DiffJump?
+    /// Each PR's conversation, by url, as its page or review diff last fetched it, and why fetching one failed.
+    var conversations: [String: Conversation] = [:]
+    var conversationErrors: [String: String] = [:]
     private let support = AppSupport()
     private let service: DeskService
     private let notifier: Notifier
@@ -442,6 +445,43 @@ final class AppModel {
 
     /// A PR's checks in full, for its page. Not kept: the page asks again each time it shows the PR.
     func checks(for pr: PullRequest) async throws -> [PullRequestCheck] { try await service.checks(for: pr) }
+
+    /// Fetches a PR's conversation, for its page and its review diff, which ask again whenever the PR changes.
+    func loadConversation(_ pr: PullRequest) async {
+        do {
+            conversations[pr.url] = try await service.conversation(of: pr)
+            conversationErrors[pr.url] = nil
+        } catch {
+            if !Task.isCancelled { conversationErrors[pr.url] = "\(error)" }
+        }
+    }
+
+    /// Replies in a thread as you. Why it failed, or nil.
+    func reply(_ pr: PullRequest, in thread: ConversationThread, body: String) async -> String? {
+        await write(pr, "Couldn't reply") { try await self.service.reply(in: thread, body: body) }
+    }
+
+    /// Resolves a thread, or opens a resolved one again. Why it failed, or nil.
+    func setResolved(_ pr: PullRequest, _ thread: ConversationThread, _ resolved: Bool) async -> String? {
+        await write(pr, resolved ? "Couldn't resolve it" : "Couldn't reopen it") { try await self.service.setResolved(thread, resolved) }
+    }
+
+    /// A comment on the PR's conversation, as you. Why it failed, or nil.
+    func comment(_ pr: PullRequest, body: String) async -> String? {
+        await write(pr, "Couldn't post it") { try await self.service.comment(on: pr, body: body) }
+    }
+
+    /// A write to the conversation, then the conversation again so it shows, and the search for the open-thread count.
+    private func write(_ pr: PullRequest, _ failure: String, _ action: () async throws -> Void) async -> String? {
+        do {
+            try await action()
+        } catch {
+            return "\(failure): \(error)"
+        }
+        await loadConversation(pr)
+        Task { await refresh(.github) }
+        return nil
+    }
 
     /// Opens the window on the screen a PR lives on, its row selected — your own in Pull Requests, one in the queue in
     /// Reviews — and GitHub for one on no screen here.

@@ -298,7 +298,7 @@ private struct TicketMark: View {
 
 /// A pull request's own page, opened from its row. At the top what it is, its status line — checks, review and merge
 /// state, its Jira ticket, and its session or the press that starts one — and, top right, any warning about its review
-/// skill; in the wide column its open threads, /pre-pr's evidence and the description; beside it, as PR Cockpit lays it
+/// skill; in the wide column the description and under it the conversation; beside it, as PR Cockpit lays it
 /// out, a card each for the actions, the flow, the reviewers, the facts and the checks.
 struct PullRequestPage: View {
     var pr: PullRequest
@@ -342,6 +342,7 @@ struct PullRequestPage: View {
             }
         } main: {
             description
+            ConversationSection(pr: pr, model: model)
         } side: {
             // An ended PR has nothing left to act on or check: who reviewed it and its facts. How it ended is on the
             // status line.

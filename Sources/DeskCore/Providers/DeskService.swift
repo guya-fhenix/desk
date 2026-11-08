@@ -269,6 +269,26 @@ public actor DeskService {
         return try await github.checks(repo: pr.repo, number: pr.number)
     }
 
+    public func conversation(of pr: PullRequest) async throws -> Conversation {
+        guard let github else { throw DeskError.ghNotFound }
+        return try await github.conversation(repo: pr.repo, number: pr.number)
+    }
+
+    public func reply(in thread: ConversationThread, body: String) async throws {
+        guard let github else { throw DeskError.ghNotFound }
+        try await github.reply(threadId: thread.id, body: body)
+    }
+
+    public func setResolved(_ thread: ConversationThread, _ resolved: Bool) async throws {
+        guard let github else { throw DeskError.ghNotFound }
+        try await github.setResolved(threadId: thread.id, resolved)
+    }
+
+    public func comment(on pr: PullRequest, body: String) async throws {
+        guard let github else { throw DeskError.ghNotFound }
+        try await github.comment(repo: pr.repo, number: pr.number, body: body)
+    }
+
     public func retitle(_ pr: PullRequest, to title: String) async throws {
         guard let github else { throw DeskError.ghNotFound }
         try await github.retitle(repo: pr.repo, number: pr.number, title: title)
