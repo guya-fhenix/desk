@@ -88,6 +88,13 @@ public actor DeskService {
         Dictionary(repos.map { ($0.root, ClaudePlugins.reviewSkill(repoRoot: $0.root)) }, uniquingKeysWith: { first, _ in first })
     }
 
+    /// The PR's diff as GitHub computes it, for the review screen.
+    public func diff(of pr: PullRequest) async throws -> [DiffFile] {
+        guard let gh = config.resolvedGhPath else { throw DeskError.ghNotFound }
+        let text = try await Shell.output(gh, ["pr", "diff", "\(pr.number)", "--repo", pr.repo, "--color", "never"], timeout: 60)
+        return DiffParser.parse(text)
+    }
+
     /// Starts a background Claude session on the PR's branch and returns it. `worktree` is a checkout the
     /// user already has on that branch; without one the branch gets a worktree of its own. The session
     /// starts in the repository's own checkout whatever the branch's checkout is: that is the directory

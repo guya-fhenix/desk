@@ -133,19 +133,21 @@ public enum ClaudeJobs {
     }
 }
 
-/// Whether a repository's sessions can run the team review skill: `fhenix-workflow` enabled for the repo and
-/// installed at a version that ships `reviewing-code`. The self-review stage calls that skill by name, so a
-/// repo without it has nothing for that stage to run.
+/// Whether a repository's sessions can run one of the team's skills: `fhenix-workflow` enabled for the repo and
+/// installed at a version that ships it. The self-review stage calls `reviewing-code` by name and Start review
+/// `review-pr`, so a repo without the skill has nothing for that press to run.
 public struct ReviewSkill: Sendable, Hashable {
     public enum State: Sendable, Hashable { case ready, noSkill, notInstalled, notEnabled }
 
     public var state: State
     /// The installed plugin version, when there is one.
     public var version: String?
+    public var skill: String
 
-    public init(state: State, version: String? = nil) {
+    public init(state: State, version: String? = nil, skill: String = ClaudePlugins.skill) {
         self.state = state
         self.version = version
+        self.skill = skill
     }
 
     public var isReady: Bool { state == .ready }
@@ -153,8 +155,8 @@ public struct ReviewSkill: Sendable, Hashable {
     public var text: String {
         let plugin = ClaudePlugins.plugin
         switch state {
-        case .ready: return "\(ClaudePlugins.skill) ready · \(plugin) \(version ?? "")"
-        case .noSkill: return "\(plugin) \(version ?? "") has no \(ClaudePlugins.skill) — update the plugin"
+        case .ready: return "\(skill) ready · \(plugin) \(version ?? "")"
+        case .noSkill: return "\(plugin) \(version ?? "") has no \(skill) — update the plugin"
         case .notInstalled: return "\(plugin) is enabled here but not installed"
         case .notEnabled: return "\(plugin) is not enabled in this repo"
         }
@@ -165,20 +167,24 @@ public struct ReviewSkill: Sendable, Hashable {
 public enum ClaudePlugins {
     public static let plugin = "fhenix-workflow"
     public static let skill = "reviewing-code"
+    /// The skill a review session starts with.
+    public static let reviewPR = "review-pr"
 
     /// `enabledPlugins` decides first, in Claude Code's own order — the repo's local settings, then its shared
     /// settings, then the user's, and the first that names the plugin wins. Then the install record for this
     /// repo, or for the user, says which version is there and whether it carries the skill.
-    public static func reviewSkill(repoRoot: String, home: String = ClaudeJobs.home) -> ReviewSkill {
+    public static func reviewSkill(repoRoot: String, skill: String = skill, home: String = ClaudeJobs.home) -> ReviewSkill {
         let files = ["\(repoRoot)/.claude/settings.local.json", "\(repoRoot)/.claude/settings.json", "\(home)/settings.json"]
         guard let enabled = files.lazy.compactMap(enabledEntry(in:)).first, enabled.on else {
-            return ReviewSkill(state: .notEnabled)
+            return ReviewSkill(state: .notEnabled, skill: skill)
         }
         guard let install = install(of: enabled.name, repoRoot: repoRoot, home: home) else {
-            return ReviewSkill(state: .notInstalled)
+            return ReviewSkill(state: .notInstalled, skill: skill)
         }
         let skillFile = "\(install.path)/skills/\(skill)/SKILL.md"
-        return ReviewSkill(state: FileManager.default.fileExists(atPath: skillFile) ? .ready : .noSkill, version: install.version)
+        return ReviewSkill(
+            state: FileManager.default.fileExists(atPath: skillFile) ? .ready : .noSkill, version: install.version, skill: skill
+        )
     }
 
     /// `fhenix-workflow@<marketplace>` and whether this file turns it on, or nil when the file does not name it.

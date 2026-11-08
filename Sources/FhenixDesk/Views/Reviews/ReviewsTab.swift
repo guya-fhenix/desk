@@ -44,7 +44,12 @@ struct ReviewsTab: View {
         Group {
             // Looked up in the whole queue, not the rows: a PR you just reviewed may leave the filtered list.
             if let url = opened, let pr = (rows + (model.state.github?.allOpen ?? [])).first(where: { $0.url == url }) {
-                ReviewPage(pr: pr, model: model, onMe: onMe.contains(pr.url)) { opened = nil }
+                // Start review swaps the page for the diff; back from the diff is the page again.
+                if model.reviewing == url {
+                    ReviewDiffScreen(pr: pr, model: model) { model.reviewing = nil }
+                } else {
+                    ReviewPage(pr: pr, model: model, onMe: onMe.contains(pr.url)) { opened = nil }
+                }
             } else {
                 list(rows: rows, onMe: onMe)
             }
@@ -421,8 +426,11 @@ struct ReviewPage: View {
                 if pr.needsHuman { Chip(text: "Needs a person", color: .purple) }
                 ReviewStatusChip(status: model.state.reviewStatus(for: pr))
                 Spacer(minLength: 8)
-                Button("Review on GitHub") { model.openDraft(pr) }
+                Button(model.reviewRunning(pr) ? "Open review" : "Start review") { model.startReview(pr) }
                     .buttonStyle(.borderedProminent).handCursor()
+                    .help("The diff here and a Claude review session beside it: it summarizes the PR, gives its take on each question, and posts the comments and the verdict you decide on")
+                Button("Review on GitHub") { model.openDraft(pr) }
+                    .handCursor()
                     .help("The PR's Files tab, where you comment, pick the verdict and submit")
                 ClaudeSessionButton(pr: pr, model: model).fixedSize()
             }

@@ -29,13 +29,26 @@ a met count drop out; All, one click away, shows them, and Up Next, the sidebar 
 choice. The tier shows as a Risk chip on each row, and PRs CodeRabbit labels `needs-human` come first. Drafts and bot
 PRs stay out of the queue altogether.
 
-Desk does not review for you. By the time a PR is ready, /pre-pr and CodeRabbit have run the review checklist on it;
-what is left is the person's part — does it do what the ticket asks, is the approach right, is the risk tier right and
-would How to revert work, does Testing prove it, and do you agree with each thread under "Resolved by the author" in
-the /pre-pr evidence. A PR's page shows its description, checks and risk; Review on GitHub opens its Files tab, where
-you read the evidence and CodeRabbit's walkthrough, the diff, and submit. The row says where your review stands —
+The review is yours. By the time a PR is ready, /pre-pr and CodeRabbit have run the review checklist on it; what is
+left is the person's part — does it do what the ticket asks, is the approach right, is the risk tier right and would
+How to revert work, does Testing prove it, and do you agree with each thread under "Resolved by the author" in the
+/pre-pr evidence. A PR's page shows its description, checks and risk. **Start review** swaps the page for the PR's
+diff — by file, the file you are in pinned at the top — and opens a regular Claude session beside it, in the terminal
+panel, on the fhenix-workflow `review-pr` skill: it summarizes the description, CodeRabbit's walkthrough and the
+/pre-pr evidence, gives its take on each of those questions with where to look, and posts the comments and the
+verdict you decide on. The diff is only for reading. The two are linked: when the session points at a line, the diff
+moves there (it runs `open fhenixdesk://show/…`, allowed for it without asking); select lines in the diff (click,
+shift-click) and Ask Claude (⌘↩) pastes them into its input for your question. To background the session, use
+Claude's own agents view. Review on GitHub still opens the Files tab. The row says where your review stands —
 `draft · 7` while you have a pending review, or the verdict you sent. Nothing of it is stored: every poll reads your
 pending and submitted reviews off the PR.
+
+## Terminal panel
+
+Sessions open in a panel on the right of the window, a tab each: background sessions attached with `claude attach`,
+and review sessions. Switching tabs or screens leaves them running; closing a tab stops what runs in it — an attached
+session only detaches, and a review session can be reopened with `claude --resume`. View → Show/Hide Terminal (⌃`)
+hides the panel. It is SwiftTerm, inside the app.
 
 ## Ticket sync
 
@@ -56,7 +69,7 @@ status names in Settings → Jira, exactly as Jira spells them; empty turns that
 
 The Agent column on the Pull Requests screen, and the same button on a review's page, say whether one of
 Claude Code's background sessions (`claude agents`, the ones under `~/.claude/jobs`) is about that PR. A
-filled terminal means yes, and pressing it runs `claude attach <id>` in Terminal — the only way into a
+filled terminal means yes, and pressing it runs `claude attach <id>` in the terminal panel — the only way into a
 background session from outside the terminal that started it, and it works whether the session is still
 running or has finished. Interactive sessions never appear: nothing outside their own terminal can reach
 them.

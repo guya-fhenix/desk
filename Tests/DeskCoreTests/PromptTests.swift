@@ -68,6 +68,7 @@ import Testing
             case .ticketPlan: DeskService.ticketPrompt(for: ticket, note: "N", config: config)
             case .selfReview, .fixConflict, .fixChecks: DeskService.flowPrompt(id, pr: pr, worktree: "/w", resultFile: "/f", config: config)
             case .session: DeskService.sessionPrompt(for: pr, worktree: "/w", config: config)
+            case .review: DeskService.reviewArguments(for: pr, ticket: "PRO-1", config: config).last ?? "{"
             }
             #expect(!text.contains("{"), "\(id) left a marker: \(text)")
         }

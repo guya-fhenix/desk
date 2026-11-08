@@ -207,6 +207,14 @@ public enum Shell {
         return nil
     }
 
+    /// The app's environment with the tool directories in front of PATH: what every command here runs with, and the
+    /// terminal panel's sessions too.
+    public static var toolEnvironment: [String: String] {
+        var environment = ProcessInfo.processInfo.environment
+        environment["PATH"] = (toolDirectories + [environment["PATH"] ?? ""]).joined(separator: ":")
+        return environment
+    }
+
     /// `environment` sets a variable, or unsets one when the value is nil, on top of the inherited environment.
     public static func run(
         _ executable: String, _ arguments: [String], cwd: String? = nil, stdin: Data? = nil,
@@ -215,8 +223,7 @@ public enum Shell {
         guard FileManager.default.isExecutableFile(atPath: executable) else {
             throw ShellError.executableNotFound(executable)
         }
-        var environment = ProcessInfo.processInfo.environment
-        environment["PATH"] = (toolDirectories + [environment["PATH"] ?? ""]).joined(separator: ":")
+        var environment = toolEnvironment
         for (key, value) in overrides {
             if let value { environment[key] = value } else { environment.removeValue(forKey: key) }
         }
