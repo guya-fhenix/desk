@@ -88,9 +88,27 @@ public actor DeskService {
     /// Your Claude plan's limits, for the sidebar. A local file too, read with the git scan.
     public func claudeLimits() -> [ClaudeLimit] { ClaudeLimits.read() }
 
-    /// Whether each clone's sessions can run the team review skill, by repo root. A few small files per repo.
-    public func reviewSkills(repos: [RepoRef]) -> [String: ReviewSkill] {
-        Dictionary(repos.map { ($0.root, ClaudePlugins.reviewSkill(repoRoot: $0.root)) }, uniquingKeysWith: { first, _ in first })
+    /// Whether each clone's sessions can run the skills Desk's presses call, by repo root. A few small files per repo.
+    public func reviewSkills(repos: [RepoRef]) async -> [String: ReviewSkill] {
+        var skills: [String: ReviewSkill] = [:]
+        for repo in repos where skills[repo.root] == nil {
+            skills[repo.root] = ClaudePlugins.reviewSkill(repoRoot: repo.root, adopted: await Self.adoptedReviewFlow(repoRoot: repo.root))
+        }
+        return skills
+    }
+
+    /// Whether the repo has adopted the review flow — `REVIEW.md` and `.github/review/tier.sh`, what /pre-pr itself
+    /// checks for. In the checkout, or else on origin's default branch: a clone's own checkout can sit on an old commit
+    /// while the PRs are cut from a newer one.
+    static func adoptedReviewFlow(repoRoot: String) async -> Bool {
+        let files = ["REVIEW.md", ".github/review/tier.sh"]
+        if files.allSatisfy({ FileManager.default.fileExists(atPath: "\(repoRoot)/\($0)") }) { return true }
+        guard let git = Shell.which("git") else { return false }
+        for file in files {
+            let result = try? await Shell.run(git, ["-C", repoRoot, "cat-file", "-e", "origin/HEAD:\(file)"], timeout: 10)
+            guard result?.status == 0 else { return false }
+        }
+        return true
     }
 
     /// The PR's diff as GitHub computes it, for the review screen.

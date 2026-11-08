@@ -363,7 +363,7 @@ struct PullRequestPage: View {
                 WorkflowsSection(pr: pr, model: model)
             }
         } accessory: {
-            if let skill = model.state.reviewSkill(for: pr), !skill.isReady {
+            if let skill = model.state.reviewSkill(for: pr), !skill.has(skill.selfReview) {
                 Label(skill.text, systemImage: "exclamationmark.triangle.fill")
                     .scaled(.caption)
                     .foregroundStyle(.orange)

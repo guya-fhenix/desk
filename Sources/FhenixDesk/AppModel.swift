@@ -222,7 +222,7 @@ final class AppModel {
     /// Why Approve is dead on a draft; nil when it may be pressed.
     func approveBlocker(_ pr: PullRequest) -> String? {
         if let blocker = sendBlocker(pr) { return blocker }
-        if state.reviewSkill(for: pr)?.isReady != true { return "Review skill missing" }
+        guard let skill = state.reviewSkill(for: pr), skill.has(skill.selfReview) else { return "Self-review skill missing" }
         return nil
     }
 
@@ -498,8 +498,9 @@ final class AppModel {
             sessionErrors[pr.url] = "No clone of \(pr.repo) here: the review session starts in the repository's checkout."
             return
         }
-        let skill = ClaudePlugins.reviewSkill(repoRoot: repo.root, skill: ClaudePlugins.reviewPR)
-        guard skill.isReady else {
+        // Read again here rather than from the last scan, so a plugin updated a moment ago counts.
+        let skill = ClaudePlugins.reviewSkill(repoRoot: repo.root)
+        guard skill.has(ClaudePlugins.reviewPR) else {
             sessionErrors[pr.url] = "Can't start the review session: \(skill.text)."
             return
         }

@@ -85,13 +85,25 @@ import Testing
               {"scope": "project", "projectPath": "\(repo)", "installPath": "\(old)", "version": "0.4.2"},
               {"scope": "project", "projectPath": "/elsewhere", "installPath": "\(new)", "version": "0.5.0"}]}}
             """)
-        #expect(ClaudePlugins.reviewSkill(repoRoot: repo, home: home) == ReviewSkill(state: .noSkill, version: "0.4.2"))
+        #expect(ClaudePlugins.reviewSkill(repoRoot: repo, home: home)
+            == ReviewSkill(state: .noSkill, version: "0.4.2", missing: ["reviewing-code", "review-pr"]))
 
         try write("\(home)/plugins/installed_plugins.json", """
             {"version": 2, "plugins": {"fhenix-workflow@fhenix": [
               {"scope": "project", "projectPath": "\(repo)/", "installPath": "\(new)", "version": "0.5.0"}]}}
             """)
-        #expect(ClaudePlugins.reviewSkill(repoRoot: repo, home: home) == ReviewSkill(state: .ready, version: "0.5.0"))
+        // The self-review's skill without review-pr: Approve works, Start review does not, and the note says what is missing.
+        let partial = ClaudePlugins.reviewSkill(repoRoot: repo, home: home)
+        #expect(partial == ReviewSkill(state: .noSkill, version: "0.5.0", missing: ["review-pr"]))
+        #expect(partial.has("reviewing-code") && !partial.has("review-pr"))
+        #expect(partial.text == "fhenix-workflow 0.5.0 has no review-pr — update the plugin")
+
+        try write("\(new)/skills/review-pr/SKILL.md", "---\nname: review-pr\n---\n")
+        let ready = ClaudePlugins.reviewSkill(repoRoot: repo, home: home)
+        #expect(ready == ReviewSkill(state: .ready, version: "0.5.0"))
+        #expect(ready.text == "fhenix-workflow 0.5.0 · reviewing-code, review-pr")
+        // A repo on the review flow self-reviews with /pre-pr, which this version lacks.
+        #expect(ClaudePlugins.reviewSkill(repoRoot: repo, adopted: true, home: home).missing == ["pre-pr"])
 
         // Local settings outrank the shared ones, the way they do in Claude Code.
         try write("\(repo)/.claude/settings.local.json", #"{"enabledPlugins": {"fhenix-workflow@fhenix": false}}"#)

@@ -45,7 +45,7 @@ struct FlowSection: View {
             let skill = model.state.reviewSkill(for: pr)
             Text("Approve to start the self-review: one /pre-pr run where the repo has the review flow, one reviewing-code pass elsewhere. It changes no code: its findings come back as threads on the PR, each with a suggested fix.")
                 .scaled(.caption).foregroundStyle(.secondary)
-            if let skill, !skill.isReady { ReviewSkillMark(skill: skill, showsText: true) }
+            if let skill, !skill.has(skill.selfReview) { ReviewSkillMark(skill: skill, showsText: true) }
             HStack {
                 Spacer()
                 let blocker = model.approveBlocker(pr)

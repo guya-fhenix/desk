@@ -502,7 +502,7 @@ private struct RepoMenuItem: View {
 
     var body: some View {
         Button(action: action) {
-            if let skill = model.state.reviewSkills[repo.root], !skill.isReady {
+            if let skill = model.state.reviewSkills[repo.root], !skill.has(skill.selfReview) {
                 Label {
                     Text(repo.name)
                     Text(skill.text)
@@ -547,7 +547,7 @@ struct PlanSheet: View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Start \(request.ticket.key) in \(request.repo.name)").scaled(.headline)
             Text(request.ticket.summary).scaled(.callout).foregroundStyle(.secondary).lineLimit(2)
-            if let skill = model.state.reviewSkills[request.repo.root], !skill.isReady {
+            if let skill = model.state.reviewSkills[request.repo.root], !skill.has(skill.selfReview) {
                 Label(skill.text, systemImage: "exclamationmark.triangle.fill").scaled(.caption).foregroundStyle(.orange)
             }
             Text("Anything you want from the plan? The ticket and its description are sent either way.")

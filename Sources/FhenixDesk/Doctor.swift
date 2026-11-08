@@ -28,7 +28,7 @@ enum Doctor {
         }
         for error in scan.errors { print("  error: \(error)") }
         state.reviewSkills = await service.reviewSkills(repos: scan.repos)
-        for repo in scan.repos { print("  \(pad(repo.name, 18)) review skill: \(state.reviewSkills[repo.root]?.text ?? "?")") }
+        for repo in scan.repos { print("  \(pad(repo.name, 18)) skills: \(state.reviewSkills[repo.root]?.text ?? "?")") }
 
         section("GitHub")
         do {
