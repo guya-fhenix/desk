@@ -22,7 +22,7 @@ struct FlowSection: View {
             } else if session?.isRunning == true {
                 HStack(spacing: 6) {
                     ProgressView().controlSize(.mini)
-                    Text("The session is on it.").scaled(.caption).foregroundStyle(.secondary)
+                    Text("Its session is working (on this PR or something else); Run /pre-pr and Mark ready wait until it’s done.").scaled(.caption).foregroundStyle(.secondary)
                 }
             }
             stageContent(stage)

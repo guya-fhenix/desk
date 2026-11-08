@@ -412,7 +412,7 @@ struct ClaudeSessionButton: View {
             }
             .sessionStyle(prominent)
             .labelStyle(.titleAndIcon)
-            .help(failure ?? "Attach to “\(job.name)” (\(job.state)) in Terminal")
+            .help(failure ?? "Attach to “\(job.name)” (\(job.state)) in Desk’s terminal panel")
         } else {
             // Words, not only a hollow or filled terminal: which one it is was a tooltip's secret.
             Button { model.startSession(for: pr) } label: {
@@ -967,8 +967,8 @@ private struct IconButtonBody: View {
 }
 
 /// Where the PR's background session stands, in place of the press that starts one: what it is doing, and a click
-/// attaches to it; its menu has every session on the PR, the newest first, which is the one that carries the PR through
-/// the flow. With no session, the press to start one.
+/// attaches to it. With more than one session on the PR, an arrow beside it lists them all, newest first, to attach
+/// another. With no session, the press to start one.
 struct SessionStatus: View {
     var pr: PullRequest
     var model: AppModel
@@ -976,20 +976,29 @@ struct SessionStatus: View {
     var body: some View {
         let jobs = model.state.claudeJobs(for: pr)
         if let newest = jobs.first {
-            Menu {
-                ForEach(jobs) { job in
-                    Button("Attach to \(job.name) — \(job.state)") { model.attach(job, for: pr) }
+            // One text and an icon: a menu button keeps no more of its label than that.
+            let label = Label("Session · \(newest.state)", systemImage: newest.isRunning ? "terminal.fill" : "terminal")
+                .labelStyle(.titleAndIcon)
+            Group {
+                if jobs.count > 1 {
+                    Menu {
+                        ForEach(jobs) { job in
+                            Button("Attach to \(job.name) — \(job.state)") { model.attach(job, for: pr) }
+                        }
+                    } label: {
+                        label
+                    } primaryAction: {
+                        model.attach(newest, for: pr)
+                    }
+                    .menuStyle(.button)
+                } else {
+                    Button { model.attach(newest, for: pr) } label: { label }
                 }
-            } label: {
-                // One text and an icon: a menu button keeps no more of its label than that.
-                Label("Session · \(newest.state)", systemImage: newest.isRunning ? "terminal.fill" : "terminal")
-                    .labelStyle(.titleAndIcon)
-            } primaryAction: {
-                model.attach(newest, for: pr)
             }
-            .menuStyle(.button).handCursor()
+            .handCursor()
             .fixedSize()
-            .help("“\(newest.name)”, \(newest.state). Click to attach in Terminal")
+            .help("“\(newest.name)”, \(newest.state). Click to attach it in Desk’s terminal panel"
+                + (jobs.count > 1 ? "; the arrow lists the other sessions on this PR" : ""))
         } else {
             ClaudeSessionButton(pr: pr, model: model, prominent: true).fixedSize()
         }
