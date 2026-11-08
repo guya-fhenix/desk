@@ -96,14 +96,15 @@ session is seeded with the PR's url, which is what ties it to the PR until it ha
 
 Start on a ticket opens a background session in the repo you pick. It writes a plan and waits; once you approve
 the plan in the session, it builds in a worktree of its own and opens the PR as a draft. A PR of yours is in the
-flow while a background session works on it — the newest that mentions it, whether it came from a ticket or from
-Start on the PR — and it has a stage of the app's own, shown in the Stage column and on the PR's page. Nothing of
+flow while a background session works on it — the one that opened it, or the one started on it or on its ticket —
+and it has a stage of the app's own, shown in the Stage column. The Flow card on a PR's page shows on every open PR
+of yours, session or not: Mark ready and Merge need none, and Run /pre-pr starts one when there is none. Nothing of
 it is saved: every refresh works it out again from GitHub and the session, so a relaunch shows the same stage.
 
 | Stage | When |
 |---|---|
 | Working | the ticket's session has not opened its PR yet |
-| Draft | a draft. Two presses, both yours, in any order. **Run /pre-pr** sends the session one `/fhenix-workflow:pre-pr` run where the repo has adopted the review flow, one `reviewing-code` pass elsewhere; it changes no code, its findings come back as threads on the PR, each with a suggested fix, and /pre-pr adds the `local-reviewed` label once no Important finding is open. **Mark ready**, once the session is done, marks it ready and asks the review team. The page says where /pre-pr stands — not run, passed (the label), or an Important finding open — and Mark ready asks first without the label |
+| Draft | a draft. Two presses, both yours, in any order. **Run /pre-pr** sends the session one `/fhenix-workflow:pre-pr` run (or starts a session on the branch for it when the PR has none) where the repo has adopted the review flow, one `reviewing-code` pass elsewhere; it changes no code, its findings come back as threads on the PR, each with a suggested fix, and /pre-pr adds the `local-reviewed` label once no Important finding is open. **Mark ready**, once any session on it is idle, marks it ready and asks the review team. The page says where /pre-pr stands — not run, passed (the label), or an Important finding open — and Mark ready asks first without the label |
 | In review | ready, until it has the approvals it needs and nothing open |
 | Ready to merge | approved with nothing open; Merge squashes it |
 | Merged, Closed | as GitHub says |
