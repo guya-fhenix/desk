@@ -147,11 +147,14 @@ final class AppModel {
                 state.errors[.git] = scan.errors.isEmpty ? nil : scan.errors.joined(separator: "\n")
                 for error in scan.errors { Self.log.error("git: \(error, privacy: .public)") }
             case .jira:
-                guard await service.jiraReady else {
+                // No acli is Jira left off, and quiet. acli signed out is a failure: called a success, the dot went green
+                // while nothing reached Jira.
+                guard await service.hasJira else {
                     state.errors[.jira] = nil
                     state.lastRefresh[.jira] = Date()
                     return
                 }
+                guard await service.jiraReady else { throw DeskError.jiraSignedOut }
                 state.tickets = try await service.refreshJira(referencedKeys: state.referencedTicketKeys)
             }
             if source != .git { state.errors[source] = nil }

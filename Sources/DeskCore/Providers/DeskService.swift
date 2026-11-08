@@ -3,6 +3,7 @@ import Foundation
 public enum DeskError: Error, CustomStringConvertible, Sendable {
     case ghNotFound
     case jiraNotConfigured
+    case jiraSignedOut
     case claudeNotFound
     case sessionNotStarted(String)
     case sessionStillRunning(String)
@@ -11,7 +12,8 @@ public enum DeskError: Error, CustomStringConvertible, Sendable {
     public var description: String {
         switch self {
         case .ghNotFound: return "gh CLI not found. Install it or set the path in Settings."
-        case .jiraNotConfigured: return "Jira: set the site, email, and API token in Settings."
+        case .jiraNotConfigured: return "acli not found. Install it or set its path in Settings → Jira."
+        case .jiraSignedOut: return "Not signed in to Jira. Run `acli jira auth login --web` in a terminal, then press Recheck in Settings → Jira."
         case .claudeNotFound: return "claude CLI not found. Install it or set the path in Settings."
         case .sessionNotStarted(let output): return "claude --bg printed no session id: \(output.prefix(200))"
         case .sessionStillRunning(let id): return "session \(id) did not stop, so nothing was sent to it"
@@ -55,6 +57,9 @@ public actor DeskService {
     public var jiraReady: Bool {
         get async { await jira?.signedInAccount() != nil }
     }
+
+    /// Whether acli is there at all. Without it Jira is left off, which is no failure; with it but signed out is one.
+    public var hasJira: Bool { jira != nil }
 
     /// Which Atlassian account acli is signed in as, for Settings to show.
     public func jiraAccount() async -> JiraAccount? { await jira?.signedInAccount() }
