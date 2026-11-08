@@ -127,12 +127,14 @@ with a link to read them on GitHub.
 
 ## Conversation
 
-Under the description, on your PR's page and on a review's page, is the PR's conversation: the open review threads
-first, each with its file and line, every reply, and **Reply** and **Resolve**; then the PR's comments and the reviews
-that say something (an approval, changes requested, a review with a body), oldest first; and the resolved threads,
-folded, with **Unresolve**. A long comment, such as CodeRabbit's walkthrough, shows its start until opened. **Write a
-comment** posts on the PR's conversation. Each goes to GitHub as you, through `gh`, and only on your press; Resolve
-and Unresolve show only where GitHub lets you. The conversation is fetched when the page shows the PR and again
+Under the description, on your PR's page and on a review's page, is the PR's conversation, laid out as GitHub's,
+each comment with its author's picture: the open review threads first, each a card with its file and line and
+**Resolve**, every comment, and a reply box always open with **Reply** beside it; then the PR's comments and the
+reviews that say something (an approval, changes requested, a review with a body), oldest first, and a comment box
+always open with **Comment** beside it; and the resolved threads, folded to who started them and how, with
+**Unresolve**. A long comment, such as CodeRabbit's walkthrough, shows its start until opened; the HTML bots write
+shows as what it means. ⌘↩ posts from the box you are typing in. Each goes to GitHub as you, through `gh`, and only
+on your press; Resolve and Unresolve show only where GitHub lets you. The conversation is fetched when the page shows the PR and again
 whenever the PR changes; a thread can still be answered by telling the PR's session what to do with it.
 
 The app talks to the session the only way a background session takes outside input: once it has finished its

@@ -30,7 +30,8 @@ import Testing
         let open = try #require(conversation.openThreads.first)
         #expect(conversation.openThreads.count == 1 && open.location == "src/gate.rs:42")
         #expect(open.comments.map(\.author) == ["coderabbitai[bot]", "guya"])
-        #expect(open.comments[0].isBot && open.comments[0].firstLine == "**Missing bounds check**")
+        #expect(open.comments[0].isBot && open.comments[0].name == "coderabbitai")
+        #expect(open.comments[0].firstLine == "Missing bounds check")
         #expect(open.canReply && open.canToggle)
 
         // Outdated: where it was written, on its side; resolved, so the press it may have is Unresolve.
@@ -42,6 +43,19 @@ import Testing
         // threads, and a pending one is a draft.
         #expect(conversation.entries.map(\.id) == ["R4", "I1", "R2"])
         #expect(conversation.entries.map(\.verb) == ["requested changes", nil, "approved"])
+    }
+
+    @Test func botHTMLBecomesTheMarkdownItMeans() {
+        let body = """
+        <summary><strong><picture><img src="x.svg"></picture> Recent review info</strong></summary><br>
+        <h3>Bugbot is paused</h3>
+        Takes a `Vec<u8>` and <code>Option<T></code> <a href="https://x.io">here</a>
+        """
+        #expect(Markdown.blocks(body) == [
+            .paragraph("**Recent review info**"),
+            .heading(level: 3, text: "Bugbot is paused"),
+            .paragraph("Takes a `Vec<u8>` and <code>Option<T></code> [here](https://x.io)"),
+        ])
     }
 
     @Test func theDiffShowsOnlyThreadsStillOnTheirLine() throws {

@@ -225,10 +225,10 @@ public enum GitHubQueries {
       repository(owner: $owner, name: $name) { pullRequest(number: $number) {
         reviewThreads(first: 100) { nodes {
           id isResolved isOutdated path line originalLine diffSide viewerCanReply viewerCanResolve viewerCanUnresolve
-          comments(first: 100) { nodes { id author { __typename login } body createdAt url } }
+          comments(first: 100) { nodes { id author { __typename login avatarUrl(size: 64) } body createdAt url } }
         } }
-        comments(first: 100) { nodes { id author { __typename login } body createdAt url } }
-        reviews(first: 100) { nodes { id state body submittedAt url author { __typename login } } }
+        comments(first: 100) { nodes { id author { __typename login avatarUrl(size: 64) } body createdAt url } }
+        reviews(first: 100) { nodes { id state body submittedAt url author { __typename login avatarUrl(size: 64) } } }
       } }
     }
     """
@@ -363,7 +363,8 @@ public enum GitHubDecoding {
             guard let submittedAt = node.submittedAt, node.state != "PENDING" else { return nil }
             if node.state == "COMMENTED", node.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return nil }
             let comment = ConversationComment(
-                id: node.id, author: node.author?.name ?? "ghost", body: node.body, createdAt: submittedAt, url: node.url
+                id: node.id, author: node.author?.name ?? "ghost", avatar: node.author?.avatarUrl, body: node.body,
+                createdAt: submittedAt, url: node.url
             )
             return ConversationEntry(kind: .review(state: node.state), comment: comment)
         }
@@ -372,7 +373,10 @@ public enum GitHubDecoding {
 
     /// A deleted account's comment has no author; GitHub shows it as ghost's.
     private static func conversationComment(_ node: ConversationCommentNode) -> ConversationComment {
-        ConversationComment(id: node.id, author: node.author?.name ?? "ghost", body: node.body, createdAt: node.createdAt, url: node.url)
+        ConversationComment(
+            id: node.id, author: node.author?.name ?? "ghost", avatar: node.author?.avatarUrl, body: node.body,
+            createdAt: node.createdAt, url: node.url
+        )
     }
 
     /// A write's answer: only its errors matter.
@@ -520,11 +524,14 @@ public enum GitHubDecoding {
     private struct Login: Decodable {
         var login: String
         var typename: String?
+        /// Only where the query asks for it: the conversation's.
+        var avatarUrl: String?
         var name: String { typename == "Bot" ? "\(login)[bot]" : login }
 
         enum CodingKeys: String, CodingKey {
             case login
             case typename = "__typename"
+            case avatarUrl
         }
     }
     private struct Repository: Decodable { var nameWithOwner: String }
