@@ -41,7 +41,8 @@ enum Doctor {
             let github = try await service.refreshGitHub(now: now)
             state.github = github
             print("login \(github.login): \(github.mine.count) open PRs, \(github.reviewRequests.count) review requests, \(github.mergedRecent.count) merged recently")
-            print("review queue: \(state.reviewQueue(.onMe).count) on me, \(state.openForReview.count) open and unreviewed by me (of \(github.openForReview.count) open by others)")
+            print("review queue: \(state.reviewQueue(.onMe).count) on me, \(state.openForReview.count) open and unreviewed by me, \(state.reviewedByYou.count) reviewed by me and waiting on the author (of \(github.openForReview.count) open by others)")
+            for pr in state.reviewedByYou { print("  reviewed: \(pr.repoName)#\(pr.number) \(pr.title)") }
             for pr in github.mine {
                 let threads = pr.unresolvedThreads > 0 ? "threads:\(pr.unresolvedThreads)" : ""
                 print("  \(pad("\(pr.repoName)#\(pr.number)", 22)) \(pad(pr.checks.rawValue, 8)) \(pad(pr.reviewDecision.rawValue, 16)) \(pad(pr.mergeState.rawValue, 9)) \(pad(threads, 10)) \(pr.title.prefix(60))")

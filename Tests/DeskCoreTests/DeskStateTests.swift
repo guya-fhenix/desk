@@ -183,7 +183,10 @@ import Testing
 
         #expect(state.openForReview.map(\.number) == [2])
         #expect(state.reviewQueue(.onMe).map(\.number) == [1])
-        #expect(state.reviewQueue(.all).map(\.number) == [1, 2])
+        // Reviewed by you and not asked again: it waits on its author, so only All and Reviewed list it.
+        #expect(state.reviewQueue(.reviewed).map(\.number) == [3])
+        #expect(state.reviewQueue(.needsYou).map(\.number) == [1, 2])
+        #expect(state.reviewQueue(.all).map(\.number) == [1, 2, 3])
     }
 
     @Test func reviewIsOfferedOnPullRequestsNobodyAssignedYou() {
