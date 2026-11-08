@@ -351,7 +351,8 @@ struct PullRequestPage: View {
                 DetailsCard(pr: pr)
             } else {
                 ActionsCard(pr: pr, model: model)
-                if let session = model.state.session(for: pr) { FlowSection(pr: pr, session: session, model: model).sideCard() }
+                // Every open PR of yours, session or not: Mark ready and Merge need none, and Run /pre-pr starts one.
+                FlowSection(pr: pr, session: model.state.session(for: pr), model: model).sideCard()
                 ThreadsCard(pr: pr, model: model)
                 ReviewersCard(pr: pr)
                 LabelsCard(pr: pr)

@@ -24,10 +24,12 @@ public struct ClaudeJob: Sendable, Hashable, Identifiable {
     public var ticketKey: String?
     /// The PRs the prompt it started from names: a session the app started on a PR.
     public var startedOn: Set<String>
+    /// The PRs it opened, as Claude Code records them: its `children` of kind `pr`. A PR it only read is not one.
+    public var opened: Set<String>
 
     public init(
         id: String, name: String, state: String, cwd: String, prKeys: Set<String>, updatedAt: Date, sessionId: String? = nil,
-        ticketKey: String? = nil, startedOn: Set<String> = []
+        ticketKey: String? = nil, startedOn: Set<String> = [], opened: Set<String> = []
     ) {
         self.id = id
         self.name = name
@@ -38,12 +40,13 @@ public struct ClaudeJob: Sendable, Hashable, Identifiable {
         self.sessionId = sessionId
         self.ticketKey = ticketKey
         self.startedOn = startedOn
+        self.opened = opened
     }
 
-    /// Whether this session carries the PR through the flow: it was started on the PR, or on its ticket. A session that
-    /// only touched the PR on the way, as one long session touches many, does not.
+    /// Whether this session carries the PR through the flow: it opened the PR, or was started on it or on its ticket. A
+    /// session that only read or mentioned the PR on the way, as one long session does with many, does not.
     public func carries(_ prKey: String, tickets: [String]) -> Bool {
-        startedOn.contains(prKey) || ticketKey.map(tickets.contains) == true
+        opened.contains(prKey) || startedOn.contains(prKey) || ticketKey.map(tickets.contains) == true
     }
 
     public var isRunning: Bool { state == "working" }
@@ -75,7 +78,7 @@ public enum ClaudeJobs {
             return ClaudeJob(
                 id: id, name: state.label(fallback: id), state: state.state ?? "unknown", cwd: state.cwd ?? "",
                 prKeys: keys, updatedAt: state.updatedAt ?? .distantPast, sessionId: state.sessionId, ticketKey: ticketKey,
-                startedOn: state.intent.map(ClaudeJobs.prKeys(in:)) ?? []
+                startedOn: state.intent.map(ClaudeJobs.prKeys(in:)) ?? [], opened: state.opened
             )
         }
         .sorted { $0.updatedAt > $1.updatedAt }
@@ -117,12 +120,15 @@ public enum ClaudeJobs {
         var children: [Child]?
         var updatedAt: Date?
 
-        /// The PRs this session is about: the ones Claude Code's link scan saw it work with, plus any
-        /// named in the prompt it was started from — which is the only trace of a session opened on a PR
-        /// that has not touched it yet.
+        /// The PRs it opened: Claude Code lists each one it created among its `children`, and only those.
+        var opened: Set<String> {
+            Set((children ?? []).filter { $0.kind == "pr" }.compactMap { $0.href.flatMap(ClaudeJobs.prKey) })
+        }
+
+        /// The PRs this session is about: the ones it opened, plus any named in the prompt it was started from —
+        /// which is the only trace of a session started on a PR that it did not open.
         var prKeys: Set<String> {
-            let linked = (children ?? []).filter { $0.kind == "pr" }.compactMap { $0.href.flatMap(ClaudeJobs.prKey) }
-            return Set(linked).union(intent.map(ClaudeJobs.prKeys(in:)) ?? [])
+            opened.union(intent.map(ClaudeJobs.prKeys(in:)) ?? [])
         }
 
         func label(fallback: String) -> String {

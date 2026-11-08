@@ -219,9 +219,15 @@ final class AppModel {
         return nil
     }
 
-    /// Why Run /pre-pr is dead on a draft; nil when it may be pressed.
+    /// Why Run /pre-pr is dead on a draft; nil when it may be pressed. Without a session it starts one, which needs a
+    /// clone of the repo.
     func prePRBlocker(_ pr: PullRequest) -> String? {
-        if let blocker = sendBlocker(pr) { return blocker }
+        if state.session(for: pr) == nil {
+            if startingSessions.contains(pr.url) { return "Starting a session…" }
+            if state.localRepo(for: pr) == nil { return "No clone of \(pr.repoName) here" }
+        } else if let blocker = sendBlocker(pr) {
+            return blocker
+        }
         guard let skill = state.reviewSkill(for: pr), skill.has(skill.selfReview) else { return "Self-review skill missing" }
         return nil
     }
@@ -436,7 +442,7 @@ final class AppModel {
 
     /// Starts a background Claude session on the PR's branch. The button that calls this is the one shown
     /// when no session mentions the PR yet; the row flips to Attach as soon as this one lands.
-    func startSession(for pr: PullRequest) {
+    func startSession(for pr: PullRequest, flow: PromptID? = nil) {
         guard let repo = state.localRepo(for: pr), !startingSessions.contains(pr.url) else { return }
         startingSessions.insert(pr.url)
         // A checkout the user already has on that branch is the session's home; nothing else touches git.
@@ -444,7 +450,7 @@ final class AppModel {
         Task {
             defer { startingSessions.remove(pr.url) }
             do {
-                let job = try await service.startClaudeSession(pr: pr, repoRoot: repo.root, worktree: existing)
+                let job = try await service.startClaudeSession(pr: pr, repoRoot: repo.root, worktree: existing, flow: flow)
                 // Held until the next scan reads the same session off disk. On your own PR it puts the PR in the flow.
                 state.claudeJobs.insert(job, at: 0)
                 sessionErrors[pr.url] = nil
@@ -548,10 +554,15 @@ final class AppModel {
 
     // MARK: Flows
 
-    /// Run /pre-pr on a draft: its session runs it once. Pressed again, it runs again.
+    /// Run /pre-pr on a draft: its session runs it once, or a new background session starts on it when the PR has none.
+    /// Pressed again, it runs again.
     func runPrePR(_ pr: PullRequest) {
         guard prePRBlocker(pr) == nil else { return }
-        send(.selfReview, for: pr)
+        if state.session(for: pr) == nil {
+            startSession(for: pr, flow: .selfReview)
+        } else {
+            send(.selfReview, for: pr)
+        }
     }
 
     /// Mark ready on a draft: it leaves draft and the review team is asked. Shown ready at once.

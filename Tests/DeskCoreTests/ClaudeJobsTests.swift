@@ -38,6 +38,10 @@ import Testing
         #expect(jobs[0].name == "Working on FhenixProtocol/cofhe#987")
         #expect(jobs[1].prKeys == ["fhenixprotocol/cofhe#986"])
         #expect(!jobs[1].isRunning)
+        // Claude Code lists a PR among its children when the session opened it: that session carries the PR.
+        #expect(jobs[1].opened == ["fhenixprotocol/cofhe#986"])
+        #expect(jobs[1].carries("fhenixprotocol/cofhe#986", tickets: []))
+        #expect(jobs[0].opened.isEmpty && jobs[0].startedOn == ["fhenixprotocol/cofhe#987"])
 
         var state = DeskState(config: DeskConfig())
         state.claudeJobs = jobs

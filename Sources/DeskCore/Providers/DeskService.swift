@@ -123,8 +123,9 @@ public actor DeskService {
     /// starts in the repository's own checkout whatever the branch's checkout is: that is the directory
     /// Claude Code reads the project's settings, plugins and memory from, and a worktree is a different
     /// directory to it. The prompt sends it on to the branch, and carries the PR url, which is what ties
-    /// the session to this PR until it has touched it itself.
-    public func startClaudeSession(pr: PullRequest, repoRoot: String, worktree: String?) async throws -> ClaudeJob {
+    /// the session to this PR until it has touched it itself. With `flow`, the session starts on that flow
+    /// instruction, such as /pre-pr's run, instead of the plain PR session prompt.
+    public func startClaudeSession(pr: PullRequest, repoRoot: String, worktree: String?, flow: PromptID? = nil) async throws -> ClaudeJob {
         guard let claude = config.resolvedClaudePath else { throw DeskError.claudeNotFound }
         let path: String
         if let worktree {
@@ -132,12 +133,18 @@ public actor DeskService {
         } else {
             path = try await worktrees.prepareBranch(pr: pr, repoRoot: repoRoot)
         }
-        let prompt = Self.sessionPrompt(for: pr, worktree: path == repoRoot ? nil : path, config: config)
+        let branchPath = path == repoRoot ? nil : path
+        // A new session has no job folder of its own yet to name; it knows its own as CLAUDE_JOB_DIR. The app reads
+        // nothing from the file.
+        let prompt = flow.map {
+            Self.flowPrompt($0, pr: pr, worktree: branchPath, resultFile: "$CLAUDE_JOB_DIR/tmp/desk-step-\(Int(Date().timeIntervalSince1970)).json", config: config)
+        } ?? Self.sessionPrompt(for: pr, worktree: branchPath, config: config)
         let output = try await Shell.output(claude, ["--bg", prompt], cwd: repoRoot, timeout: 120)
         guard let id = ClaudeJobs.startedID(in: output) else { throw DeskError.sessionNotStarted(output) }
         return ClaudeJob(
             id: id, name: "\(pr.repoName)#\(pr.number)", state: "working", cwd: repoRoot,
-            prKeys: Set([ClaudeJobs.prKey(pr.url)].compactMap { $0 }), updatedAt: Date()
+            prKeys: Set([ClaudeJobs.prKey(pr.url)].compactMap { $0 }), updatedAt: Date(),
+            startedOn: Set([ClaudeJobs.prKey(pr.url)].compactMap { $0 })
         )
     }
 

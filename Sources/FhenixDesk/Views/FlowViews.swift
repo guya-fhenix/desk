@@ -5,7 +5,8 @@ import SwiftUI
 /// All of it is read off GitHub and the session on each refresh.
 struct FlowSection: View {
     var pr: PullRequest
-    var session: ClaudeJob
+    /// The background session carrying the PR, when it has one.
+    var session: ClaudeJob?
     var model: AppModel
     /// Mark ready on a draft /pre-pr has not passed asks first.
     @State private var confirmingReady = false
@@ -13,17 +14,21 @@ struct FlowSection: View {
     var body: some View {
         let stage = FlowStage.of(pr)
         PanelSection("Flow") {
-            LabeledContent("Stage") { StageChip(stage: stage, sessionBusy: session.isBusy) }
-            if let key = session.ticketKey { LabeledContent("Started from", value: key) }
+            LabeledContent("Stage") { StageChip(stage: stage, sessionBusy: session?.isBusy ?? false) }
+            if let key = session?.ticketKey { LabeledContent("Started from", value: key) }
             LabeledContent("Session") {
-                HStack(spacing: 6) {
-                    Text(session.state).foregroundStyle(.secondary)
-                    Button("Attach") { model.attach(session, for: pr) }.controlSize(.small)
+                if let session {
+                    HStack(spacing: 6) {
+                        Text(session.state).foregroundStyle(.secondary)
+                        Button("Attach") { model.attach(session, for: pr) }.controlSize(.small)
+                    }
+                } else {
+                    Text("none").foregroundStyle(.secondary)
                 }
             }
-            if session.state == "blocked" {
+            if session?.state == "blocked" {
                 Text("The session is asking you something. Attach to answer it.").scaled(.caption).foregroundStyle(.orange)
-            } else if session.isRunning {
+            } else if session?.isRunning == true {
                 HStack(spacing: 6) {
                     ProgressView().controlSize(.mini)
                     Text("The session is on it.").scaled(.caption).foregroundStyle(.secondary)
@@ -65,11 +70,11 @@ struct FlowSection: View {
                 Button("Run /pre-pr") { model.runPrePR(pr) }
                     .handCursor()
                     .disabled(busy || blocker != nil)
-                    .help("Sends the session one /pre-pr run: report only, no code changed")
+                    .help(session == nil ? "Starts a background session on the branch that runs /pre-pr once: report only, no code changed" : "Sends the session one /pre-pr run: report only, no code changed")
                 // A /pre-pr run still going may push again: the PR goes ready only once the session is done.
                 Button("Mark ready") { if pr.isLocallyReviewed { model.markReady(pr) } else { confirmingReady = true } }
                     .handCursor()
-                    .disabled(busy || session.isBusy)
+                    .disabled(busy || session?.isBusy == true)
                     .help("Marks the PR ready for review and asks \(model.config.reviewTeam) to review it")
             }
             .confirmationDialog(
