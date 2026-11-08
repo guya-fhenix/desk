@@ -45,12 +45,15 @@ struct DeskWindow: View {
 
     var body: some View {
         // The sidebar stays while Settings is open, with Settings chosen in it, so you never lose your place.
+        // Setup takes the sidebar's place too, but keeps the terminal panel, where its installs and sign-ins run.
         HStack(spacing: 0) {
-            sidebar
-            Rectangle().fill(Theme.line).frame(width: 1).ignoresSafeArea()
+            if !model.showingSetup {
+                sidebar
+                Rectangle().fill(Theme.line).frame(width: 1).ignoresSafeArea()
+            }
             // The terminal panel on the right, when it has a tab and is not hidden; the divider between drags.
             HSplitView {
-                Group { if model.showingSettings { SettingsView() } else { screen } }
+                Group { if model.showingSetup { SetupView() } else if model.showingSettings { SettingsView() } else { screen } }
                     .frame(minWidth: 480, maxWidth: .infinity, maxHeight: .infinity)
                 if model.terminals.visible, !model.terminals.tabs.isEmpty {
                     TerminalPanelView(panel: model.terminals)

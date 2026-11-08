@@ -83,18 +83,11 @@ struct SettingsView: View {
     var body: some View {
         let draft = model.settings
         HStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: 2) {
-                SidebarHeading(title: "Settings")
+            PaneColumn(title: "Settings") {
                 ForEach(SettingsPane.allCases) { pane in
                     SidebarItem(title: pane.title, icon: pane.icon, selected: draft.pane == pane) { draft.pane = pane }
                 }
-                Spacer()
             }
-            .padding(.horizontal, Theme.Space.s)
-            .padding(.top, Theme.Space.xxl)
-            .frame(width: 168)
-            .frame(maxHeight: .infinity, alignment: .top)
-            .background(Theme.sidebar.ignoresSafeArea())
             // Esc goes back to the screen you came from; it closes Search first when Search is open over Settings.
             .background {
                 Button("Back") { model.showingSettings = false }
@@ -116,18 +109,7 @@ struct SettingsView: View {
             }
             .background(Theme.background)
         }
-        .onAppear { if !draft.loaded { draft.load(model.config) } }
-        .task { model.loadRepositories() }
-        // Written a moment after the last change rather than on every one: a path typed key by key would otherwise
-        // restart every source once per key.
-        .task(id: draft.pending) {
-            guard draft.isDirty(against: model.config) else { return }
-            try? await Task.sleep(for: .milliseconds(800))
-            guard !Task.isCancelled else { return }
-            save()
-        }
-        // Leaving inside that moment still keeps the change.
-        .onDisappear { if draft.isDirty(against: model.config) { save() } }
+        .savesSettingsDraft()
     }
 
     @ViewBuilder private func page(_ pane: SettingsPane) -> some View {
@@ -139,6 +121,32 @@ struct SettingsView: View {
         case .prompts: PromptsSettings()
         }
     }
+}
+
+extension View {
+    /// Loads the Settings draft and writes each change of it: Settings and first-run setup show the same pages.
+    func savesSettingsDraft() -> some View { modifier(SavesSettingsDraft()) }
+}
+
+private struct SavesSettingsDraft: ViewModifier {
+    @Environment(AppModel.self) private var model
+
+    func body(content: Content) -> some View {
+        let draft = model.settings
+        content
+            .onAppear { if !draft.loaded { draft.load(model.config) } }
+            .task { model.loadRepositories() }
+            // Written a moment after the last change rather than on every one: a path typed key by key would otherwise
+            // restart every source once per key.
+            .task(id: draft.pending) {
+                guard draft.isDirty(against: model.config) else { return }
+                try? await Task.sleep(for: .milliseconds(800))
+                guard !Task.isCancelled else { return }
+                save()
+            }
+            // Leaving inside that moment still keeps the change.
+            .onDisappear { if draft.isDirty(against: model.config) { save() } }
+    }
 
     /// Writes what the draft would be, leaving the draft itself as typed: a prompt box cleared to start over must not
     /// snap its default back in under the cursor.
@@ -148,8 +156,27 @@ struct SettingsView: View {
     }
 }
 
+/// The column of parts beside a Settings-like page: Settings' panes, setup's steps.
+struct PaneColumn<Content: View>: View {
+    var title: String
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            SidebarHeading(title: title)
+            content
+            Spacer()
+        }
+        .padding(.horizontal, Theme.Space.s)
+        .padding(.top, Theme.Space.xxl)
+        .frame(width: 168)
+        .frame(maxHeight: .infinity, alignment: .top)
+        .background(Theme.sidebar.ignoresSafeArea())
+    }
+}
+
 /// A page of fields: the title, then the groups, scrolling when they run long.
-private struct FormPage<Content: View>: View {
+struct FormPage<Content: View>: View {
     var title: String
     @ViewBuilder var content: Content
 
@@ -371,10 +398,16 @@ private struct GeneralSettings: View {
                 Toggle("Notify me", isOn: $draft.config.notificationsEnabled).toggleStyle(.switch).handCursor().controlSize(.small)
             }
         }
+        FieldGroup(title: "About") {
+            Field(label: "Version") { Text(Bundle.main.versionText).scaled(.callout.monospaced()).foregroundStyle(.secondary).textSelection(.enabled) }
+            Field(label: "Setup", hint: "Checks the tools and sign-ins again, and walks the settings it needs.") {
+                Button("Run setup again") { model.showingSetup = true }.controlSize(.small)
+            }
+        }
     }
 }
 
-private struct GitHubSettings: View {
+struct GitHubSettings: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
@@ -405,7 +438,7 @@ private struct GitHubSettings: View {
     }
 }
 
-private struct JiraSettings: View {
+struct JiraSettings: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
@@ -468,7 +501,7 @@ private struct JiraSettings: View {
 }
 
 /// A page of its own: the org runs to hundreds of repos, which no field group can hold.
-private struct ReposSettings: View {
+struct ReposSettings: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
@@ -485,6 +518,9 @@ private struct ReposSettings: View {
                 }
             } trailing: {
                 if model.loadingRepositories { ProgressView().controlSize(.small) }
+                Button("Track my clones") { model.trackClones() }.controlSize(.small)
+                    .disabled(model.repositories.isEmpty)
+                    .help("Track every repo here that has a clone under your repo roots")
                 Button("Reload") { model.loadRepositories(force: true) }.controlSize(.small)
             }
             if let error = model.repositoriesError {

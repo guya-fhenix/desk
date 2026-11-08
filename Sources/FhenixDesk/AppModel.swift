@@ -25,6 +25,10 @@ final class AppModel {
     var pendingTab: DeskWindow.Tab?
     /// True while the Desk window shows Settings in place of the workspace.
     var showingSettings = false
+    /// True while the window shows first-run setup in place of everything else: on every launch until it is finished
+    /// once, and again from Settings → General.
+    var showingSetup = !UserDefaults.standard.bool(forKey: AppModel.setupDoneKey)
+    private static let setupDoneKey = "setupCompleted"
     /// True while Search (⌘K) is open over the window.
     var showingFinder = false
     /// Bumped by View → Find (⌘F); the search box on screen takes focus when it changes.
@@ -198,6 +202,22 @@ final class AppModel {
             await service.update(config: config)
             jiraAccount = await service.jiraAccount()
             refreshAll()
+        }
+    }
+
+    func completeSetup() {
+        UserDefaults.standard.set(true, forKey: Self.setupDoneKey)
+        showingSetup = false
+        saveConfig()
+    }
+
+    /// Ticks every repo of the org you have a clone of under the repo roots, keeping what is ticked already.
+    func trackClones() {
+        Task {
+            let clones = await service.cloneSlugs()
+            let draft = settings
+            let picked = repositories.map(\.slug).filter(clones.contains)
+            draft.config.trackedRepos = Array(Set(draft.config.trackedRepoSlugs + picked)).sorted()
         }
     }
 

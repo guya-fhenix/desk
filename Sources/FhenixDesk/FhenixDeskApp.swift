@@ -34,6 +34,10 @@ struct FhenixDeskApp: App {
                     AppDelegate.openDesk?()
                 }
                 .keyboardShortcut(",", modifiers: .command)
+                Button("Setup…") {
+                    model.showingSetup = true
+                    AppDelegate.openDesk?()
+                }
             }
             CommandMenu("Go") {
                 Button("Search…") {
@@ -161,6 +165,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @MainActor private func showMenu() {
         guard let item = statusItem, let model else { return }
         let menu = NSMenu()
+        menu.addItem(.sectionHeader(title: "Fhenix Desk \(Bundle.main.versionText)"))
         menu.addItem(MenuAction("Open Fhenix Desk") { Self.openDesk?() })
         menu.addItem(MenuAction("Quit App", key: "q") { NSApp.terminate(nil) })
         let mine = model.state.mine.sorted { $0.updatedAt > $1.updatedAt }
@@ -216,4 +221,13 @@ private final class MenuAction: NSMenuItem {
     required init(coder: NSCoder) { fatalError("built in code only") }
 
     @objc private func fire() { run() }
+}
+
+extension Bundle {
+    /// "1.0.0 (118)": the version, and the build number `scripts/bundle.sh` stamps from the commit count. `swift run`
+    /// has no Info.plist, hence "dev".
+    var versionText: String {
+        guard let version = infoDictionary?["CFBundleShortVersionString"] as? String else { return "dev" }
+        return "\(version) (\(infoDictionary?["CFBundleVersion"] as? String ?? "?"))"
+    }
 }
