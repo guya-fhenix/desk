@@ -347,12 +347,14 @@ struct PullRequestPage: View {
             // status line.
             if pr.state != .open {
                 ReviewersCard(pr: pr)
+                LabelsCard(pr: pr)
                 DetailsCard(pr: pr)
             } else {
                 ActionsCard(pr: pr, model: model)
                 if let session = model.state.session(for: pr) { FlowSection(pr: pr, session: session, model: model).sideCard() }
                 ThreadsCard(pr: pr, model: model)
                 ReviewersCard(pr: pr)
+                LabelsCard(pr: pr)
                 DetailsCard(pr: pr)
                 if parent != nil || !children.isEmpty {
                     SideCard(title: "Stack") {

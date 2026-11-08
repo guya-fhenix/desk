@@ -440,6 +440,7 @@ struct ReviewPage: View {
         } main: {
             PanelSection("Description") { PullRequestDescription(pr: pr) }
         } side: {
+            LabelsCard(pr: pr)
             DetailsCard(pr: pr)
             WorkflowsSection(pr: pr, model: model)
         }

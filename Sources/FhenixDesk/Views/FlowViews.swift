@@ -125,21 +125,39 @@ struct FlowSection: View {
     }
 }
 
-/// How many review threads are open on your PR, by who started them — /pre-pr, CodeRabbit, and each person — and the way
-/// to them on GitHub, where they are read and answered.
+/// How many review threads are open on your PR — in the row's orange, the same count — then by who started them:
+/// /pre-pr, CodeRabbit, and each person. And the way to them on GitHub, where they are read and answered.
 struct ThreadsCard: View {
     var pr: PullRequest
     var model: AppModel
 
     var body: some View {
         let rows = pr.threads.byWho
-        SideCard(title: "Open threads", count: pr.threads.count) {
-            if rows.isEmpty {
+        SideCard(title: "Open threads") {
+            if pr.unresolvedThreads == 0 {
                 Text("None open.").foregroundStyle(.secondary)
             } else {
+                Text("\(pr.unresolvedThreads) unresolved thread\(pr.unresolvedThreads == 1 ? "" : "s")").foregroundStyle(.orange)
                 ForEach(rows, id: \.who) { row in LabeledContent(row.who, value: "\(row.count)") }
                 Button("Read them on GitHub") { model.open(pr.url + "/files") }
                     .buttonStyle(.link).handCursor()
+            }
+        }
+    }
+}
+
+/// The PR's labels as GitHub has them: CodeRabbit's `risk:*` and `needs-human`, the `area:*` floors, `local-reviewed`.
+struct LabelsCard: View {
+    var pr: PullRequest
+
+    var body: some View {
+        SideCard(title: "Labels", count: pr.labels.isEmpty ? nil : pr.labels.count) {
+            if pr.labels.isEmpty {
+                Text("None.").foregroundStyle(.secondary)
+            } else {
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(pr.labels.sorted(), id: \.self) { Chip(text: $0) }
+                }
             }
         }
     }
