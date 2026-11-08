@@ -82,6 +82,8 @@ public actor DeskService {
         await git.scan(roots: config.expandedRepoRoots, slugs: config.trackedRepoSlugs)
     }
 
+    public func cloneSlugs() async -> Set<String> { await git.cloneSlugs(roots: config.expandedRepoRoots) }
+
     /// Claude Code's background sessions on a PR or a ticket. Small local files, read with the git scan.
     public func claudeJobs() -> [ClaudeJob] { ClaudeJobs.scan(tickets: TicketKeyMatcher(projectKeys: config.jiraProjectKeys)) }
 

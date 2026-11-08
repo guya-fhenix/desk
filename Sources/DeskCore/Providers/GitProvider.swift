@@ -143,7 +143,13 @@ public actor GitProvider {
         return scan
     }
 
-    private func discoverRepos(roots: [String], slugs: Set<String>) async -> [RepoRef] {
+    /// The `owner/name` of every clone under `roots`, tracked or not: what setup offers to track.
+    public func cloneSlugs(roots: [String]) async -> Set<String> {
+        Set(await discoverRepos(roots: roots, slugs: nil).compactMap { GitParsing.repoSlug(fromRemote: $0.remote) })
+    }
+
+    /// `slugs` nil takes every clone.
+    private func discoverRepos(roots: [String], slugs: Set<String>?) async -> [RepoRef] {
         var candidates: [String] = []
         for root in roots {
             guard let names = try? FileManager.default.contentsOfDirectory(atPath: root) else { continue }
@@ -160,7 +166,7 @@ public actor GitProvider {
             for path in candidates {
                 group.addTask {
                     guard let remote = try? await self.git(["remote", "get-url", "origin"], cwd: path),
-                          let slug = GitParsing.repoSlug(fromRemote: remote), slugs.contains(slug) else { return nil }
+                          let slug = GitParsing.repoSlug(fromRemote: remote), slugs?.contains(slug) ?? true else { return nil }
                     return RepoRef(name: (path as NSString).lastPathComponent, root: path, remote: remote)
                 }
             }

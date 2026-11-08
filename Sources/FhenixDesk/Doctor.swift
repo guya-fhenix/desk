@@ -16,6 +16,12 @@ enum Doctor {
         let jira = await service.jiraAccount()
         print("jira: acli \(config.resolvedAcliPath ?? "not found")  \(jira.map { "signed in to \($0.site) as \($0.email ?? "?")" } ?? "not signed in")")
 
+        section("Setup")
+        for kind in SetupCheck.Kind.allCases {
+            let check = await Setup.check(kind, config: config)
+            print("  \(check.ok ? "ok  " : "MISS") \(pad(kind.title, 26)) \(check.detail)")
+        }
+
         section("Git")
         let scan = await service.refreshGit()
         state.gitScan = scan
