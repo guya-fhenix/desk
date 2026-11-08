@@ -900,7 +900,7 @@ extension EnvironmentValues {
 }
 
 /// "‹ Pull Requests": PR Cockpit's back link, faint until the pointer is on it.
-private struct BackLink: View {
+struct BackLink: View {
     var title: String
     var action: () -> Void
     @State private var hovering = false

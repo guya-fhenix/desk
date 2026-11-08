@@ -4,7 +4,7 @@ import Foundation
 /// takes as `{name}`, and wraps what only belongs on some tickets or PRs in `{#name}…{/name}`, with an
 /// optional `{else}` for the text that goes in when the condition does not hold.
 public enum PromptID: String, CaseIterable, Sendable, Identifiable {
-    case ticketPlan, session, selfReview, fixConflict, fixChecks
+    case ticketPlan, session, review, selfReview, fixConflict, fixChecks
 
     public var id: String { rawValue }
 
@@ -12,6 +12,7 @@ public enum PromptID: String, CaseIterable, Sendable, Identifiable {
         switch self {
         case .ticketPlan: "Start a ticket"
         case .session: "PR session"
+        case .review: "Review a PR"
         case .selfReview: "Flow › Self-review"
         case .fixConflict: "Flow › Fix the conflict"
         case .fixChecks: "Flow › Fix CI"
@@ -23,6 +24,7 @@ public enum PromptID: String, CaseIterable, Sendable, Identifiable {
         switch self {
         case .ticketPlan: "Sent with `claude --bg` when you press Start on a ticket."
         case .session: "Sent with `claude --bg` when you start a background session on a PR."
+        case .review: "Starts a Claude session in the terminal panel when you press Start review on a teammate's PR. The review itself is the fhenix-workflow review-pr skill; Desk also tells the session how to move the diff beside it to a line."
         case .selfReview: "Sent to the PR's session when you approve its draft. It reviews once and changes no code: the findings come back as threads with suggested fixes, for you to read on the PR and settle with the session. Add --fix to its /pre-pr command to have it fix them itself. Writing the JSON described here to {resultFile} is its last step. The session shows as working while it runs; the PR is Self-reviewed once /pre-pr's evidence is on it."
         case .fixConflict: "Sent to the PR's session when you press Fix it on a PR that conflicts with its base branch. Writing the JSON described here to {resultFile} is its last step. Nothing is sent on its own."
         case .fixChecks: "Sent to the PR's session when you press Fix it on a PR whose CI failed. Writing the JSON described here to {resultFile} is its last step. Nothing is sent on its own."
@@ -43,6 +45,8 @@ public enum PromptID: String, CaseIterable, Sendable, Identifiable {
             ]
         case .session:
             return pr + [("headRef", "the PR branch"), ("worktree", "the worktree path"), ("threads", "\"3 review threads are\"")]
+        case .review:
+            return pr + [("ticket", "the linked ticket: its key, and its title and description when Desk has them")]
         case .selfReview:
             return pr + [("headRef", "the PR branch"), ("worktree", "the worktree path"), ("resultFile", "where the session writes its summary")]
         case .fixConflict, .fixChecks:
@@ -59,6 +63,7 @@ public enum PromptID: String, CaseIterable, Sendable, Identifiable {
                 ("worktree", "the branch is checked out in a worktree"), ("unresolved", "the PR has unresolved threads"),
                 ("conflict", "the PR conflicts with its base branch"),
             ]
+        case .review: [("ticket", "the PR's branch or title names a ticket")]
         case .selfReview, .fixChecks: [("worktree", "the branch is checked out in a worktree")]
         case .fixConflict: [("worktree", "the branch is checked out in a worktree"), ("draft", "the PR is still a draft")]
         }
@@ -109,6 +114,16 @@ public enum PromptID: String, CaseIterable, Sendable, Identifiable {
 
             {#conflict}It conflicts with {baseRef}. Work out which files conflict and propose how to resolve each \
             one, but leave the branch as it is until I say so.{/conflict}
+            """
+        // The skill does the review; what follows its link is its optional context. The ticket goes along because a
+        // teammate's ticket is rarely one Desk has loaded, and the session may have no Jira of its own.
+        case .review:
+            """
+            /fhenix-workflow:review-pr {url}
+
+            {#ticket}The ticket it is for:
+
+            {ticket}{/ticket}
             """
         // One run, and no code changed: the findings come back as threads with a suggested fix, for you to read on the PR
         // and settle with the session. /pre-pr where the repo adopted the review flow; elsewhere reviewing-code, whose

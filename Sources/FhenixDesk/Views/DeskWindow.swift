@@ -48,7 +48,15 @@ struct DeskWindow: View {
         HStack(spacing: 0) {
             sidebar
             Rectangle().fill(Theme.line).frame(width: 1).ignoresSafeArea()
-            if model.showingSettings { SettingsView() } else { screen }
+            // The terminal panel on the right, when it has a tab and is not hidden; the divider between drags.
+            HSplitView {
+                Group { if model.showingSettings { SettingsView() } else { screen } }
+                    .frame(minWidth: 480, maxWidth: .infinity, maxHeight: .infinity)
+                if model.terminals.visible, !model.terminals.tabs.isEmpty {
+                    TerminalPanelView(panel: model.terminals)
+                        .frame(minWidth: 360, idealWidth: 560, maxWidth: .infinity, maxHeight: .infinity)
+                }
+            }
         }
         .overlay(alignment: .top) {
             // Only the strip takes clicks; the spacer under it is not hit-testable, so the rest passes through.

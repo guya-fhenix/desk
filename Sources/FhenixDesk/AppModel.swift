@@ -62,6 +62,15 @@ final class AppModel {
     /// Why the session button last failed, per PR url or ticket key. It is the button's own tooltip: a press that
     /// does nothing is the one thing this must not be.
     var sessionErrors: [String: String] = [:]
+    /// The terminal panel on the right: attached sessions and review sessions.
+    let terminals = TerminalPanel()
+    /// The PR whose diff the Reviews screen shows in place of its page, by url; nil shows the page.
+    var reviewing: String?
+    /// Each reviewed PR's diff, by url, and why fetching one failed.
+    var diffs: [String: LoadedDiff] = [:]
+    var diffErrors: [String: String] = [:]
+    /// Where a review session's link asked the diff to go; the review screen moves there and clears it.
+    var diffJump: DiffJump?
     private let support = AppSupport()
     private let service: DeskService
     private let notifier: Notifier
@@ -444,30 +453,93 @@ final class AppModel {
         }
     }
 
-    /// Opens a background Claude session in Terminal. A background session is a daemon rather than a
+    /// Opens a background Claude session in the terminal panel. A background session is a daemon rather than a
     /// shell, so `claude attach` is the only way into one — and it works whether it is still running or
-    /// has already finished.
+    /// has already finished. Closing the tab only detaches.
     func attach(_ job: ClaudeJob, for pr: PullRequest) { attach(jobId: job.id, errorKey: pr.url) }
 
     /// `errorKey` is the PR url or ticket key whose button pressed it, which is where a failure is shown.
     func attach(jobId: String, errorKey: String) {
-        let claude = config.resolvedClaudePath ?? "claude"
-        let script = """
-            tell application "Terminal"
-                activate
-                do script "'\(claude)' attach \(jobId)"
-            end tell
-            """
+        guard let claude = config.resolvedClaudePath else {
+            sessionErrors[errorKey] = DeskError.claudeNotFound.description
+            return
+        }
+        sessionErrors[errorKey] = nil
+        let name = state.claudeJobs.first { $0.id == jobId }?.name ?? jobId
+        terminals.open(id: "attach:\(jobId)", title: name, executable: claude, arguments: ["attach", jobId])
+    }
+
+    // MARK: Reviews
+
+    private static func reviewTab(_ pr: PullRequest) -> String { "review:\(pr.url)" }
+
+    func reviewRunning(_ pr: PullRequest) -> Bool { terminals.tab(Self.reviewTab(pr))?.running == true }
+
+    /// Start review on a teammate's PR: its diff on the Reviews screen, and a regular Claude session on the
+    /// review-pr skill in the terminal panel — or the one already running there. Not a background session: Claude's
+    /// own agents view backgrounds it if you want. It starts in the repository's checkout, where Claude Code reads
+    /// the project's plugins; the skill reads the PR's code at its head without checking anything out.
+    func startReview(_ pr: PullRequest) {
+        sessionErrors[pr.url] = nil
+        reviewing = pr.url
+        loadDiff(pr)
+        if reviewRunning(pr) {
+            terminals.select(Self.reviewTab(pr))
+            return
+        }
+        guard let claude = config.resolvedClaudePath else {
+            sessionErrors[pr.url] = DeskError.claudeNotFound.description
+            return
+        }
+        guard let repo = state.localRepo(for: pr) else {
+            sessionErrors[pr.url] = "No clone of \(pr.repo) here: the review session starts in the repository's checkout."
+            return
+        }
+        let skill = ClaudePlugins.reviewSkill(repoRoot: repo.root, skill: ClaudePlugins.reviewPR)
+        guard skill.isReady else {
+            sessionErrors[pr.url] = "Can't start the review session: \(skill.text)."
+            return
+        }
+        let ticket = DeskService.reviewTicket(for: pr, tickets: state.tickets, projectKeys: config.jiraProjectKeys)
+        terminals.open(
+            id: Self.reviewTab(pr), title: "Review \(pr.repoName)#\(pr.number)", executable: claude,
+            arguments: DeskService.reviewArguments(for: pr, ticket: ticket, config: config), directory: repo.root
+        )
+    }
+
+    /// Fetches the PR's diff for the review screen: once per head, or again when `force`d.
+    func loadDiff(_ pr: PullRequest, force: Bool = false) {
+        guard force || diffs[pr.url] == nil else { return }
+        diffErrors[pr.url] = nil
         Task {
-            // Driving Terminal needs the user's permission the first time, and a refusal is a button
-            // that does nothing: it has to be said out loud.
-            if let error = await Self.osascript(script) {
-                sessionErrors[errorKey] = "Could not open Terminal: \(error)"
-                Self.log.error("attach \(jobId, privacy: .public): \(error, privacy: .public)")
-            } else {
-                sessionErrors[errorKey] = nil
+            do {
+                diffs[pr.url] = LoadedDiff(sha: pr.headSha, files: try await service.diff(of: pr))
+            } catch {
+                diffErrors[pr.url] = "\(error)"
             }
         }
+    }
+
+    /// The selected lines into the review session's input, for you to ask about.
+    func askClaude(_ pr: PullRequest, _ text: String) {
+        sessionErrors[pr.url] = terminals.paste(text, into: Self.reviewTab(pr)) ? nil : "No review session is running: press Start review."
+    }
+
+    /// A review session's `open fhenixdesk://show/…`: that PR's diff, at that line. A PR Desk does not know is ignored —
+    /// any app can open the link, so it only ever moves the diff.
+    func open(_ url: URL) {
+        guard let link = DeskLink(url) else { return }
+        let known = state.reviewRequests + state.openForReview + (state.github?.allOpen ?? [])
+        guard let pr = known.first(where: { ClaudeJobs.prKey($0.url) == link.prKey }) else {
+            Self.log.info("link for an unknown PR: \(url.absoluteString, privacy: .public)")
+            return
+        }
+        reviewing = pr.url
+        loadDiff(pr)
+        diffJump = DiffJump(url: pr.url, path: link.path, side: link.side, line: link.line)
+        showingSettings = false
+        pendingTab = .reviews
+        selectPullRequest = pr.url
     }
 
     // MARK: Flows
@@ -544,26 +616,6 @@ final class AppModel {
         let root = state.localRepo(for: pr)?.root ?? session.cwd
         let candidates = state.worktrees.filter { $0.repoRoot == root }.map(\.path) + [session.cwd, root].filter { !$0.isEmpty }
         return session.sessionId.flatMap { DeskService.resumeDirectory(sessionId: $0, candidates: candidates) } ?? root
-    }
-
-    /// Runs one AppleScript, returning what went wrong or nil.
-    private nonisolated static func osascript(_ script: String) async -> String? {
-        await Task.detached {
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-            process.arguments = ["-e", script]
-            let errors = Pipe()
-            process.standardError = errors
-            do {
-                try process.run()
-                let text = String(decoding: errors.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
-                process.waitUntilExit()
-                guard process.terminationStatus != 0 else { return nil }
-                return text.trimmingCharacters(in: .whitespacesAndNewlines)
-            } catch {
-                return "\(error)"
-            }
-        }.value
     }
 
 }
