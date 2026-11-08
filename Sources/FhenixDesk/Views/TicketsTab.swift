@@ -263,6 +263,7 @@ private struct TicketInspector: View {
                         Text(ticket.assignedToMe ? "You" : ticket.assignee ?? "Unassigned")
                     }
                 }
+                if let reporter = ticket.reporter { LabeledContent("Opened by", value: reporter) }
                 HStack {
                     Button("Open in Jira") { model.open(ticket.url) }
                     StartInMenu(ticket: ticket, model: model, plan: plan)

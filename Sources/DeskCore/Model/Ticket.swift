@@ -40,6 +40,8 @@ public struct Ticket: Codable, Sendable, Hashable, Identifiable {
     public var assignee: String?
     /// The assignee's Jira picture, a public URL.
     public var assigneeAvatar: String?
+    /// Who opened the ticket: Jira's reporter, by display name.
+    public var reporter: String?
     public var placement: TicketPlacement
     /// The Jira description as markdown. Jira sends it as a node tree; `JiraDescription` flattens it so
     /// the same renderer that draws a pull request body can draw this.
@@ -51,7 +53,7 @@ public struct Ticket: Codable, Sendable, Hashable, Identifiable {
     public init(
         key: String, summary: String, status: String, category: TicketStatusCategory,
         priority: String? = nil, url: String, assignedToMe: Bool, assignee: String? = nil, assigneeAvatar: String? = nil,
-        placement: TicketPlacement = .unknown,
+        reporter: String? = nil, placement: TicketPlacement = .unknown,
         description: String = "", descriptionEditable: Bool = true
     ) {
         self.key = key
@@ -63,6 +65,7 @@ public struct Ticket: Codable, Sendable, Hashable, Identifiable {
         self.assignedToMe = assignedToMe
         self.assignee = assignee
         self.assigneeAvatar = assigneeAvatar
+        self.reporter = reporter
         self.placement = placement
         self.description = description
         self.descriptionEditable = descriptionEditable

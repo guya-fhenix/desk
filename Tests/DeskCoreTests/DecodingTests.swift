@@ -128,6 +128,7 @@ import Testing
         let json = """
         [{"id":"20322","key":"PRO-484","self":"https://jira-prod-eu-47-2.prod.atl-paas.net/rest/api/3/issue/20322",
           "fields":{"summary":"Create a status page","priority":{"name":"Highest"},"assignee":{"displayName":"Roee Zolantz","avatarUrls":{"48x48":"https://a/48"}},
+            "reporter":{"accountId":"712020:abc","displayName":"Guy Aluk"},
             "status":{"name":"In Progress","statusCategory":{"key":"indeterminate"}}}}]
         """
         let tickets = try JiraDecoding.tickets(from: Data(json.utf8), site: "fhenix.atlassian.net", assignedToMe: true)
@@ -140,6 +141,7 @@ import Testing
         #expect(ticket.assignedToMe)
         #expect(ticket.assignee == "Roee Zolantz")
         #expect(ticket.assigneeAvatar == "https://a/48")
+        #expect(ticket.reporter == "Guy Aluk")
     }
 
     /// A PR's checks: Actions jobs by workflow with the failed step and its errors, another app's check, a status.
