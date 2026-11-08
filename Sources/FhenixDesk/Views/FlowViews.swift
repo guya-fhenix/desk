@@ -16,18 +16,9 @@ struct FlowSection: View {
         PanelSection("Flow") {
             LabeledContent("Stage") { StageChip(stage: stage, sessionBusy: session?.isBusy ?? false) }
             if let key = session?.ticketKey { LabeledContent("Started from", value: key) }
-            LabeledContent("Session") {
-                if let session {
-                    HStack(spacing: 6) {
-                        Text(session.state).foregroundStyle(.secondary)
-                        Button("Attach") { model.attach(session, for: pr) }.controlSize(.small)
-                    }
-                } else {
-                    Text("none").foregroundStyle(.secondary)
-                }
-            }
+            // The session itself, its state and Attach, is the page's header button; here only what it means for the flow.
             if session?.state == "blocked" {
-                Text("The session is asking you something. Attach to answer it.").scaled(.caption).foregroundStyle(.orange)
+                Text("The session is asking you something: attach to it at the top to answer.").scaled(.caption).foregroundStyle(.orange)
             } else if session?.isRunning == true {
                 HStack(spacing: 6) {
                     ProgressView().controlSize(.mini)
@@ -52,8 +43,7 @@ struct FlowSection: View {
             let skill = model.state.reviewSkill(for: pr)
             switch PrePRStatus.of(pr) {
             case .notRun:
-                Text("/pre-pr hasn't run on it. Run /pre-pr reviews it once and changes no code: its findings come back as threads on the PR, each with a suggested fix, and it adds the local-reviewed label once no Important finding is open.")
-                    .scaled(.caption).foregroundStyle(.secondary)
+                Text("/pre-pr hasn't run on it.").scaled(.caption).foregroundStyle(.secondary)
             case .passed:
                 Text("/pre-pr passed it: the local-reviewed label is on.").scaled(.caption).foregroundStyle(.secondary)
             case .importantOpen:
@@ -71,6 +61,10 @@ struct FlowSection: View {
                     .handCursor()
                     .disabled(busy || blocker != nil)
                     .help(session == nil ? "Starts a background session on the branch that runs /pre-pr once: report only, no code changed" : "Sends the session one /pre-pr run: report only, no code changed")
+                Image(systemName: "info.circle")
+                    .foregroundStyle(.secondary)
+                    .help("/pre-pr reviews the PR once and changes no code: its findings come back as threads on the PR, each with a suggested fix, and it adds the local-reviewed label once no Important finding is open.")
+                    .accessibilityLabel("About /pre-pr")
                 // A /pre-pr run still going may push again: the PR goes ready only once the session is done.
                 Button("Mark ready") { if pr.isLocallyReviewed { model.markReady(pr) } else { confirmingReady = true } }
                     .handCursor()
