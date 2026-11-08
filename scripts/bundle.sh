@@ -13,6 +13,8 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/FhenixDesk"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
+# The build number is the commit count, so every build of a version is told apart without editing the source plist.
+plutil -replace CFBundleVersion -string "$(git rev-list --count HEAD)" "$APP/Contents/Info.plist"
 cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 echo -n "APPL????" > "$APP/Contents/PkgInfo"
 codesign --force --sign - "$APP"

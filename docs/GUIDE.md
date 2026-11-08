@@ -17,6 +17,17 @@ make install  # build .app, copy to ~/Applications, open
 Jira goes through the Atlassian CLI: run `acli jira auth login --web` once, then Settings (⌘,) → Jira →
 Recheck. Desk stores no Jira token.
 
+## Setup
+
+The window opens on Setup until you finish it once; Settings → General → Run setup again, and the app menu's Setup…,
+bring it back. **Tools** checks Homebrew, the Command Line Tools, `gh`, `acli` and Claude Code; **Sign in** checks `gh`
+(the active account, with the `repo` and `read:org` scopes), `acli jira`, `claude` and the `fhenix-workflow` plugin.
+Each check is read off the tool every time. Install, Sign in and the other fixes run their command in the terminal
+panel, in a login shell, so you can follow it and type a password; the checks run again when the tab ends. Then come
+Settings' own GitHub, Repos (Track my clones ticks every org repo you have a clone of) and Jira pages, and Finish,
+which needs the Command Line Tools, `gh` signed in and one tracked repo. Later closes Setup until the next launch.
+`make doctor` prints the same checks.
+
 The window opens on Up Next: every nudge (CI failed, changes requested, needs rebase, ready to merge, review
 waiting, quiet PRs) and every ticket the app could not move to where its PRs say, each
 with the button that deals with it. Pull Requests and Jira show a details panel on the right for the selected row, and Settings (⌘,) open inside the same window. Search (⌘K) finds any open PR by `repo#number`, title or branch, and any screen by name: ↩ opens it on its screen here, ⌘↩ on GitHub.

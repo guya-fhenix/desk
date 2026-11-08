@@ -2,7 +2,7 @@ APP_NAME = Fhenix Desk
 BUILD_DIR = build
 APP = $(BUILD_DIR)/$(APP_NAME).app
 
-.PHONY: build test run doctor app install clean
+.PHONY: build test run doctor app dmg release install clean
 
 build:
 	swift build
@@ -18,6 +18,12 @@ doctor:
 
 app:
 	scripts/bundle.sh
+
+dmg:
+	scripts/dmg.sh
+
+release:
+	scripts/release.sh
 
 install: app
 	rm -rf "$(HOME)/Applications/$(APP_NAME).app"
