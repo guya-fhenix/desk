@@ -31,8 +31,8 @@ PRs stay out of the queue altogether.
 
 The review is yours. By the time a PR is ready, /pre-pr and CodeRabbit have run the review checklist on it; what is
 left is the person's part — does it do what the ticket asks, is the approach right, is the risk tier right and would
-How to revert work, does Testing prove it, and do you agree with each thread under "Resolved by the author" in the
-/pre-pr evidence. A PR's page shows its description, checks and risk. **Start review** swaps the page for the PR's
+How to revert work, does Testing prove it, and what does it change outside this PR — other services, shared data,
+deploys, production — that the diff alone does not show. A PR's page shows its description, checks and risk. **Start review** swaps the page for the PR's
 diff — by file, the file you are in pinned at the top — and opens a regular Claude session beside it, in the terminal
 panel, on the fhenix-workflow `review-pr` skill: it summarizes the description, CodeRabbit's walkthrough and the
 /pre-pr evidence, gives its take on each of those questions with where to look, and posts the comments and the
