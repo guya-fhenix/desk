@@ -29,8 +29,8 @@ import Testing
     @Test func eachStageFromGitHub() {
         let cases: [(String, PullRequest, FlowStage)] = [
             ("a draft, no evidence", pr(draft: true), .draft),
-            ("a draft with /pre-pr's evidence", pr(draft: true, evidence: Self.evidence), .selfReviewed),
-            ("a draft with evidence and threads left open", pr(draft: true, evidence: Self.evidence, threads: 2), .selfReviewed),
+            ("a draft with /pre-pr's evidence", pr(draft: true, evidence: Self.evidence), .draft),
+            ("a draft with evidence and threads left open", pr(draft: true, evidence: Self.evidence, threads: 2), .draft),
             ("ready, nothing open, not approved", pr(), .inReview),
             ("ready with open threads", pr(threads: 2), .inReview),
             ("ready, approved by GitHub, no gate", pr(review: .approved), .approved),

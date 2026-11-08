@@ -13,7 +13,7 @@ public enum PromptID: String, CaseIterable, Sendable, Identifiable {
         case .ticketPlan: "Start a ticket"
         case .session: "PR session"
         case .review: "Review a PR"
-        case .selfReview: "Flow › Self-review"
+        case .selfReview: "Flow › Run /pre-pr"
         case .fixConflict: "Flow › Fix the conflict"
         case .fixChecks: "Flow › Fix CI"
         }
@@ -25,7 +25,7 @@ public enum PromptID: String, CaseIterable, Sendable, Identifiable {
         case .ticketPlan: "Sent with `claude --bg` when you press Start on a ticket."
         case .session: "Sent with `claude --bg` when you start a background session on a PR."
         case .review: "Starts a Claude session in the terminal panel when you press Start review on a teammate's PR. The review itself is the fhenix-workflow review-pr skill; Desk also tells the session how to move the diff beside it to a line."
-        case .selfReview: "Sent to the PR's session when you approve its draft. It reviews once and changes no code: the findings come back as threads with suggested fixes, for you to read on the PR and settle with the session. Add --fix to its /pre-pr command to have it fix them itself. Writing the JSON described here to {resultFile} is its last step. The session shows as working while it runs; the PR is Self-reviewed once /pre-pr's evidence is on it."
+        case .selfReview: "Sent to the PR's session when you press Run /pre-pr on its draft. It reviews once and changes no code: the findings come back as threads with suggested fixes, for you to read on the PR and settle with the session. Add --fix to its /pre-pr command to have it fix them itself. Writing the JSON described here to {resultFile} is its last step. The session shows as working while it runs; the PR is Self-reviewed once /pre-pr's evidence is on it."
         case .fixConflict: "Sent to the PR's session when you press Fix it on a PR that conflicts with its base branch. Writing the JSON described here to {resultFile} is its last step. Nothing is sent on its own."
         case .fixChecks: "Sent to the PR's session when you press Fix it on a PR whose CI failed. Writing the JSON described here to {resultFile} is its last step. Nothing is sent on its own."
         }
@@ -72,7 +72,7 @@ public enum PromptID: String, CaseIterable, Sendable, Identifiable {
     public var defaultText: String {
         switch self {
         // The plan waits for you; what follows it is what the app's flow needs: a draft, because nothing leaves
-        // draft until you approve it, and the key in the branch and title, which is how the ticket finds its PR.
+        // draft until you mark it ready, and the key in the branch and title, which is how the ticket finds its PR.
         case .ticketPlan:
             """
             Plan {key} — {summary}

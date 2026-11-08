@@ -385,7 +385,7 @@ private struct GitHubSettings: View {
         }
         FieldGroup(
             title: "Flow",
-            note: "The team slug in the org, asked to review a PR once you approve its self-review's fixes."
+            note: "The team slug in the org, asked to review a PR when you press Mark ready on it."
         ) {
             Field(label: "Review team") { BoxedText(placeholder: "protocol-team", text: $draft.config.reviewTeam) }
         }

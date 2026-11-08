@@ -134,7 +134,7 @@ public enum ClaudeJobs {
 }
 
 /// Whether a repository's sessions can run the two skills Desk's presses call by name: `fhenix-workflow` enabled for the
-/// repo and installed at a version that ships them. Approve on a draft runs the self-review — /pre-pr where the repo has
+/// repo and installed at a version that ships them. Run /pre-pr on a draft runs the self-review — /pre-pr where the repo has
 /// adopted the review flow, reviewing-code elsewhere — and Start review runs review-pr.
 public struct ReviewSkill: Sendable, Hashable {
     public enum State: Sendable, Hashable { case ready, noSkill, notInstalled, notEnabled }
@@ -154,7 +154,7 @@ public struct ReviewSkill: Sendable, Hashable {
         self.missing = missing
     }
 
-    /// The skill Approve on a draft runs here.
+    /// The skill Run /pre-pr on a draft runs here.
     public var selfReview: String { adopted ? ClaudePlugins.prePR : ClaudePlugins.reviewingCode }
     public var skills: [String] { [selfReview, ClaudePlugins.reviewPR] }
 

@@ -4,13 +4,12 @@ import Foundation
 /// every refresh from GitHub alone: nothing of it is saved. What the PR's session is doing, and the PR's open threads,
 /// are shown beside the stage, at any stage.
 public enum FlowStage: String, Sendable, CaseIterable {
-    case working, draft, selfReviewed, inReview, approved, merged, closed
+    case working, draft, inReview, approved, merged, closed
 
     public var title: String {
         switch self {
         case .working: return "Working"
         case .draft: return "Draft"
-        case .selfReviewed: return "Self-reviewed"
         case .inReview: return "In review"
         // Not "Approved": that word is GitHub's review decision, shown in the same row.
         case .approved: return "Ready to merge"
@@ -20,9 +19,9 @@ public enum FlowStage: String, Sendable, CaseIterable {
     }
 
     /// The stages that move only when you press something, once the session is not at work.
-    public var waitsOnYou: Bool { [.draft, .selfReviewed, .approved].contains(self) }
+    public var waitsOnYou: Bool { [.draft, .approved].contains(self) }
 
-    /// A PR's stage: a draft without /pre-pr's evidence is a draft, one with it is self-reviewed; a ready PR with the
+    /// A PR's stage: a draft is a draft, whatever /pre-pr has done on it (`PrePRStatus` says that); a ready PR with the
     /// approvals it needs and nothing open is ready to merge, and in review until then.
     public static func of(_ pr: PullRequest) -> FlowStage {
         switch pr.state {
@@ -30,7 +29,17 @@ public enum FlowStage: String, Sendable, CaseIterable {
         case .closed: return .closed
         case .open: break
         }
-        if pr.isDraft { return pr.evidence == nil ? .draft : .selfReviewed }
+        if pr.isDraft { return .draft }
         return pr.approvalsMet && pr.unresolvedThreads == 0 ? .approved : .inReview
+    }
+}
+
+/// Where /pre-pr stands on your draft: never run (no evidence comment), passed (its `local-reviewed` label), or ran and
+/// left an Important finding open (evidence, no label). Run /pre-pr and Mark ready are both yours to press, in any order.
+public enum PrePRStatus: Sendable, Equatable {
+    case notRun, passed, importantOpen
+
+    public static func of(_ pr: PullRequest) -> PrePRStatus {
+        pr.isLocallyReviewed ? .passed : pr.evidence == nil ? .notRun : .importantOpen
     }
 }

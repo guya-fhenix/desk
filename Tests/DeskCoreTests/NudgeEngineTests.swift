@@ -36,7 +36,7 @@ import Testing
         withFlow.sessions = [session("working")]
         #expect(NudgeEngine.nudges(withFlow).isEmpty)
         withFlow.sessions = [session("done")]
-        #expect(NudgeEngine.nudges(withFlow).first?.title == "cofhe#3 is a draft waiting for your approval")
+        #expect(NudgeEngine.nudges(withFlow).first?.title == "cofhe#3 is a draft: run /pre-pr, or mark it ready")
 
         // Red CI is no flow's to fix on its own any more: it is nudged as on any PR.
         var red = pr
@@ -50,18 +50,20 @@ import Testing
         #expect(NudgeEngine.nudges(withFlow).map(\.title) == ["PRO-1: the session is asking you something"])
     }
 
-    /// A self-reviewed draft asks for Approve only once /pre-pr's label is on it; without it, an Important finding is open.
-    @Test func aSelfReviewedDraftSaysWhetherPrePRPassed() {
+    /// A draft /pre-pr ran on says whether it passed: its label, or an Important finding still open.
+    @Test func aDraftSaysWhetherPrePRPassed() {
         var pr = Fixtures.pr(number: 4, head: "d", draft: true)
         pr.evidence = "<!-- pre-pr:start -->\n## Testing"
         let key = ClaudeJobs.prKey(pr.url)!
         var flow = input(mine: [pr])
         flow.sessions = [ClaudeJob(id: "aaaaaaaa", name: "s", state: "done", cwd: "/r/cofhe", prKeys: [key], updatedAt: Fixtures.t0, startedOn: [key])]
         let waiting = { NudgeEngine.nudges(flow).first { $0.kind == .flowWaiting }?.title }
-        #expect(waiting() == "cofhe#4 is self-reviewed, but an Important finding is open: settle it before it goes ready")
+        #expect(PrePRStatus.of(pr) == .importantOpen)
+        #expect(waiting() == "cofhe#4: /pre-pr left an Important finding open")
         pr.labels = [PrePR.reviewedLabel]
         flow.mine = [pr]
-        #expect(waiting() == "cofhe#4 is self-reviewed: approve it to go ready")
+        #expect(PrePRStatus.of(pr) == .passed)
+        #expect(waiting() == "cofhe#4 passed /pre-pr: mark it ready")
         #expect(pr.isLocallyReviewed)
     }
 

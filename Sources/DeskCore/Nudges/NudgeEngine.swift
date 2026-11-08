@@ -94,11 +94,12 @@ public enum NudgeEngine {
             let open = "\(threads) open \(threads == 1 ? "thread" : "threads")"
             let title: String
             switch stage {
-            case .draft: title = "\(label) is a draft waiting for your approval"
-            case .selfReviewed:
-                title = pr.isLocallyReviewed
-                    ? "\(label) is self-reviewed: approve it to go ready" + (threads > 0 ? ", \(open) left" : "")
-                    : "\(label) is self-reviewed, but an Important finding is open: settle it before it goes ready"
+            case .draft:
+                switch PrePRStatus.of(pr) {
+                case .notRun: title = "\(label) is a draft: run /pre-pr, or mark it ready"
+                case .passed: title = "\(label) passed /pre-pr: mark it ready" + (threads > 0 ? ", \(open) left" : "")
+                case .importantOpen: title = "\(label): /pre-pr left an Important finding open"
+                }
             case .approved: title = "\(label) is approved: merge it"
             default:
                 // Open threads wait on you at any stage; a stage that waits on you already says so.

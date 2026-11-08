@@ -48,7 +48,7 @@ final class AppModel {
     /// ended at once instead of on some later poll.
     private var landed: [String: (pr: PullRequest, at: Date)] = [:]
     /// Your drafts this app marked ready, by url, and when: corrected the same way, or a lagging search would put the PR
-    /// back at Fixes to check and offer Approve again.
+    /// back at Fixes to check and offer Mark ready again.
     private var readied: [String: Date] = [:]
     /// Your PRs with a flow instruction going out or a GitHub write in flight, by url.
     var busyFlows: Set<String> = []
@@ -219,8 +219,8 @@ final class AppModel {
         return nil
     }
 
-    /// Why Approve is dead on a draft; nil when it may be pressed.
-    func approveBlocker(_ pr: PullRequest) -> String? {
+    /// Why Run /pre-pr is dead on a draft; nil when it may be pressed.
+    func prePRBlocker(_ pr: PullRequest) -> String? {
         if let blocker = sendBlocker(pr) { return blocker }
         guard let skill = state.reviewSkill(for: pr), skill.has(skill.selfReview) else { return "Self-review skill missing" }
         return nil
@@ -548,14 +548,14 @@ final class AppModel {
 
     // MARK: Flows
 
-    /// Approve on a draft: its session gets the self-review.
-    func approveDraft(_ pr: PullRequest) {
-        guard approveBlocker(pr) == nil else { return }
+    /// Run /pre-pr on a draft: its session runs it once. Pressed again, it runs again.
+    func runPrePR(_ pr: PullRequest) {
+        guard prePRBlocker(pr) == nil else { return }
         send(.selfReview, for: pr)
     }
 
-    /// Approve on the self-review's fixes: the PR leaves draft and the review team is asked. Shown ready at once.
-    func approveFixes(_ pr: PullRequest) {
+    /// Mark ready on a draft: it leaves draft and the review team is asked. Shown ready at once.
+    func markReady(_ pr: PullRequest) {
         guard busyFlows.insert(pr.url).inserted else { return }
         flowErrors[pr.url] = nil
         Task {

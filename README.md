@@ -1,7 +1,7 @@
 # Fhenix Desk
 
 Menu bar app that tracks the Fhenix development cycle and carries your own work from a ticket to its merge.
-Everything it writes is either a press of yours — starting a background session, and the flow's Approve, Fix it and
+Everything it writes is either a press of yours — starting a background session, and the flow's Run /pre-pr, Mark ready, Fix it and
 Merge — or the one move it makes on its own: moving a Jira ticket that has fallen behind its PRs.
 
 Sources: GitHub PRs (`gh`), local git worktrees, Claude Code sessions (`~/.claude`), Jira. What it shows is read
@@ -92,8 +92,7 @@ it is saved: every refresh works it out again from GitHub and the session, so a 
 | Stage | When |
 |---|---|
 | Working | the ticket's session has not opened its PR yet |
-| Draft | a draft without /pre-pr's evidence comment; Approve sends the session the self-review: one `/fhenix-workflow:pre-pr` run where the repo has adopted the review flow, one `reviewing-code` pass elsewhere, posted as threads; it changes no code, and its findings come back as threads on the PR, each with a suggested fix |
-| Self-reviewed | a draft with the author's evidence comment (it starts `<!-- pre-pr:start -->`); Approve, once the session is done, marks it ready and asks the review team. Without /pre-pr's `local-reviewed` label an Important finding is still open: the page says so, and Approve asks before it marks the PR ready |
+| Draft | a draft. Two presses, both yours, in any order. **Run /pre-pr** sends the session one `/fhenix-workflow:pre-pr` run where the repo has adopted the review flow, one `reviewing-code` pass elsewhere; it changes no code, its findings come back as threads on the PR, each with a suggested fix, and /pre-pr adds the `local-reviewed` label once no Important finding is open. **Mark ready**, once the session is done, marks it ready and asks the review team. The page says where /pre-pr stands — not run, passed (the label), or an Important finding open — and Mark ready asks first without the label |
 | In review | ready, until it has the approvals it needs and nothing open |
 | Ready to merge | approved with nothing open; Merge squashes it |
 | Merged, Closed | as GitHub says |
@@ -107,7 +106,7 @@ Approved means the `review-gate/approvals` status on the head commit says so —
 approvals on the latest commit as the tier needs — and, in a repo that posts no such status, GitHub's review
 decision. The review team is a setting (GitHub → Flow, `protocol-team` by default). Settings → Repos, the PR
 page and the ticket's repo menu say whether a repo's sessions can run `reviewing-code` at all — it ships in
-`fhenix-workflow` 0.5.0 — and Approve on a draft stays off where they cannot.
+`fhenix-workflow` 0.5.0 — and Run /pre-pr on a draft stays off where they cannot.
 
 Your PR's page shows its description; beside it, an Open threads card counts the open threads by who started them —
 /pre-pr (the `<!-- pre-pr:finding -->` marker on the first comment), CodeRabbit (its login), and each person by name —
@@ -116,7 +115,7 @@ app never writes to a thread.
 
 The app talks to the session the only way a background session takes outside input: once it has finished its
 turn, it is stopped and resumed under the same id with the instruction, so the conversation carries on. It never
-sends anything to a session that is working or asking you something — Approve and Fix it wait for it to be idle —
+sends anything to a session that is working or asking you something — Run /pre-pr, Mark ready and Fix it wait for it to be idle —
 and it sends nothing on its own: a conflict or red CI is yours to hand to the session. Each instruction ends with
 the session writing a small result file in its own scratch folder. A PR you did not start from a ticket joins the
 flow at its current stage once you Start a session on it.

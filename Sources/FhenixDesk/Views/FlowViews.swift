@@ -7,7 +7,7 @@ struct FlowSection: View {
     var pr: PullRequest
     var session: ClaudeJob
     var model: AppModel
-    /// Approve on a self-reviewed draft without /pre-pr's label asks first.
+    /// Mark ready on a draft /pre-pr has not passed asks first.
     @State private var confirmingReady = false
 
     var body: some View {
@@ -42,37 +42,34 @@ struct FlowSection: View {
         let busy = model.busyFlows.contains(pr.url)
         switch stage {
         case .draft:
+            // Two presses, both yours and in any order: /pre-pr's run, which posts its findings and adds the
+            // local-reviewed label once no Important one is open, and Mark ready.
             let skill = model.state.reviewSkill(for: pr)
-            Text("Approve to start the self-review: one /pre-pr run where the repo has the review flow, one reviewing-code pass elsewhere. It changes no code: its findings come back as threads on the PR, each with a suggested fix.")
-                .scaled(.caption).foregroundStyle(.secondary)
+            switch PrePRStatus.of(pr) {
+            case .notRun:
+                Text("/pre-pr hasn't run on it. Run /pre-pr reviews it once and changes no code: its findings come back as threads on the PR, each with a suggested fix, and it adds the local-reviewed label once no Important finding is open.")
+                    .scaled(.caption).foregroundStyle(.secondary)
+            case .passed:
+                Text("/pre-pr passed it: the local-reviewed label is on.").scaled(.caption).foregroundStyle(.secondary)
+            case .importantOpen:
+                // Ready without the label fails the local-review-evidence check from Enforce on.
+                Text("/pre-pr left an Important finding open, so there is no local-reviewed label. Settle it with the session, or resolve its thread as your decision, then run /pre-pr again.")
+                    .scaled(.caption).foregroundStyle(.orange)
+            }
             if let skill, !skill.has(skill.selfReview) { ReviewSkillMark(skill: skill, showsText: true) }
             HStack {
                 Spacer()
-                let blocker = model.approveBlocker(pr)
-                DisabledReason(text: blocker)
-                Button("Approve") { model.approveDraft(pr) }
-                    .buttonStyle(.borderedProminent).handCursor()
-                    .disabled(blocker != nil)
-            }
-        case .selfReviewed:
-            if pr.isLocallyReviewed {
-                Text("Self-reviewed: /pre-pr passed it, and its findings are threads on the PR.")
-                    .scaled(.caption).foregroundStyle(.secondary)
-            } else {
-                // No label: /pre-pr left an Important finding open, or stopped before its label. Ready without it fails
-                // the local-review-evidence check from Enforce on.
-                Text("Self-reviewed, but without the local-reviewed label: an Important finding is open. Settle it with the session, or resolve its thread as your decision, then run /pre-pr again.")
-                    .scaled(.caption).foregroundStyle(.orange)
-            }
-            HStack {
-                Spacer()
                 if busy { ProgressView().controlSize(.mini) }
-                // A self-review still running may push again: the PR goes ready only once the session is done.
-                let blocker = busy ? nil : session.isBusy ? "The session is busy" : nil
+                let blocker = busy ? nil : model.prePRBlocker(pr)
                 DisabledReason(text: blocker)
-                Button("Approve") { if pr.isLocallyReviewed { model.approveFixes(pr) } else { confirmingReady = true } }
-                    .buttonStyle(.borderedProminent).handCursor()
+                Button("Run /pre-pr") { model.runPrePR(pr) }
+                    .handCursor()
                     .disabled(busy || blocker != nil)
+                    .help("Sends the session one /pre-pr run: report only, no code changed")
+                // A /pre-pr run still going may push again: the PR goes ready only once the session is done.
+                Button("Mark ready") { if pr.isLocallyReviewed { model.markReady(pr) } else { confirmingReady = true } }
+                    .handCursor()
+                    .disabled(busy || session.isBusy)
                     .help("Marks the PR ready for review and asks \(model.config.reviewTeam) to review it")
             }
             .confirmationDialog(
@@ -80,9 +77,9 @@ struct FlowSection: View {
                 Text(verbatim: "Mark #\(pr.number) ready without local-reviewed?"),
                 isPresented: $confirmingReady
             ) {
-                Button("Mark it ready anyway") { model.approveFixes(pr) }
+                Button("Mark it ready anyway") { model.markReady(pr) }
             } message: {
-                Text("/pre-pr has not passed it: an Important finding is open. From Enforce on, its local-review-evidence check fails without the label.")
+                Text("/pre-pr has not passed it. From Enforce on, the local-review-evidence check fails without its label.")
             }
         case .inReview:
             Text("Waiting for a review from \(model.config.reviewTeam).").scaled(.caption).foregroundStyle(.secondary)

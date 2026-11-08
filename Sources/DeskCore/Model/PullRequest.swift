@@ -130,7 +130,7 @@ public struct PullRequest: Codable, Sendable, Hashable, Identifiable {
 
     /// CodeRabbit says a person has to read this one: it goes first in the review queue.
     public var needsHuman: Bool { labels.contains("needs-human") }
-    /// /pre-pr passed it: no Important finding of its is open. Without the label, a self-reviewed draft still has one.
+    /// /pre-pr passed it: no Important finding of its is open. Without the label, a draft /pre-pr ran on still has one.
     public var isLocallyReviewed: Bool { labels.contains(PrePR.reviewedLabel) }
     /// CodeRabbit's risk tier, "low" to "critical", once it has set one.
     public var risk: String? { labels.first { $0.hasPrefix("risk:") }.map { String($0.dropFirst("risk:".count)) } }
