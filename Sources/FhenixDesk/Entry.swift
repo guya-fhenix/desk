@@ -11,6 +11,12 @@ enum Entry {
             await Doctor.run()
             return
         }
+        #if DEBUG
+        if let index = arguments.firstIndex(of: "--snapshot") {
+            await Snapshot.start(Array(arguments.dropFirst(index + 1)))
+            return
+        }
+        #endif
         FhenixDeskApp.main()
     }
 }

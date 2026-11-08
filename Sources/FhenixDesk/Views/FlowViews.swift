@@ -158,7 +158,8 @@ private struct RunPrePRButton: View {
 }
 
 /// How many review threads are open on your PR — in the row's orange, the same count — then by who started them:
-/// /pre-pr, CodeRabbit, and each person. And the way to them on GitHub, where they are read and answered.
+/// /pre-pr, CodeRabbit, and each person. And the way to them on GitHub; they are read and answered in the page's
+/// conversation too.
 struct ThreadsCard: View {
     var pr: PullRequest
     var model: AppModel

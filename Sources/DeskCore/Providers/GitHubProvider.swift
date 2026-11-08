@@ -79,24 +79,28 @@ public actor GitHubProvider {
     /// search: a PR nobody asked you to review and you never submitted on drops out of all of them the
     /// moment it merges, and absence alone is far too thin to delete a review on.
     public func pullRequestState(repo: String, number: Int) async throws -> PullRequestState {
+        let data = try await graphQL(query: GitHubQueries.pullRequestStateQuery, variables: try Self.variables(repo, number))
+        return try GitHubDecoding.pullRequestState(from: data)
+    }
+
+    /// A PR's conversation in full: every review thread with its replies, its comments and its reviews. One PR at a
+    /// time, when its page or its review diff shows it.
+    public func conversation(repo: String, number: Int) async throws -> Conversation {
+        let data = try await graphQL(query: GitHubQueries.conversationQuery, variables: try Self.variables(repo, number))
+        return try GitHubDecoding.conversation(from: data)
+    }
+
+    /// The variables of a query about one PR.
+    private static func variables(_ repo: String, _ number: Int) throws -> [String: any Sendable] {
         let parts = repo.split(separator: "/", maxSplits: 1)
         guard parts.count == 2 else { throw GitHubError.graphQL(["not an owner/name repository: \(repo)"]) }
-        let data = try await graphQL(
-            query: GitHubQueries.pullRequestStateQuery,
-            variables: ["owner": String(parts[0]), "name": String(parts[1]), "number": number]
-        )
-        return try GitHubDecoding.pullRequestState(from: data)
+        return ["owner": String(parts[0]), "name": String(parts[1]), "number": number]
     }
 
     /// Every check on the PR's head commit, with the failed step and the errors of each that failed. One PR at a
     /// time: steps and annotations for every PR of every search would push those past GitHub's 10 s limit.
     public func checks(repo: String, number: Int) async throws -> [PullRequestCheck] {
-        let parts = repo.split(separator: "/", maxSplits: 1)
-        guard parts.count == 2 else { throw GitHubError.graphQL(["not an owner/name repository: \(repo)"]) }
-        let data = try await graphQL(
-            query: GitHubQueries.checksQuery,
-            variables: ["owner": String(parts[0]), "name": String(parts[1]), "number": number]
-        )
+        let data = try await graphQL(query: GitHubQueries.checksQuery, variables: try Self.variables(repo, number))
         return try GitHubDecoding.checks(from: data)
     }
 
@@ -214,6 +218,21 @@ public enum GitHubQueries {
     }
     """
 
+    /// A PR's whole conversation. An outdated thread's `line` is null; `originalLine` is where it was written.
+    /// ponytail: the first 100 threads, comments and reviews, and 100 comments a thread; page them if a PR ever has more.
+    public static let conversationQuery = """
+    query($owner: String!, $name: String!, $number: Int!) {
+      repository(owner: $owner, name: $name) { pullRequest(number: $number) {
+        reviewThreads(first: 100) { nodes {
+          id isResolved isOutdated path line originalLine diffSide viewerCanReply viewerCanResolve viewerCanUnresolve
+          comments(first: 100) { nodes { id author { __typename login avatarUrl(size: 64) } body createdAt url } }
+        } }
+        comments(first: 100) { nodes { id author { __typename login avatarUrl(size: 64) } body createdAt url } }
+        reviews(first: 100) { nodes { id state body submittedAt url author { __typename login avatarUrl(size: 64) } } }
+      } }
+    }
+    """
+
     /// ponytail: the first 100 contexts and 50 steps of each; a PR with more checks than that loses the rest.
     public static let checksQuery = """
     query($owner: String!, $name: String!, $number: Int!) {
@@ -322,6 +341,50 @@ public enum GitHubDecoding {
         guard let pr = response.data?.repository?.pullRequest else { throw GitHubError.emptyResponse }
         let nodes = pr.commits.nodes.first?.commit.statusCheckRollup?.contexts.nodes ?? []
         return PullRequestCheck.newest(nodes.map(check))
+    }
+
+    public static func conversation(from data: Data) throws -> Conversation {
+        let response = try JSON.decoder().decode(Response<ConversationData>.self, from: data)
+        if let errors = response.errors, !errors.isEmpty { throw GitHubError.graphQL(errors.map(\.message)) }
+        guard let pr = response.data?.repository?.pullRequest else { throw GitHubError.emptyResponse }
+        let threads = pr.reviewThreads.nodes.map { node in
+            ConversationThread(
+                id: node.id, path: node.path, line: node.line ?? node.originalLine,
+                side: DiffSide(rawValue: node.diffSide ?? "") ?? .right, isResolved: node.isResolved,
+                isOutdated: node.isOutdated, canReply: node.viewerCanReply,
+                canToggle: node.isResolved ? node.viewerCanUnresolve : node.viewerCanResolve,
+                comments: node.comments.nodes.map(conversationComment)
+            )
+        }
+        let comments = pr.comments.nodes.map { ConversationEntry(kind: .comment, comment: conversationComment($0)) }
+        // A review that only carries line comments says nothing of its own: they are in its threads. A pending one is
+        // your draft, not yet said.
+        let reviews = pr.reviews.nodes.compactMap { node -> ConversationEntry? in
+            guard let submittedAt = node.submittedAt, node.state != "PENDING" else { return nil }
+            if node.state == "COMMENTED", node.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return nil }
+            let comment = ConversationComment(
+                id: node.id, author: node.author?.name ?? "ghost", avatar: node.author?.avatarUrl, body: node.body,
+                createdAt: submittedAt, url: node.url
+            )
+            return ConversationEntry(kind: .review(state: node.state), comment: comment)
+        }
+        return Conversation(threads: threads, entries: (comments + reviews).sorted { $0.comment.createdAt < $1.comment.createdAt })
+    }
+
+    /// A deleted account's comment has no author; GitHub shows it as ghost's.
+    private static func conversationComment(_ node: ConversationCommentNode) -> ConversationComment {
+        ConversationComment(
+            id: node.id, author: node.author?.name ?? "ghost", avatar: node.author?.avatarUrl, body: node.body,
+            createdAt: node.createdAt, url: node.url
+        )
+    }
+
+    /// A write's answer: only its errors matter.
+    static func throwErrors(in data: Data) throws {
+        struct Answer: Decodable { var errors: [GraphQLError]? }
+        if let errors = try JSON.decoder().decode(Answer.self, from: data).errors, !errors.isEmpty {
+            throw GitHubError.graphQL(errors.map(\.message))
+        }
     }
 
     /// A check run or a commit status, as the Checks card and the search's checks state read it.
@@ -461,14 +524,54 @@ public enum GitHubDecoding {
     private struct Login: Decodable {
         var login: String
         var typename: String?
+        /// Only where the query asks for it: the conversation's.
+        var avatarUrl: String?
         var name: String { typename == "Bot" ? "\(login)[bot]" : login }
 
         enum CodingKeys: String, CodingKey {
             case login
             case typename = "__typename"
+            case avatarUrl
         }
     }
     private struct Repository: Decodable { var nameWithOwner: String }
+
+    private struct ConversationData: Decodable { var repository: ConversationRepository? }
+    private struct ConversationRepository: Decodable { var pullRequest: ConversationPR? }
+    private struct ConversationPR: Decodable {
+        var reviewThreads: ConversationNodes<ConversationThreadNode>
+        var comments: ConversationNodes<ConversationCommentNode>
+        var reviews: ConversationNodes<ConversationReviewNode>
+    }
+    private struct ConversationNodes<Node: Decodable>: Decodable { var nodes: [Node] }
+    private struct ConversationThreadNode: Decodable {
+        var id: String
+        var isResolved: Bool
+        var isOutdated: Bool
+        var path: String
+        var line: Int?
+        var originalLine: Int?
+        var diffSide: String?
+        var viewerCanReply: Bool
+        var viewerCanResolve: Bool
+        var viewerCanUnresolve: Bool
+        var comments: ConversationNodes<ConversationCommentNode>
+    }
+    private struct ConversationCommentNode: Decodable {
+        var id: String
+        var author: Login?
+        var body: String
+        var createdAt: Date
+        var url: String
+    }
+    private struct ConversationReviewNode: Decodable {
+        var id: String
+        var state: String
+        var body: String
+        var submittedAt: Date?
+        var url: String
+        var author: Login?
+    }
 
     private struct ChecksData: Decodable { var repository: ChecksRepository? }
     private struct ChecksRepository: Decodable { var pullRequest: ChecksPR? }

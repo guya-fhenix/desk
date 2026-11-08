@@ -59,10 +59,22 @@ public enum Markdown {
 
         // HTML comments are for the author and the bots (a template's hints, a bot's markers), and GitHub hides them.
         // ponytail: one inside a code fence goes too; parse comments per line if a description ever shows one as code.
-        // The few HTML tags descriptions carry for looks (a bot's <sup> footer, a <details> fold) go too, their
-        // text kept.
+        // The HTML bots write for looks (CodeRabbit's walkthrough, Bugbot's notes, a <sup> footer, a <details> fold)
+        // becomes the Markdown it means where there is one — a break, a heading, bold, code, a link — and goes where
+        // there is not, its text kept. Only HTML's own tag names, lower case, so a `Vec<u8>` in prose stays.
+        // The tags with no Markdown go first, so `<strong><img> Info</strong>` is bold `Info`, not `** Info**`.
         let visible = text.replacingOccurrences(of: "\r\n", with: "\n").replacing(/<!--[\s\S]*?-->/, with: "")
-            .replacing(/<\/?(sup|sub|small|span|div|p|details|summary)\b[^>]*>/, with: "")
+            .replacing(/<\/?(?:sup|sub|small|span|div|p|details|summary|dl|dt|dd|ul|ol|li|blockquote|center|kbd|img|picture|source|hr|table|thead|tbody|tr|td|th)\b[^>]*>/, with: "")
+            .replacing(/<br\s*\/?>/, with: "\n")
+            .replacing(/<h[1-6][^>]*>([\s\S]*?)<\/h[1-6]>/) { "\n### \($0.1.trimmingCharacters(in: .whitespaces))\n" }
+            .replacing(/<(?:strong|b)>([\s\S]*?)<\/(?:strong|b)>/) { "**\($0.1.trimmingCharacters(in: .whitespaces))**" }
+            .replacing(/<(?:em|i)>([\s\S]*?)<\/(?:em|i)>/) { "_\($0.1.trimmingCharacters(in: .whitespaces))_" }
+            .replacing(/<code>([^<]*)<\/code>/) { "`\($0.1)`" }
+            // A link around a picture alone has nothing left to show once the picture goes.
+            .replacing(/<a\s[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/) { match in
+                let text = match.2.trimmingCharacters(in: .whitespacesAndNewlines)
+                return text.isEmpty ? "" : "[\(text)](\(match.1))"
+            }
         for rawLine in visible.split(separator: "\n", omittingEmptySubsequences: false) {
             let line = String(rawLine)
             var trimmed = line.trimmingCharacters(in: .whitespaces)

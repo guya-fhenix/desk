@@ -38,8 +38,9 @@ struct DiffSelection: Equatable {
     var range: ClosedRange<Int> { min(anchor, end)...max(anchor, end) }
 }
 
-/// Reviewing a teammate's PR: its diff here, the review session in the terminal panel beside it. The code is only
-/// read here; comments and the verdict are the session's to post, on your word.
+/// Reviewing a teammate's PR: its diff here, the review session in the terminal panel beside it. Each review thread
+/// shows under the line it ends on, to reply to or resolve; new line comments and the verdict are the session's to
+/// post, on your word.
 struct ReviewDiffScreen: View {
     var pr: PullRequest
     var model: AppModel
@@ -85,6 +86,7 @@ struct ReviewDiffScreen: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(Theme.background)
         .task(id: pr.url) { model.loadDiff(pr) }
+        .task(id: "\(pr.url) \(pr.updatedAt)") { await model.loadConversation(pr) }
     }
 
     @ViewBuilder private var content: some View {
@@ -133,6 +135,7 @@ struct ReviewDiffScreen: View {
                                 }
                                 ForEach(rows.indices, id: \.self) { index in
                                     row(rows[index], id: DiffRowID(path: file.path, index: index))
+                                    if case .line(let line) = rows[index] { threads(under: line, in: file.path) }
                                 }
                             }
                         } header: {
@@ -207,6 +210,24 @@ struct ReviewDiffScreen: View {
             .contentShape(Rectangle())
             .onTapGesture { select(id, extend: NSEvent.modifierFlags.contains(.shift)) }
             .id(id)
+        }
+    }
+
+    /// The threads that end on this line, under it: a right-side one by the line's new number, a left-side one, on a
+    /// removed line, by its old. An outdated thread has no line here; the review's page lists it.
+    @ViewBuilder private func threads(under line: DiffLine, in path: String) -> some View {
+        if let conversation = model.conversations[pr.url] {
+            let threads = (line.newLine.map { conversation.threads(at: path, side: .right, line: $0) } ?? [])
+                + (line.oldLine.map { conversation.threads(at: path, side: .left, line: $0) } ?? [])
+            if !threads.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(threads) { ThreadView(thread: $0, pr: pr, model: model, showsLocation: false) }
+                }
+                .frame(maxWidth: 760, alignment: .leading)
+                .padding(.leading, 100)
+                .padding(.trailing, 16)
+                .padding(.vertical, 8)
+            }
         }
     }
 

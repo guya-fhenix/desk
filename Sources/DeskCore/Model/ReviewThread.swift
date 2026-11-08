@@ -1,7 +1,8 @@
 import Foundation
 
 /// One unresolved review thread on your PR: where it sits, who started it and what the first comment says, so the PR
-/// page can count the open threads by who started them. Read off GitHub on every refresh; the app never writes to one.
+/// page can count the open threads by who started them. Read off GitHub on every refresh; the thread in full, to answer,
+/// is the `Conversation`'s.
 public struct ReviewThread: Codable, Sendable, Hashable, Identifiable {
     /// Who started the thread.
     public enum Source: Sendable {
