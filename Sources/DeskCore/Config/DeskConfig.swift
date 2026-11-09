@@ -22,7 +22,10 @@ public struct DeskConfig: Codable, Sendable, Equatable {
     public var jiraReviewStatus: String = "👀 Review Ready"
     public var jiraDoneStatus: String = "Done"
     public var githubPollSeconds: Int = 180
-    public var gitPollSeconds: Int = 60
+    /// The local scan, worktrees and Claude Code's sessions with them: 15 s, so a session going to work, asking you
+    /// something or finishing shows within moments. It runs no network calls, and one scan is a few git processes per
+    /// repo and worktree.
+    public var gitPollSeconds: Int = 15
     public var jiraPollSeconds: Int = 300
     public var notificationsEnabled: Bool = true
     public var claudePath: String = ""
