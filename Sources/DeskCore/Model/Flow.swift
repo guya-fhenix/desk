@@ -45,3 +45,28 @@ public enum PrePRStatus: Sendable, Equatable {
         pr.isLocallyReviewed ? .passed : pr.evidence == nil ? .notRun : .importantOpen
     }
 }
+
+extension DeskState {
+    /// Why nothing can be sent to this PR's session now, in the words beside the button that would; nil when it can.
+    /// An instruction never cuts in: the session must be done with its turn. `sending` is one going out already.
+    public func sendBlocker(_ pr: PullRequest, sending: Bool) -> String? {
+        guard let session = session(for: pr) else { return "No session" }
+        if sending { return "Sending…" }
+        if session.isAsking { return "The session is asking you something" }
+        if !session.isIdle || session.sessionId == nil { return "The session is busy" }
+        return nil
+    }
+
+    /// Why Run /pre-pr is dead on a draft; nil when it may be pressed. Without a session it starts one, which needs a
+    /// clone of the repo; `startingSession` is one starting already.
+    public func prePRBlocker(_ pr: PullRequest, sending: Bool, startingSession: Bool) -> String? {
+        if session(for: pr) == nil {
+            if startingSession { return "Starting a session…" }
+            if localRepo(for: pr) == nil { return "No clone of \(pr.repoName) here" }
+        } else if let blocker = sendBlocker(pr, sending: sending) {
+            return blocker
+        }
+        guard let skill = reviewSkill(for: pr), skill.has(skill.selfReview) else { return "Self-review skill missing" }
+        return nil
+    }
+}

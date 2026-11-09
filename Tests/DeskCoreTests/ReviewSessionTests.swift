@@ -73,6 +73,17 @@ import Testing
         }
     }
 
+    /// A show link moves the diff only for an open PR Desk knows, matched by repo, any case, and number.
+    @Test func aShowLinkFindsItsPullRequest() {
+        var state = DeskState(config: DeskConfig())
+        let pr = Fixtures.pr(number: 5, head: "h", author: "bob")
+        state.github = GitHubSnapshot(login: "me", mine: [], reviewRequests: [pr], mergedRecent: [], fetchedAt: Fixtures.t0)
+        func link(_ repo: String, _ number: Int) -> DeskLink { DeskLink(repo: repo, number: number, side: .right, line: 1, path: "a.rs") }
+        #expect(state.pullRequest(for: link("fhenixprotocol/COFHE", 5))?.url == pr.url)
+        #expect(state.pullRequest(for: link("FhenixProtocol/cofhe", 6)) == nil)
+        #expect(state.pullRequest(for: link("FhenixProtocol/other", 5)) == nil)
+    }
+
     @Test func theTicketGoesAlongWithItsTextWhenDeskHasIt() {
         let pr = Fixtures.pr(number: 1, head: "PRO-9-gate")
         #expect(DeskService.reviewTicket(for: pr, tickets: [], projectKeys: ["PRO"]) == "PRO-9")

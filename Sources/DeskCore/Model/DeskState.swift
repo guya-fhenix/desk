@@ -148,6 +148,23 @@ public struct DeskState: Sendable {
 
     public func ticket(_ key: String) -> Ticket? { tickets.first { $0.key == key } }
 
+    /// Lays what this app merged, closed or marked ready over GitHub's answer: a merged or closed PR leaves the open lists
+    /// and a merge joins the merged one, at the top, and a draft marked ready shows ready. GitHub's search lags a write by
+    /// up to a minute or so, and until it agrees a refresh would undo what the page just showed.
+    public mutating func apply(landed: [PullRequest], readied: Set<String>) {
+        guard var github, !landed.isEmpty || !readied.isEmpty else { return }
+        for index in github.mine.indices where readied.contains(github.mine[index].url) { github.mine[index].isDraft = false }
+        for pr in landed {
+            github.mine.removeAll { $0.url == pr.url }
+            github.reviewRequests.removeAll { $0.url == pr.url }
+            github.openForReview.removeAll { $0.url == pr.url }
+            if pr.state == .merged, !github.mergedRecent.contains(where: { $0.url == pr.url }) {
+                github.mergedRecent.insert(pr, at: 0)
+            }
+        }
+        self.github = github
+    }
+
     /// Lays this app's own writes, by ticket key, over the tickets Jira returned, and returns the keys whose ticket shows
     /// its write already. Jira's search lags a write, so until it agrees a refresh brings back what was there before.
     @discardableResult
@@ -325,6 +342,14 @@ public struct UpNextGroup: Sendable, Identifiable {
 }
 
 extension DeskState {
+    /// What Up Next has waiting on you, for its badge: every section but Waiting, and the Jira moves it suggests. The
+    /// filters are the Reviews screen's, as `upNext` takes them.
+    public func upNextCount(reviewDays: Int?, hiding: Set<String> = [], needingApproval: Bool = false, now: Date = Date()) -> Int {
+        upNext(reviewDays: reviewDays, hiding: hiding, needingApproval: needingApproval, now: now)
+            .filter { $0.section != .waiting }.reduce(0) { $0 + $1.pullRequests.count }
+            + ticketDrifts.count
+    }
+
     /// Up Next: every PR of yours under one section — your move when it is red, conflicts, has changes requested,
     /// needs a rebase or a flow or session waits on you; ready to merge when its nudge says so; otherwise waiting on
     /// others — most recently updated first; then the reviews you have a draft on that is not submitted yet, whatever

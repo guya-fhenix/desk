@@ -113,12 +113,9 @@ final class AppModel {
         set { state.config = newValue }
     }
 
-    /// What Up Next has waiting on you: every section but Waiting, and the Jira moves it suggests. The filters are the
-    /// Reviews screen's, which Up Next's reviews follow.
+    /// What Up Next has waiting on you, inside the Reviews screen's filters, which Up Next's reviews follow.
     func upNextCount(_ filters: ReviewFilters) -> Int {
-        state.upNext(reviewDays: filters.window, hiding: filters.hidden, needingApproval: filters.needsApproval)
-            .filter { $0.section != .waiting }.reduce(0) { $0 + $1.pullRequests.count }
-            + state.ticketDrifts.count
+        state.upNextCount(reviewDays: filters.window, hiding: filters.hidden, needingApproval: filters.needsApproval)
     }
 
     /// The polls start first: reading the Jira account can wait out acli's whole timeout offline, and the window would
@@ -263,27 +260,12 @@ final class AppModel {
         }
     }
 
-    /// Why nothing can be sent to this PR's session now, in the words beside the button that would; nil when it can.
-    /// An instruction never cuts in: the session must be done with its turn.
-    func sendBlocker(_ pr: PullRequest) -> String? {
-        guard let session = state.session(for: pr) else { return "No session" }
-        if busyFlows.contains(pr.url) { return "Sending…" }
-        if session.isAsking { return "The session is asking you something" }
-        if !session.isIdle || session.sessionId == nil { return "The session is busy" }
-        return nil
-    }
+    /// Why nothing can be sent to this PR's session now; nil when it can.
+    func sendBlocker(_ pr: PullRequest) -> String? { state.sendBlocker(pr, sending: busyFlows.contains(pr.url)) }
 
-    /// Why Run /pre-pr is dead on a draft; nil when it may be pressed. Without a session it starts one, which needs a
-    /// clone of the repo.
+    /// Why Run /pre-pr is dead on a draft; nil when it may be pressed.
     func prePRBlocker(_ pr: PullRequest) -> String? {
-        if state.session(for: pr) == nil {
-            if startingSessions.contains(pr.url) { return "Starting a session…" }
-            if state.localRepo(for: pr) == nil { return "No clone of \(pr.repoName) here" }
-        } else if let blocker = sendBlocker(pr) {
-            return blocker
-        }
-        guard let skill = state.reviewSkill(for: pr), skill.has(skill.selfReview) else { return "Self-review skill missing" }
-        return nil
+        state.prePRBlocker(pr, sending: busyFlows.contains(pr.url), startingSession: startingSessions.contains(pr.url))
     }
 
     /// The PR's Files tab, where a pending review's comments are read, edited and submitted.
@@ -452,23 +434,13 @@ final class AppModel {
         applyLanded()
     }
 
-    /// Takes what this app merged or closed out of the open lists, puts a merge into the merged one, and shows a draft it
-    /// marked ready as ready, until GitHub's search says the same; after ten minutes it long has.
+    /// Lays what this app merged, closed or marked ready over GitHub's answer until its search says the same; after ten
+    /// minutes it long has.
     private func applyLanded() {
         let now = Date()
         landed = landed.filter { now.timeIntervalSince($0.value.at) < 600 }
         readied = readied.filter { now.timeIntervalSince($0.value) < 600 }
-        guard var github = state.github, !landed.isEmpty || !readied.isEmpty else { return }
-        for index in github.mine.indices where readied[github.mine[index].url] != nil { github.mine[index].isDraft = false }
-        for (url, entry) in landed {
-            github.mine.removeAll { $0.url == url }
-            github.reviewRequests.removeAll { $0.url == url }
-            github.openForReview.removeAll { $0.url == url }
-            if entry.pr.state == .merged, !github.mergedRecent.contains(where: { $0.url == url }) {
-                github.mergedRecent.insert(entry.pr, at: 0)
-            }
-        }
-        state.github = github
+        state.apply(landed: landed.values.map(\.pr), readied: Set(readied.keys))
     }
 
     /// Closes a PR from its page without merging it. Why it failed, or nil.
@@ -635,8 +607,7 @@ final class AppModel {
     /// any app can open the link, so it only ever moves the diff. Whether it was a PR Desk knows.
     func open(_ url: URL) -> Bool {
         guard let link = DeskLink(url) else { return false }
-        let known = state.reviewRequests + state.openForReview + (state.github?.allOpen ?? [])
-        guard let pr = known.first(where: { ClaudeJobs.prKey($0.url) == link.prKey }) else {
+        guard let pr = state.pullRequest(for: link) else {
             Self.log.info("link for an unknown PR: \(url.absoluteString, privacy: .public)")
             return false
         }

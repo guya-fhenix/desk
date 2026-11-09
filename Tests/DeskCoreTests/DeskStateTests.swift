@@ -20,6 +20,35 @@ import Testing
         }
     }
 
+    /// A merge or close this app made takes the PR out of the open lists, a merge into the merged one once, and a draft it
+    /// marked ready shows ready, while GitHub's search still says otherwise.
+    @Test func landedAndReadiedCorrectALaggingGitHub() {
+        var state = state
+        let merged = Fixtures.pr(number: 1, head: "a"), closed = Fixtures.pr(number: 2, head: "b"), draft = Fixtures.pr(number: 3, head: "c", draft: true)
+        state.github?.mine = [merged, closed, draft]
+        state.github?.reviewRequests = [closed]
+        var ended = merged
+        ended.state = .merged
+        var shut = closed
+        shut.state = .closed
+        state.apply(landed: [ended, shut], readied: [draft.url])
+        state.apply(landed: [ended, shut], readied: [draft.url])
+        #expect(state.mine.map(\.number) == [3] && state.mine.first?.isDraft == false)
+        #expect(state.github?.reviewRequests.isEmpty == true)
+        #expect(state.github?.mergedRecent.map(\.number) == [1])
+    }
+
+    /// Up Next's badge: your PRs in every section but Waiting, and the suggested Jira moves.
+    @Test func upNextCountsAllButWaitingAndTheMoves() {
+        var state = state
+        state.github?.mine = [Fixtures.pr(number: 1, head: "feat/pro-391-gauge", checks: .failure), Fixtures.pr(number: 2, head: "b")]
+        state.tickets = [Fixtures.ticket("PRO-391")]
+        state.recompute()
+        #expect(state.ticketDrifts.count == 1)
+        #expect(state.upNext(reviewDays: nil).map(\.section) == [.yourMove, .waiting])
+        #expect(state.upNextCount(reviewDays: nil) == 2)
+    }
+
     /// A move or edit of this app's is laid over a Jira answer that does not show it yet, and dropped once one does.
     @Test func ticketEditsCorrectALaggingJira() {
         var state = state

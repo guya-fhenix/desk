@@ -26,6 +26,31 @@ import Testing
         return pr
     }
 
+    /// Run /pre-pr and Fix it go to an idle session only, and Run /pre-pr without one needs a clone and the skill.
+    @Test func whatHoldsBackASendOrARunOfPrePR() {
+        let draft = pr(draft: true)
+        var state = DeskState(config: DeskConfig())
+        state.github = GitHubSnapshot(login: "guya-fhenix", mine: [draft], reviewRequests: [], mergedRecent: [], fetchedAt: Fixtures.t0)
+        /// Send's blocker, then Run /pre-pr's.
+        func blockers(_ sessionState: String?, sessionId: String? = "sid", sending: Bool = false, starting: Bool = false) -> [String?] {
+            var job = sessionState.map { session($0, startedOn: [draft]) }
+            job?.sessionId = sessionId
+            state.claudeJobs = job.map { [$0] } ?? []
+            return [state.sendBlocker(draft, sending: sending), state.prePRBlocker(draft, sending: sending, startingSession: starting)]
+        }
+        #expect(blockers(nil) == ["No session", "No clone of cofhe here"])
+        #expect(blockers(nil, starting: true)[1] == "Starting a session…")
+        state.gitScan = GitScan(repos: [Fixtures.repo()])
+        #expect(blockers(nil)[1] == "Self-review skill missing")
+        state.reviewSkills = [Fixtures.repo().root: ReviewSkill(state: .ready)]
+        #expect(blockers(nil) == ["No session", nil])
+        #expect(blockers("done") == [nil, nil])
+        #expect(blockers("done", sending: true) == ["Sending…", "Sending…"])
+        #expect(blockers("blocked")[0] == "The session is asking you something")
+        #expect(blockers("working")[0] == "The session is busy")
+        #expect(blockers("done", sessionId: nil)[0] == "The session is busy")
+    }
+
     @Test func eachStageFromGitHub() {
         let cases: [(String, PullRequest, FlowStage)] = [
             ("a draft, no evidence", pr(draft: true), .draft),

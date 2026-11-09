@@ -36,6 +36,13 @@ public struct DeskLink: Equatable, Sendable {
     public var prKey: String { "\(repo.lowercased())#\(number)" }
 }
 
+extension DeskState {
+    /// The open PR a show link names, out of every search; nil for one Desk does not know.
+    public func pullRequest(for link: DeskLink) -> PullRequest? {
+        (reviewRequests + openForReview + (github?.allOpen ?? [])).first { ClaudeJobs.prKey($0.url) == link.prKey }
+    }
+}
+
 extension DeskService {
     /// The one command a review session may run without asking. It opens a single show link and nothing else, where an
     /// allowed `open` also opened any URL or file added after the link. In the per-user temporary folder, whose path
