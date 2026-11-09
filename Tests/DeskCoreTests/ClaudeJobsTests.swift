@@ -17,6 +17,7 @@ import Testing
         // Claude Code's own link scan: the session worked with the PR.
         try job(home, id: "aaaaaaaa", body: """
             {"state": "done", "name": "review pro-1", "cwd": "/r/cofhe", "updatedAt": "2026-09-01T10:00:00.000Z",
+             "createdAt": "2026-08-31T09:00:00.000Z",
              "children": [{"id": "986", "href": "https://github.com/FhenixProtocol/cofhe/pull/986", "kind": "pr"}]}
             """)
         // Started from the app: only the prompt names the PR yet.
@@ -38,10 +39,10 @@ import Testing
         #expect(jobs[0].name == "Working on FhenixProtocol/cofhe#987")
         #expect(jobs[1].prKeys == ["fhenixprotocol/cofhe#986"])
         #expect(!jobs[1].isRunning)
-        // Claude Code lists a PR among its children when the session opened it: that session carries the PR.
-        #expect(jobs[1].opened == ["fhenixprotocol/cofhe#986"])
-        #expect(jobs[1].carries("fhenixprotocol/cofhe#986", tickets: []))
-        #expect(jobs[0].opened.isEmpty && jobs[0].startedOn == ["fhenixprotocol/cofhe#987"])
+        #expect(jobs[1].linked == ["fhenixprotocol/cofhe#986"])
+        #expect(jobs[1].createdAt == ISO8601DateFormatter().date(from: "2026-08-31T09:00:00Z"))
+        #expect(jobs[0].createdAt == nil)
+        #expect(jobs[0].linked.isEmpty && jobs[0].startedOn == ["fhenixprotocol/cofhe#987"])
 
         var state = DeskState(config: DeskConfig())
         state.claudeJobs = jobs
@@ -60,6 +61,27 @@ import Testing
         let jobs = ClaudeJobs.scan(home: home.path, tickets: TicketKeyMatcher(projectKeys: ["PRO"]))
         #expect(jobs.map(\.id) == ["dddddddd"])
         #expect(jobs.first?.ticketKey == "PRO-9")
+    }
+
+    /// A session started on the PR or its ticket carries it; failing one, the earliest of those that link to it, which is the
+    /// one that opened it. A later session that only mentioned it never does.
+    @Test func theCarrierIsTheSessionThatBeganThePullRequest() {
+        let key = "fhenixprotocol/cofhe#1160"
+        func session(_ id: String, created: Double, linked: Set<String> = [], startedOn: Set<String> = [], ticket: String? = nil) -> ClaudeJob {
+            ClaudeJob(
+                id: id, name: id, state: "done", cwd: "/r", prKeys: linked.union(startedOn), updatedAt: Fixtures.hours(10 - created),
+                createdAt: Fixtures.hours(created), ticketKey: ticket, startedOn: startedOn, linked: linked
+            )
+        }
+        // Newest first, as the scan sorts them: the one that only mentioned the PR was active last.
+        let mentioned = session("later", created: 5, linked: [key])
+        let opener = session("opener", created: 1, linked: [key])
+        #expect(ClaudeJobs.carrier(of: key, tickets: [], in: [mentioned, opener])?.id == "opener")
+        let onTicket = session("ticket", created: 3, ticket: "PRO-7")
+        #expect(ClaudeJobs.carrier(of: key, tickets: ["PRO-7"], in: [mentioned, onTicket, opener])?.id == "ticket")
+        let onPR = session("pr", created: 4, startedOn: [key])
+        #expect(ClaudeJobs.carrier(of: key, tickets: [], in: [mentioned, onPR, opener])?.id == "pr")
+        #expect(ClaudeJobs.carrier(of: key, tickets: [], in: [session("other", created: 0, linked: ["o/r#1"])]) == nil)
     }
 
     @Test func scanSurvivesAMissingOrUnreadableJobsDirectory() {

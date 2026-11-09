@@ -27,10 +27,10 @@ public struct NudgeInput: Sendable {
         self.ticketKeys = ticketKeys
     }
 
-    /// The session carrying this PR through the flow, as `DeskState.session(for:)` picks it.
+    /// The session carrying this PR through the flow, as `ClaudeJobs.carrier` picks it.
     func session(for pr: PullRequest) -> ClaudeJob? {
         guard let key = ClaudeJobs.prKey(pr.url) else { return nil }
-        return sessions.first { $0.carries(key, tickets: ticketKeys[pr.url] ?? []) }
+        return ClaudeJobs.carrier(of: key, tickets: ticketKeys[pr.url] ?? [], in: sessions)
     }
 }
 
