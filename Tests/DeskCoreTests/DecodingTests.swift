@@ -107,6 +107,8 @@ import Testing
         #expect(try decision([review("APPROVED", "10", "a"), review("CHANGES_REQUESTED", "11", "b")].joined(separator: ",")) == .changesRequested)
         #expect(try decision([review("CHANGES_REQUESTED", "10", "a"), review("APPROVED", "11", "a")].joined(separator: ",")) == .approved)
         #expect(try decision([review("APPROVED", "10", "a"), review("DISMISSED", "11", "a")].joined(separator: ",")) == .none)
+        // A state GitHub adds later neither fails the search nor counts.
+        #expect(try decision([review("APPROVED", "10", "a"), review("SOMETHING_NEW", "11", "a")].joined(separator: ",")) == .approved)
         // A ruleset asking for a code owner's review, as cofhe's master does, with no approving count.
         let codeOwners = #"{"type":"PULL_REQUEST","parameters":{"requiredApprovingReviewCount":0,"requireCodeOwnerReview":true}},{"type":"DELETION","parameters":null}"#
         #expect(try decision("", rules: codeOwners) == .reviewRequired)

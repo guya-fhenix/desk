@@ -90,8 +90,8 @@ public struct ConversationThread: Sendable, Hashable, Identifiable {
 public struct ConversationEntry: Sendable, Hashable, Identifiable {
     public enum Kind: Sendable, Hashable {
         case comment
-        /// A submitted review, in GitHub's words: APPROVED, CHANGES_REQUESTED, COMMENTED or DISMISSED.
-        case review(state: String)
+        /// A submitted review: approved, changes requested, commented or dismissed.
+        case review(state: ReviewState)
     }
 
     public var kind: Kind
@@ -102,9 +102,9 @@ public struct ConversationEntry: Sendable, Hashable, Identifiable {
     public var verb: String? {
         guard case .review(let state) = kind else { return nil }
         switch state {
-        case "APPROVED": return "approved"
-        case "CHANGES_REQUESTED": return "requested changes"
-        case "DISMISSED": return "reviewed (dismissed)"
+        case .approved: return "approved"
+        case .changesRequested: return "requested changes"
+        case .dismissed: return "reviewed (dismissed)"
         default: return "reviewed"
         }
     }

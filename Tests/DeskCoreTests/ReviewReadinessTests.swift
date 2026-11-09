@@ -19,7 +19,7 @@ import Testing
 
     @Test func aReviewYouSubmittedIsDoneUntilYouAreAskedAgain() {
         var pr = Fixtures.pr(number: 1, head: "a", author: "alice")
-        pr.reviews = [Fixtures.review("CHANGES_REQUESTED", at: Fixtures.hours(1))]
+        pr.reviews = [Fixtures.review(.changesRequested, at: Fixtures.hours(1))]
         // A request from before your review is the one it answered.
         pr.reviewRequestEvents = [Fixtures.event(at: Fixtures.hours(0.5))]
         #expect(needs([pr]).isEmpty)
@@ -36,7 +36,7 @@ import Testing
 
     @Test func somebodyElsesReviewIsNotYours() {
         var pr = Fixtures.pr(number: 1, head: "a", author: "alice")
-        pr.reviews = [Fixtures.review("APPROVED", at: Fixtures.hours(1), by: "bob")]
+        pr.reviews = [Fixtures.review(.approved, at: Fixtures.hours(1), by: "bob")]
         #expect(needs([pr]) == [pr.url: .notReviewed])
     }
 }

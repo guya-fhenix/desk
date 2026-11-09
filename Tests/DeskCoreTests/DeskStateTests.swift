@@ -49,12 +49,12 @@ import Testing
     /// replies are no review, and anyone asked who has not answered is pending.
     @Test func reviewersStandWhereTheirLastDecisionLeftThem() {
         var pr = Fixtures.pr(number: 5, head: "x", author: "me", reviews: [
-            Review(state: "COMMENTED", submittedAt: Fixtures.t0, author: "ann"),
-            Review(state: "APPROVED", submittedAt: Fixtures.t0 + 60, author: "ann"),
-            Review(state: "COMMENTED", submittedAt: Fixtures.t0 + 120, author: "ann"),
-            Review(state: "CHANGES_REQUESTED", submittedAt: Fixtures.t0 + 30, author: "bob"),
-            Review(state: "COMMENTED", submittedAt: Fixtures.t0 + 40, author: "cy"),
-            Review(state: "COMMENTED", submittedAt: Fixtures.t0 + 50, author: "me"),
+            Review(state: .commented, submittedAt: Fixtures.t0, author: "ann"),
+            Review(state: .approved, submittedAt: Fixtures.t0 + 60, author: "ann"),
+            Review(state: .commented, submittedAt: Fixtures.t0 + 120, author: "ann"),
+            Review(state: .changesRequested, submittedAt: Fixtures.t0 + 30, author: "bob"),
+            Review(state: .commented, submittedAt: Fixtures.t0 + 40, author: "cy"),
+            Review(state: .commented, submittedAt: Fixtures.t0 + 50, author: "me"),
         ])
         pr.requestedReviewers = ["bob", "Protocol Team"]
         #expect(pr.reviewerStatuses == [
@@ -174,7 +174,7 @@ import Testing
         let fresh = Fixtures.pr(number: 2, head: "b", author: "alice")
         let mineAlready = Fixtures.pr(
             number: 3, head: "c", author: "alice",
-            reviews: [Review(state: "APPROVED", submittedAt: Fixtures.t0, author: "me")]
+            reviews: [Review(state: .approved, submittedAt: Fixtures.t0, author: "me")]
         )
         let draft = Fixtures.pr(number: 4, head: "d", author: "alice", draft: true)
         let bot = Fixtures.pr(number: 5, head: "e", author: "dependabot")

@@ -36,12 +36,27 @@ public enum PullRequestState: String, Codable, Sendable {
     case closed = "CLOSED"
 }
 
+/// A review's state, in GitHub's words. A state GitHub adds later reads as `unknown` rather than failing the whole
+/// search it came in.
+public enum ReviewState: String, Codable, Sendable {
+    case approved = "APPROVED"
+    case changesRequested = "CHANGES_REQUESTED"
+    case commented = "COMMENTED"
+    case dismissed = "DISMISSED"
+    case pending = "PENDING"
+    case unknown
+
+    public init(from decoder: any Decoder) throws {
+        self = ReviewState(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
+    }
+}
+
 public struct Review: Codable, Sendable, Hashable {
-    public var state: String
+    public var state: ReviewState
     public var submittedAt: Date
     public var author: String
 
-    public init(state: String, submittedAt: Date, author: String) {
+    public init(state: ReviewState, submittedAt: Date, author: String) {
         self.state = state
         self.submittedAt = submittedAt
         self.author = author
@@ -318,10 +333,10 @@ extension PullRequest {
         for review in reviews.sorted(by: { $0.submittedAt < $1.submittedAt }) where review.author != author {
             let state: ReviewerStatus.State
             switch review.state {
-            case "APPROVED": state = .approved
-            case "CHANGES_REQUESTED": state = .changesRequested
-            case "DISMISSED": state = .dismissed
-            case "COMMENTED":
+            case .approved: state = .approved
+            case .changesRequested: state = .changesRequested
+            case .dismissed: state = .dismissed
+            case .commented:
                 if let held = standing[review.author], held != .commented { continue }
                 state = .commented
             default: continue

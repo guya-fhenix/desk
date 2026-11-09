@@ -364,8 +364,8 @@ public enum GitHubDecoding {
         // A review that only carries line comments says nothing of its own: they are in its threads. A pending one is
         // your draft, not yet said.
         let reviews = pr.reviews.nodes.compactMap { node -> ConversationEntry? in
-            guard let submittedAt = node.submittedAt, node.state != "PENDING" else { return nil }
-            if node.state == "COMMENTED", node.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return nil }
+            guard let submittedAt = node.submittedAt, node.state != .pending else { return nil }
+            if node.state == .commented, node.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return nil }
             let comment = ConversationComment(
                 id: node.id, author: node.author?.name ?? "ghost", avatar: node.author?.avatarUrl, body: node.body,
                 createdAt: submittedAt, url: node.url
@@ -517,13 +517,13 @@ public enum GitHubDecoding {
     /// still gets null, approved or not. Read it off the reviews then, as GitHub's own badge does: each reviewer's
     /// latest approval or change request stands, and a later plain comment doesn't undo it.
     private static func decision(from reviews: [Review], required: Int) -> ReviewDecision {
-        var latest: [String: String] = [:]
+        var latest: [String: ReviewState] = [:]
         for review in reviews.sorted(by: { $0.submittedAt < $1.submittedAt })
-        where ["APPROVED", "CHANGES_REQUESTED", "DISMISSED"].contains(review.state) {
+        where [.approved, .changesRequested, .dismissed].contains(review.state) {
             latest[review.author] = review.state
         }
-        if latest.values.contains("CHANGES_REQUESTED") { return .changesRequested }
-        let approvals = latest.values.count { $0 == "APPROVED" }
+        if latest.values.contains(.changesRequested) { return .changesRequested }
+        let approvals = latest.values.count { $0 == .approved }
         if approvals > 0 && approvals >= required { return .approved }
         return required > 0 ? .reviewRequired : .none
     }
@@ -586,7 +586,7 @@ public enum GitHubDecoding {
     }
     private struct ConversationReviewNode: Decodable {
         var id: String
-        var state: String
+        var state: ReviewState
         var body: String
         var submittedAt: Date?
         var url: String
@@ -768,7 +768,7 @@ public enum GitHubDecoding {
     private struct Count: Decodable { var totalCount: Int }
     private struct Reviews: Decodable { var nodes: [ReviewNode] }
     private struct ReviewNode: Decodable {
-        var state: String
+        var state: ReviewState
         var submittedAt: Date?
         var author: Login?
     }

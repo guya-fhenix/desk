@@ -12,7 +12,8 @@ public struct ClaudeJob: Sendable, Hashable, Identifiable {
     /// The short id `claude attach`, `logs` and `stop` take.
     public var id: String
     public var name: String
-    /// `working`, `done`, and whatever else Claude Code writes there; shown, never matched on.
+    /// `working`, `blocked`, `done`, and whatever else Claude Code writes there; read only by `isRunning`, `isAsking` and
+    /// `isIdle`.
     public var state: String
     public var cwd: String
     /// `owner/name#number` of every PR the session touched, from Claude Code's own scan of the transcript.
@@ -48,8 +49,10 @@ public struct ClaudeJob: Sendable, Hashable, Identifiable {
     }
 
     public var isRunning: Bool { state == "working" }
+    /// Waiting on your answer to something it asked.
+    public var isAsking: Bool { state == "blocked" }
     /// In the middle of a turn: working, or asking you something.
-    public var isBusy: Bool { isRunning || state == "blocked" }
+    public var isBusy: Bool { isRunning || isAsking }
     /// Done with its turn: the one state an instruction may be sent in. Stopping a session that works or asks would cut
     /// it off.
     public var isIdle: Bool { state == "done" }

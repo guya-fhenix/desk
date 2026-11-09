@@ -260,7 +260,7 @@ final class AppModel {
     func sendBlocker(_ pr: PullRequest) -> String? {
         guard let session = state.session(for: pr) else { return "No session" }
         if busyFlows.contains(pr.url) { return "Sending…" }
-        if session.state == "blocked" { return "The session is asking you something" }
+        if session.isAsking { return "The session is asking you something" }
         if !session.isIdle || session.sessionId == nil { return "The session is busy" }
         return nil
     }

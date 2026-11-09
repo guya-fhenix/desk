@@ -118,7 +118,7 @@ enum Doctor {
     private static func draftText(_ status: DraftStatus?) -> String {
         switch status {
         case .pending(let comments): return "draft: \(comments) comments"
-        case .submitted(let state): return "submitted: \(state.lowercased())"
+        case .submitted(let state): return "submitted: \(state.rawValue.lowercased())"
         case nil: return "not reviewed"
         }
     }

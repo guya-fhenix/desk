@@ -33,7 +33,7 @@ enum Fixtures {
         PendingReview(id: "draft1", commitId: commit, comments: comments)
     }
 
-    static func review(_ state: String = "COMMENTED", at: Date, by author: String = "me") -> Review {
+    static func review(_ state: ReviewState = .commented, at: Date, by author: String = "me") -> Review {
         Review(state: state, submittedAt: at, author: author)
     }
 

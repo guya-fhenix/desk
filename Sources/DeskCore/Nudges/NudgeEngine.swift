@@ -46,7 +46,7 @@ public enum NudgeEngine {
                 nudges.append(Nudge(id: "ci:\(pr.url):\(pr.headSha)", kind: .ciFailed, severity: .urgent, title: "CI failed on \(label)", detail: pr.title, url: pr.url))
             }
             if pr.reviewDecision == .changesRequested {
-                let latest = pr.reviews.filter { $0.state == "CHANGES_REQUESTED" }.map(\.submittedAt).max() ?? pr.updatedAt
+                let latest = pr.reviews.filter { $0.state == .changesRequested }.map(\.submittedAt).max() ?? pr.updatedAt
                 nudges.append(Nudge(id: "changes:\(pr.url):\(latest.timeIntervalSince1970)", kind: .changesRequested, severity: .warning, title: "Changes requested on \(label)", detail: pr.title, url: pr.url))
             }
             if let reason = Linker.rebaseReason(pr, mergedHeads: input.mergedHeadsByRepo[pr.repo] ?? []) {
@@ -74,7 +74,7 @@ public enum NudgeEngine {
     /// once.
     private static func flowNudges(_ input: NudgeInput) -> [Nudge] {
         var nudges: [Nudge] = []
-        for session in input.sessions where session.state == "blocked" {
+        for session in input.sessions where session.isAsking {
             let pr = input.mine.first { ClaudeJobs.prKey($0.url).map(session.prKeys.contains) == true }
             // A session on a teammate's PR, opened from Reviews, is not in the flow.
             guard let label = pr.map({ "\($0.repoName)#\($0.number)" }) ?? session.ticketKey else { continue }
