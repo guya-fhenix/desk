@@ -11,7 +11,8 @@ final class AppModel {
     var refreshing: Set<Source> = []
     /// Sources asked to refresh while they already were, each to go once more when that one ends.
     private var refreshAgain: Set<Source> = []
-    /// Why the last settings write failed, in a sentence that says what to do; nil once one succeeds.
+    /// Why config.json couldn't be read at launch, or why the last settings write failed, in a sentence that says what to
+    /// do; nil once a write succeeds.
     var configError: String?
     /// The error itself, for the tooltip on that sentence.
     var configErrorDetail: String?
@@ -81,19 +82,26 @@ final class AppModel {
     var conversations: [String: Conversation] = [:]
     var conversationErrors: [String: String] = [:]
     private let support = AppSupport()
+    /// What config.json holds, as far as the app knows: the config it loaded or last wrote. Only a config that differs is
+    /// written, so starting on defaults, after a missing or broken file, writes nothing until you change a setting.
+    private var savedConfig: DeskConfig
     private let service: DeskService
     private let notifier: Notifier
     private var loops: [Source: Task<Void, Never>] = [:]
     private nonisolated static let log = Logger(subsystem: "io.fhenix.desk", category: "refresh")
 
     init() {
-        let config = DeskService.loadConfig(support: support)
+        let (config, configError) = DeskService.loadConfig(support: support)
         state = DeskState(config: config)
+        savedConfig = config
         service = DeskService(config: config, support: support)
         notifier = Notifier(support: support)
         state.dismissedMoves = Set(UserDefaults.standard.stringArray(forKey: Self.dismissedMovesKey) ?? [])
         Task { await self.start() }
         Notifier.onShow = { [weak self] url in self?.show(url) }
+        // Settings is where the sentence shows.
+        self.configError = configError
+        showingSettings = configError != nil
     }
 
     var config: DeskConfig {
@@ -203,11 +211,15 @@ final class AppModel {
         }
     }
 
+    /// Writes the config when it changed and hands it to the sources, which a recheck after a sign-in wants either way.
     func saveConfig() {
         do {
-            try support.save(config, to: DeskService.configFile)
-            configError = nil
-            configErrorDetail = nil
+            if config != savedConfig {
+                try support.save(config, to: DeskService.configFile)
+                savedConfig = config
+                configError = nil
+                configErrorDetail = nil
+            }
         } catch {
             configError = "Couldn't save settings: \(error.localizedDescription) Check that ~/Library/Application Support/Fhenix Desk is writable."
             configErrorDetail = "\(error)"

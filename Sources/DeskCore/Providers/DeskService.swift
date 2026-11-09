@@ -41,8 +41,22 @@ public actor DeskService {
         (github, jira) = Self.makeProviders(config)
     }
 
-    public static func loadConfig(support: AppSupport) -> DeskConfig {
-        (try? support.load(DeskConfig.self, from: configFile)) ?? DeskConfig()
+    /// The saved config, or the defaults when there is none. A file that can't be read at all is copied to
+    /// `config.json.bad` first, and `error` says so: the defaults then stand in without a word otherwise, and the next
+    /// save would write over the only copy of what the user had.
+    public static func loadConfig(support: AppSupport) -> (config: DeskConfig, error: String?) {
+        do {
+            return (try support.load(DeskConfig.self, from: configFile) ?? DeskConfig(), nil)
+        } catch {
+            let file = support.url(configFile)
+            let bad = support.url(configFile + ".bad")
+            try? FileManager.default.removeItem(at: bad)
+            let kept = (try? FileManager.default.copyItem(at: file, to: bad)) != nil
+            let start = "config.json couldn't be read, so Desk started on its defaults."
+            return (DeskConfig(), kept
+                ? "\(start) The broken file was kept as config.json.bad; config.json is rewritten only when you change a setting."
+                : "\(start) It is rewritten only when you change a setting: fix it by hand before then to keep what it had.")
+        }
     }
 
     public func update(config: DeskConfig) async {
