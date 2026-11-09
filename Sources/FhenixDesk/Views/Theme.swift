@@ -320,9 +320,8 @@ struct MetaLine: View {
     var parts: [Text]
 
     var body: some View {
-        parts.enumerated().reduce(Text("")) { line, part in
-            part.offset == 0 ? part.element : line + Text("  ·  ").foregroundColor(.secondary) + part.element
-        }
+        let separator = Text("  ·  ").foregroundColor(.secondary)
+        parts.dropFirst().reduce(parts.first ?? Text("")) { line, part in Text("\(line)\(separator)\(part)") }
         .scaled(.secondary.monospaced())
         .foregroundStyle(.secondary)
         .lineLimit(1)

@@ -256,7 +256,7 @@ enum PriorityMark {
         default: mark = nil
         }
         guard let mark else { return Text(name) }
-        return Text(Image(systemName: mark.symbol)).foregroundStyle(mark.color).bold() + Text(" \(name)")
+        return Text("\(Text(Image(systemName: mark.symbol)).foregroundStyle(mark.color).bold()) \(name)")
     }
 }
 

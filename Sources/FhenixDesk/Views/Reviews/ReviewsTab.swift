@@ -353,8 +353,7 @@ struct QueueRow: View {
                 HStack(spacing: 8) {
                     MetaLine(parts: [
                         Text(verbatim: "#\(pr.number)"), Text(pr.repoName), Text(pr.author), Text("\(pr.baseRef) ← \(pr.headRef)"),
-                        Text("\(Format.sizeBucket(pr.size)) ") + Text("+\(pr.additions)").foregroundStyle(.green)
-                            + Text(" −\(pr.deletions)").foregroundStyle(.red),
+                        Text("\(Format.sizeBucket(pr.size)) \(Text("+\(pr.additions)").foregroundStyle(.green)) \(Text("−\(pr.deletions)").foregroundStyle(.red))"),
                     ])
                     ChecksBadge(pr: pr)
                 }

@@ -693,7 +693,7 @@ struct EditableTitle<Trailing: View>: View {
         let lift = (style.size * scale).rounded() * 0.35
         return HStack(alignment: .firstTextBaseline, spacing: 6) {
             // The number or key is GitHub's or Jira's, not part of the title, so it reads as a label beside it.
-            (Text(verbatim: prefix.isEmpty ? "" : "\(prefix) ").foregroundStyle(.secondary) + Text(title))
+            Text("\(Text(verbatim: prefix.isEmpty ? "" : "\(prefix) ").foregroundStyle(.secondary))\(title)")
                 .scaled(style)
                 .fixedSize(horizontal: false, vertical: true)
                 .textSelection(.enabled)

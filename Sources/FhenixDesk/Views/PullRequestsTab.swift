@@ -214,7 +214,7 @@ struct PullRequestRow: View {
             Text(verbatim: "#\(pr.number)"),
             Text(pr.repoName),
             Text("\(pr.baseRef) ← \(pr.headRef)"),
-            Text("\(Format.sizeBucket(pr.size)) ") + Text("+\(pr.additions)").foregroundStyle(.green) + Text(" −\(pr.deletions)").foregroundStyle(.red),
+            Text("\(Format.sizeBucket(pr.size)) \(Text("+\(pr.additions)").foregroundStyle(.green)) \(Text("−\(pr.deletions)").foregroundStyle(.red))"),
         ]
         if pr.unresolvedThreads > 0 {
             parts.append(Text("\(pr.unresolvedThreads) unresolved").foregroundStyle(.orange))
