@@ -38,11 +38,13 @@ final class Notifier {
     /// Marks every current nudge as seen. Posts a notification only when `post` is true, so
     /// nudges that exist before all sources report once never fire.
     func deliver(_ nudges: [Nudge], post: Bool) {
+        // A run without a bundle posts nothing, and must not mark nudges seen in the file the installed app reads.
+        guard let center else { return }
         let now = Date()
         let fresh = nudges.filter { delivered[$0.id] == nil && Self.notifiedKinds.contains($0.kind) && ($0.severity >= .warning || $0.kind == .readyToMerge) }
         for nudge in fresh {
             delivered[nudge.id] = now
-            guard post, let center else { continue }
+            guard post else { continue }
             let content = UNMutableNotificationContent()
             content.title = nudge.title
             content.body = nudge.detail

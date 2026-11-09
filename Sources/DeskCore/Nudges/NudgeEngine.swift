@@ -63,7 +63,9 @@ public enum NudgeEngine {
 
         for pr in input.reviewRequests {
             let waiting = input.now.timeIntervalSince(pr.createdAt)
-            nudges.append(Nudge(id: "review:\(pr.url)", kind: .reviewRequested, severity: waiting > 86_400 ? .warning : .info, title: "Needs review: \(pr.repoName)#\(pr.number)", detail: "\(pr.title) · \(pr.author) · \(TimeText.duration(waiting))", url: pr.url))
+            // Keyed by your last review too, so a request that comes back after you answered is news again.
+            let answered = ReviewStatus.lastSubmitted(pr, by: input.login)?.submittedAt.timeIntervalSince1970 ?? 0
+            nudges.append(Nudge(id: "review:\(pr.url):\(answered)", kind: .reviewRequested, severity: waiting > 86_400 ? .warning : .info, title: "Needs review: \(pr.repoName)#\(pr.number)", detail: "\(pr.title) · \(pr.author) · \(TimeText.duration(waiting))", url: pr.url))
         }
 
         nudges += flowNudges(input)

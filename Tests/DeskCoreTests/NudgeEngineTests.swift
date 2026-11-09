@@ -79,6 +79,18 @@ import Testing
         #expect(kinds == [.readyToMerge])
     }
 
+    /// A request that comes back after you reviewed is a new nudge, not one already delivered; someone else's review is not.
+    @Test func aReRequestIsANewNudge() {
+        let asked = Fixtures.pr(number: 5, head: "e", author: "alice")
+        var answered = asked
+        answered.reviews = [Review(state: "CHANGES_REQUESTED", submittedAt: Fixtures.hours(1), author: "me")]
+        var othersOnly = asked
+        othersOnly.reviews = [Review(state: "APPROVED", submittedAt: Fixtures.hours(1), author: "bob")]
+        let id = { (pr: PullRequest) in NudgeEngine.nudges(input(reviews: [pr])).first { $0.kind == .reviewRequested }?.id }
+        #expect(id(asked) != id(answered))
+        #expect(id(asked) == id(othersOnly))
+    }
+
     @Test func everyNudgeLandsOnTheScreenThatHandlesIt() {
         let mine = Fixtures.pr(number: 1, head: "a", checks: .failure)
         let theirs = Fixtures.pr(number: 2, head: "b", author: "alice")
