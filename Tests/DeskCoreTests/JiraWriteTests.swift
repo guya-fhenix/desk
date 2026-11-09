@@ -47,6 +47,53 @@ import Testing
         #expect(JiraDecoding.writeFailure(in: #"{"results":[{"status":"SUCCESS","id":"PRO-1"}],"successCount":1}"#, unconfirmed: "x") == nil)
     }
 
+    /// A workflow with no way from To Do straight to Review Ready refuses the move; it then goes through In Progress,
+    /// and only for that refusal: one acli could not confirm may have landed, so it is not tried again.
+    @Test func aMoveWithNoWayThereGoesThroughInProgress() async throws {
+        let noWay = ShellResult.ok(#"{"results":[{"status":"FAILURE","message":"No allowed transitions found for given status","id":"PRO-1"}]}"#)
+        let moved = ShellResult.ok(#"{"results":[{"status":"SUCCESS","id":"PRO-1"}]}"#)
+        /// acli's answers in the order they are asked for, each move after them answered as made.
+        actor Script {
+            var answers: [ShellResult]
+            let otherwise: ShellResult
+            var statuses: [String] = []
+            init(_ answers: [ShellResult], otherwise: ShellResult) { (self.answers, self.otherwise) = (answers, otherwise) }
+            func answer(_ status: String) -> ShellResult {
+                statuses.append(status)
+                return answers.isEmpty ? otherwise : answers.removeFirst()
+            }
+        }
+        func moves(_ answers: [ShellResult], via: String?) async -> (statuses: [String], error: String?) {
+            let script = Script(answers, otherwise: moved)
+            let jira = JiraProvider(acliPath: "/acli") { _, arguments, _, _, _, _ in
+                await script.answer(arguments[arguments.firstIndex(of: "--status")! + 1])
+            }
+            do { try await jira.transition(key: "PRO-1", to: "👀 Review Ready", via: via) } catch {
+                return (await script.statuses, "\(error)")
+            }
+            return (await script.statuses, nil)
+        }
+
+        let through = await moves([noWay], via: "In Progress")
+        #expect(through.statuses == ["👀 Review Ready", "In Progress", "👀 Review Ready"])
+        #expect(through.error == nil)
+
+        let direct = await moves([], via: "In Progress")
+        #expect(direct.statuses == ["👀 Review Ready"], "a workflow that allows the move makes one transition")
+
+        let unconfirmed = await moves([.ok("   ")], via: "In Progress")
+        #expect(unconfirmed.statuses == ["👀 Review Ready"], "an unconfirmed move may have landed: not tried again")
+
+        let noVia = await moves([noWay], via: nil)
+        #expect(noVia.statuses == ["👀 Review Ready"])
+        #expect(noVia.error?.contains("No allowed transitions") == true)
+
+        // In Progress done but Review Ready still refused: the ticket moved, and the error says where it stands.
+        let halfway = await moves([noWay, moved, noWay], via: "In Progress")
+        #expect(halfway.statuses == ["👀 Review Ready", "In Progress", "👀 Review Ready"])
+        #expect(halfway.error?.contains("moved to “In Progress”") == true)
+    }
+
     /// What acli's failures come to, for a move, an edit and a read alike. nil answers as if acli were not installed.
     @Test func acliFailuresSayWhatWentWrong() async {
         func jira(_ answer: ShellResult?) -> JiraProvider {

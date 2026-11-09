@@ -281,7 +281,7 @@ final class AppModel {
         Task {
             defer { movingTickets.remove(key) }
             ticketMoveErrors[key] = await perform(.jira) {
-                try await service.transitionTicket(key: key, to: drift.target)
+                try await service.transitionTicket(key: key, to: drift.target, from: drift.ticket.category)
             } patch: {
                 expect(TicketEdit(status: drift.target, category: drift.stage == .done ? .done : nil), on: key)
             }
