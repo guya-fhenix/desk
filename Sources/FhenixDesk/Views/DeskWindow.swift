@@ -49,6 +49,10 @@ struct DeskWindow: View {
     @State private var tab: Tab = Tab(rawValue: ProcessInfo.processInfo.environment["FHENIX_DESK_OPEN_WINDOW"] ?? "") ?? .upNext
     /// Whether the sidebar shows, as its toggle and ⌃⌘S leave it; setup hides it without changing this.
     @State private var columns = NavigationSplitViewVisibility.all
+    /// How many review diffs are on screen — two for a moment, as one replaces another — and the sidebar as it was before
+    /// the first folded it away, put back when the last goes.
+    @State private var reviewDiffs = 0
+    @State private var columnsBeforeReview = NavigationSplitViewVisibility.all
     private var filters = ReviewFilters()
     private var tickets = TicketFilters()
 
@@ -70,6 +74,8 @@ struct DeskWindow: View {
             }
             .background(Theme.background.ignoresSafeArea())
         }
+        // On the split view itself: a tab's pages are pushed onto it, out from under anything set inside its detail.
+        .environment(\.reviewRoom, reviewRoom)
         // Each screen's header says where you are.
         .toolbar(removing: .title)
         // Dimmed, not blurred: a blur filter on the window — even at radius 0 — draws it through an offscreen
@@ -126,6 +132,21 @@ struct DeskWindow: View {
         .navigationSplitViewColumnWidth(min: 200, ideal: Theme.sidebarWidth, max: 320)
     }
 
+    /// A review diff wants the window's width for its code: the first on screen folds the sidebar away, the last to go
+    /// puts it back as it was. ⌃⌘S still shows it in between.
+    private func reviewRoom(_ taking: Bool) {
+        if taking {
+            if reviewDiffs == 0 {
+                columnsBeforeReview = columns
+                columns = .detailOnly
+            }
+            reviewDiffs += 1
+        } else {
+            reviewDiffs -= 1
+            if reviewDiffs == 0 { columns = columnsBeforeReview }
+        }
+    }
+
     private var choice: Binding<Choice?> {
         Binding {
             model.showingSettings ? .settings : .tab(tab)
@@ -172,6 +193,11 @@ enum Route: Hashable {
 extension FocusedValues {
     /// The path of the tab on show, for Go → Back.
     @Entry var routePath: Binding<[Route]>?
+}
+
+extension EnvironmentValues {
+    /// Told true as a review diff comes on screen and false as it goes, so the window can make room for it.
+    @Entry var reviewRoom: @MainActor (Bool) -> Void = { _ in }
 }
 
 /// The page a route opens: your PR's own page, someone else's PR as the review queue shows it — its diff while you
