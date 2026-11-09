@@ -542,7 +542,7 @@ private struct SessionRow: View {
                 } else {
                     Text(URL(fileURLWithPath: session.cwd).lastPathComponent)
                 }
-                Text(session.state).scaled(.caption).foregroundStyle(.secondary)
+                Text(session.status).scaled(.caption).foregroundStyle(.secondary)
             }
         }
     }

@@ -30,10 +30,14 @@ public struct ClaudeJob: Sendable, Hashable, Identifiable {
     /// The PRs Claude Code's link scan found in its output: its `children` of kind `pr`. The PR it opened is one, and so
     /// is every PR it only mentioned.
     public var linked: Set<String>
+    /// What it is asking, as Claude Code sums it up (`needs`), while it asks. Often the last line of a long message, which
+    /// reads as the end of a report rather than a question, so Desk says it outright.
+    public var question: String?
 
     public init(
         id: String, name: String, state: String, cwd: String, prKeys: Set<String>, updatedAt: Date, createdAt: Date? = nil,
-        sessionId: String? = nil, ticketKey: String? = nil, startedOn: Set<String> = [], linked: Set<String> = []
+        sessionId: String? = nil, ticketKey: String? = nil, startedOn: Set<String> = [], linked: Set<String> = [],
+        question: String? = nil
     ) {
         self.id = id
         self.name = name
@@ -46,11 +50,16 @@ public struct ClaudeJob: Sendable, Hashable, Identifiable {
         self.ticketKey = ticketKey
         self.startedOn = startedOn
         self.linked = linked
+        self.question = question
     }
 
     public var isRunning: Bool { state == "working" }
     /// Waiting on your answer to something it asked.
     public var isAsking: Bool { state == "blocked" }
+    /// Its state in a word for people: Claude Code's "blocked" reads as stuck, when it is waiting on your answer.
+    public var status: String { isAsking ? "asks you" : state }
+    /// What it asks, or that it asks something, for wherever Desk says so.
+    public var asking: String { question.map { "The session asks: \($0)" } ?? "The session is asking you something" }
     /// In the middle of a turn: working, or asking you something.
     public var isBusy: Bool { isRunning || isAsking }
     /// Done with its turn: the one state an instruction may be sent in. Stopping a session that works or asks would cut
@@ -79,7 +88,8 @@ public enum ClaudeJobs {
             return ClaudeJob(
                 id: id, name: state.label(fallback: id), state: state.state ?? "unknown", cwd: state.cwd ?? "",
                 prKeys: keys, updatedAt: state.updatedAt ?? .distantPast, createdAt: state.createdAt, sessionId: state.sessionId,
-                ticketKey: ticketKey, startedOn: state.intent.map(ClaudeJobs.prKeys(in:)) ?? [], linked: state.linked
+                ticketKey: ticketKey, startedOn: state.intent.map(ClaudeJobs.prKeys(in:)) ?? [], linked: state.linked,
+                question: state.question
             )
         }
         .sorted { $0.updatedAt > $1.updatedAt }
@@ -146,6 +156,14 @@ public enum ClaudeJobs {
         var children: [Child]?
         var updatedAt: Date?
         var createdAt: Date?
+        /// What a blocked session waits on you for, in a line.
+        var needs: String?
+
+        /// `needs` while it is blocked; Claude Code may leave it behind once the session moves on.
+        var question: String? {
+            guard state == "blocked", let text = needs?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else { return nil }
+            return text
+        }
 
         /// Every PR link Claude Code's scan found in the session's output, the one it opened among them.
         var linked: Set<String> {

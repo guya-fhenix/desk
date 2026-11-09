@@ -80,7 +80,8 @@ public enum NudgeEngine {
             guard let label = pr.map({ "\($0.repoName)#\($0.number)" }) ?? session.ticketKey else { continue }
             nudges.append(Nudge(
                 id: "flow-ask:\(session.id):\(session.updatedAt.timeIntervalSince1970)", kind: .sessionNeedsYou, severity: .warning,
-                title: "\(label): the session is asking you something", detail: pr?.title ?? "Session started from \(label)",
+                title: "\(label): the session is asking you something",
+                detail: session.question ?? pr?.title ?? "Session started from \(label)",
                 url: pr?.url, jobId: session.id
             ))
         }
