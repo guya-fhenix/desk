@@ -61,7 +61,7 @@ import Testing
         var fork = Fixtures.pr(number: 8, head: "someone/fork-branch")
         fork.isCrossRepository = true
         let forkPath = try await worktrees.prepareBranch(pr: fork, repoRoot: mine)
-        #expect(forkPath == mine + "/.claude/worktrees/someone-fork-branch")
+        #expect(forkPath == mine + "/.claude/worktrees/pr-8-someone-fork-branch")
         #expect(try await run(["rev-parse", "HEAD"], cwd: forkPath) == head)
         #expect(try await run(["rev-parse", "--abbrev-ref", "HEAD"], cwd: forkPath) == "HEAD")
     }
@@ -80,7 +80,7 @@ import Testing
         var fork = Fixtures.pr(number: 9, head: "master")
         fork.isCrossRepository = true
         let path = try await worktrees.prepareBranch(pr: fork, repoRoot: mine)
-        #expect(path == mine + "/.claude/worktrees/master")
+        #expect(path == mine + "/.claude/worktrees/pr-9-master")
         #expect(try await run(["rev-parse", "HEAD"], cwd: path) == head)
         #expect(try await run(["rev-parse", "--abbrev-ref", "HEAD"], cwd: path) == "HEAD")
         // Reused while it stays detached; a branch checked out there is someone's work, not the fork's head.

@@ -679,7 +679,10 @@ final class AppModel {
         guard let session = state.session(for: pr), busyFlows.insert(pr.url).inserted else { return }
         flowErrors[pr.url] = nil
         let root = state.localRepo(for: pr)?.root ?? session.cwd
-        let worktree = state.worktrees.first { $0.repoRoot == root && $0.branch == pr.headRef }?.path
+        // A fork's branch name may be one of this clone's own (its `master`), so a fork's worktree is found by its path.
+        let worktree = pr.isCrossRepository
+            ? state.worktrees.first { $0.path == BranchWorktrees.worktreePath(for: pr, repoRoot: root) }?.path
+            : state.worktrees.first { $0.repoRoot == root && $0.branch == pr.headRef }?.path
         // Numbered by when it went out, so an earlier instruction's file is never this one's.
         let resultFile = DeskService.resultFile(jobId: session.id, step: Int(Date().timeIntervalSince1970))
         let text = DeskService.flowPrompt(

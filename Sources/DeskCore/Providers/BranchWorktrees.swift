@@ -31,7 +31,7 @@ public actor BranchWorktrees {
     /// directory's name says nothing of what was checked out in it since.
     public func prepareBranch(pr: PullRequest, repoRoot: String) async throws -> String {
         try await serialized(repoRoot) {
-            let path = Self.branchWorktree(branch: pr.headRef, repoRoot: repoRoot)
+            let path = Self.worktreePath(for: pr, repoRoot: repoRoot)
             // A record for a directory that is gone goes on claiming its branch, and `worktree add`
             // refuses to check a branch out twice. Pruning first is what lets the branch be used again;
             // it only ever drops records whose directory has already vanished.
@@ -64,10 +64,11 @@ public actor BranchWorktrees {
         }
     }
 
-    /// Branch names carry slashes; the directory name flattens them the way `claude -w` does.
-    public nonisolated static func branchWorktree(branch: String, repoRoot: String) -> String {
-        let name = branch.replacingOccurrences(of: "/", with: "-")
-        return (repoRoot as NSString).appendingPathComponent(".claude/worktrees/\(name)")
+    /// Branch names carry slashes; the directory name flattens them the way `claude -w` does. A fork's carries its PR
+    /// number too: two forks can both name their branch `master`, and neither is this clone's `master`.
+    public nonisolated static func worktreePath(for pr: PullRequest, repoRoot: String) -> String {
+        let name = pr.headRef.replacingOccurrences(of: "/", with: "-")
+        return (repoRoot as NSString).appendingPathComponent(".claude/worktrees/\(pr.isCrossRepository ? "pr-\(pr.number)-" : "")\(name)")
     }
 
     /// Untracked, the worktrees would make the main checkout count as dirty, and a session's `git add -A` there would
