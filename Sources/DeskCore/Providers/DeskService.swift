@@ -107,7 +107,7 @@ public actor DeskService {
         if files.allSatisfy({ FileManager.default.fileExists(atPath: "\(repoRoot)/\($0)") }) { return true }
         guard let git = Shell.which("git") else { return false }
         for file in files {
-            let result = try? await Shell.run(git, ["-C", repoRoot, "cat-file", "-e", "origin/HEAD:\(file)"], timeout: 10)
+            let result = try? await Shell.run(git, ["-C", repoRoot, "cat-file", "-e", "origin/HEAD:\(file)"], environment: GitProvider.environment, timeout: 10)
             guard result?.status == 0 else { return false }
         }
         return true

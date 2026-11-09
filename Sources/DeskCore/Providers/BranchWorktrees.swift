@@ -66,7 +66,7 @@ public actor BranchWorktrees {
 
     @discardableResult
     private nonisolated func git(_ arguments: [String], cwd: String) async throws -> String {
-        try await Shell.output(gitPath, arguments, cwd: cwd, timeout: 300).trimmingCharacters(in: .whitespacesAndNewlines)
+        try await Shell.output(gitPath, arguments, cwd: cwd, environment: GitProvider.environment, timeout: 300).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private nonisolated static func canonical(_ path: String) -> String {

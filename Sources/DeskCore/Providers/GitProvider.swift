@@ -116,6 +116,11 @@ public enum GitParsing {
 }
 
 public actor GitProvider {
+    /// Set on every git command Desk runs on its own. Without optional locks, `git status` leaves the index as it is
+    /// instead of rewriting it under `index.lock`, so a scan never fails a commit someone is making in that worktree.
+    /// Without a terminal prompt, a fetch that wants credentials fails at once instead of waiting out its timeout.
+    public static let environment: [String: String?] = ["GIT_OPTIONAL_LOCKS": "0", "GIT_TERMINAL_PROMPT": "0"]
+
     private let gitPath: String
     private let concurrency = 6
 
@@ -208,7 +213,7 @@ public actor GitProvider {
     /// else `master`. Also what a review reads other clones at.
     public nonisolated static func defaultBranch(root: String, gitPath: String) async -> String {
         func git(_ arguments: [String]) async -> String? {
-            try? await Shell.output(gitPath, arguments, cwd: root, timeout: 30).trimmingCharacters(in: .whitespacesAndNewlines)
+            try? await Shell.output(gitPath, arguments, cwd: root, environment: environment, timeout: 30).trimmingCharacters(in: .whitespacesAndNewlines)
         }
         if let ref = await git(["symbolic-ref", "--short", "refs/remotes/origin/HEAD"]) {
             return ref.replacingOccurrences(of: "origin/", with: "")
@@ -248,6 +253,6 @@ public actor GitProvider {
     }
 
     private func git(_ arguments: [String], cwd: String) async throws -> String {
-        try await Shell.output(gitPath, arguments, cwd: cwd, timeout: 30).trimmingCharacters(in: .whitespacesAndNewlines)
+        try await Shell.output(gitPath, arguments, cwd: cwd, environment: Self.environment, timeout: 30).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
