@@ -272,11 +272,15 @@ public actor DeskService {
         try await gh().requestTeamReview(repo: pr.repo, number: pr.number, team: config.reviewTeam)
     }
 
-    public func refreshJira(referencedKeys: [String]) async throws -> [Ticket] {
+    /// Your tickets, everyone else's in the projects, and the ones PRs name. `previous` is what the last refresh had:
+    /// everyone else's from it stand in when Jira does not answer for them, and `error` says so.
+    public func refreshJira(referencedKeys: [String], previous: [Ticket] = []) async throws -> (tickets: [Ticket], error: String?) {
         guard let jira else { throw DeskError.jiraNotConfigured }
-        async let mine = jira.myOpenIssues()
-        async let team = jira.teamOpenIssues(projects: config.jiraProjectKeys)
-        let placed = try await mine + team
+        let open = try await jira.openIssues(
+            projects: config.jiraProjectKeys, previousTeam: previous.filter { !$0.assignedToMe && $0.placement != .unknown }
+        )
+        if let error = open.teamError { Self.log.error("jira team tickets: \(error, privacy: .public)") }
+        let placed = open.tickets
         let placedKeys = Set(placed.map(\.key))
         // acli fails the whole query when every key in it is unknown or hidden, as one typo in a branch name makes it;
         // that must not throw away the tickets already fetched.
@@ -287,7 +291,7 @@ public actor DeskService {
             Self.log.error("jira referenced tickets: \(String(describing: error), privacy: .public)")
             others = []
         }
-        return placed + others
+        return (placed + others, open.teamError)
     }
 
     /// The only call in the app that writes to Jira: planning a ticket, and moving one that has fallen

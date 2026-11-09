@@ -185,10 +185,13 @@ final class AppModel {
                     return
                 }
                 guard await service.jiraReady else { throw DeskError.jiraSignedOut }
-                state.tickets = try await service.refreshJira(referencedKeys: state.referencedTicketKeys)
+                let jira = try await service.refreshJira(referencedKeys: state.referencedTicketKeys, previous: state.tickets)
+                state.tickets = jira.tickets
                 applyTicketEdits()
+                // Your own tickets came back; other people's, if Jira did not answer for them, kept their last list, and
+                // say why here.
+                state.errors[.jira] = jira.error
             }
-            if source == .jira { state.errors[source] = nil }
             state.lastRefresh[source] = Date()
         } catch {
             state.errors[source] = "\(error)"

@@ -189,6 +189,34 @@ import Testing
         await #expect(throws: ShellError.self) { try await gh.snapshot(repos: ["o/r"], since: Fixtures.t0) }
     }
 
+    /// Your tickets decide whether a Jira refresh worked. Everyone else's, when Jira does not answer for them in time,
+    /// stand in from the last refresh and say why, rather than failing the refresh and leaving yours stale too.
+    @Test func otherPeoplesTicketsKeepTheirLastListWhenJiraTimesThemOut() async throws {
+        let status = "✓ Authenticated\n  Site: fhenix.atlassian.net\n  Email: guya@fhenix.io\n"
+        @Sendable func ticket(_ key: String) -> String {
+            #"[{"id":"1","key":"\#(key)","fields":{"summary":"s","status":{"name":"To Do","statusCategory":{"key":"new"}}}}]"#
+        }
+        func jira(teamTimesOut: Bool) -> JiraProvider {
+            JiraProvider(acliPath: "/acli") { _, arguments, _, _, _, _ in
+                if arguments.contains("auth") { return .ok(status) }
+                let jql = arguments[arguments.firstIndex(of: "--jql")! + 1]
+                if jql.contains("assignee != currentUser()") {
+                    if teamTimesOut { throw ShellError.timedOut(command: "acli jira workitem search") }
+                    return .ok(jql.contains("sprint in openSprints()") ? ticket("PRO-2") : "[]")
+                }
+                return .ok(jql.contains("sprint in openSprints()") ? ticket("PRO-1") : "[]")
+            }
+        }
+        let previous = try JiraDecoding.tickets(from: Data(ticket("PRO-9").utf8), site: "s", assignedToMe: false, placement: .backlog)
+
+        let fresh = try await jira(teamTimesOut: false).openIssues(projects: ["PRO"], previousTeam: previous)
+        #expect(fresh.tickets.map(\.key) == ["PRO-1", "PRO-2"] && fresh.teamError == nil)
+
+        let slow = try await jira(teamTimesOut: true).openIssues(projects: ["PRO"], previousTeam: previous)
+        #expect(slow.tickets.map(\.key) == ["PRO-1", "PRO-9"], "yours fresh, everyone else's from the last refresh")
+        #expect(slow.teamError == "Other people's tickets kept their last list: acli jira workitem search timed out")
+    }
+
     @Test func decodesAcliWorkItemSearch() throws {
         let json = """
         [{"id":"20322","key":"PRO-484","self":"https://jira-prod-eu-47-2.prod.atl-paas.net/rest/api/3/issue/20322",
