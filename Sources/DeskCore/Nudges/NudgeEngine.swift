@@ -52,8 +52,9 @@ public enum NudgeEngine {
             if let reason = Linker.rebaseReason(pr, mergedHeads: input.mergedHeadsByRepo[pr.repo] ?? []) {
                 nudges.append(Nudge(id: "rebase:\(pr.url):\(reason.rawValue):\(pr.headSha)", kind: .needsRebase, severity: .warning, title: "\(label) needs a rebase", detail: "\(reason.text): \(pr.baseRef)", url: pr.url))
             }
-            if pr.reviewDecision == .approved && pr.mergeState == .clean && !pr.checks.isRed && !pr.checks.isPending && !inFlow {
-                nudges.append(Nudge(id: "ready:\(pr.url):\(pr.headSha)", kind: .readyToMerge, severity: .info, title: "\(label) is approved and green", detail: "Merge it.", url: pr.url))
+            // Ready by the stage's rule, and GitHub would take the merge now: nothing left to wait for.
+            if FlowStage.of(pr) == .approved && pr.mergeState == .clean && !pr.checks.isPending && !inFlow {
+                nudges.append(Nudge(id: "ready:\(pr.url):\(pr.headSha)", kind: .readyToMerge, severity: .info, title: "\(label) is ready to merge", detail: "Merge it.", url: pr.url))
             }
         }
 
@@ -98,7 +99,7 @@ public enum NudgeEngine {
                 case .passed: title = "\(label) passed /pre-pr: mark it ready" + (threads > 0 ? ", \(open) left" : "")
                 case .importantOpen: title = "\(label): /pre-pr left an Important finding open"
                 }
-            case .approved: title = "\(label) is approved: merge it"
+            case .approved: title = "\(label) is ready: merge it"
             default:
                 // Open threads wait on you at any stage; a stage that waits on you already says so.
                 guard threads > 0 else { continue }
