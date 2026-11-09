@@ -3,6 +3,18 @@ import Foundation
 import Testing
 
 @Suite struct DeskConfigTests {
+    /// A source that keeps failing is asked half as often each time, up to every 30 minutes, which lets a throttle on
+    /// the account lift; one success puts it back on its own interval.
+    @Test func aFailingPollBacksOffToThirtyMinutes() {
+        #expect(PollBackoff.seconds(interval: 300, failures: 0) == 300)
+        #expect(PollBackoff.seconds(interval: 300, failures: 1) == 600)
+        #expect(PollBackoff.seconds(interval: 300, failures: 2) == 1_200)
+        #expect(PollBackoff.seconds(interval: 300, failures: 3) == 1_800)
+        #expect(PollBackoff.seconds(interval: 300, failures: 50) == 1_800, "capped, and no overflow however long it fails")
+        #expect(PollBackoff.seconds(interval: 60, failures: 1) == 120)
+        #expect(PollBackoff.seconds(interval: 3_600, failures: 2) == 3_600, "an interval set above the cap is kept")
+    }
+
     /// A config.json from before a setting went away still loads: the key it names is ignored.
     @Test func missingKeysFallBackToDefaults() throws {
         let json = #"{"githubOrg":"Other","reviewTimeoutMinutes":45,"reviewRoot":"~/x","stalePullRequestDays":3}"#
