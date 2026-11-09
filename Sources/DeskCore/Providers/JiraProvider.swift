@@ -87,6 +87,21 @@ public actor JiraProvider {
         return try await sprint + backlog
     }
 
+    /// Your unfinished tickets and everyone else's in `projects`. Yours decide whether the refresh worked. Everyone
+    /// else's — the biggest searches, there only for the Jira screen's assignee filter — come back as `previousTeam`,
+    /// with why, when Jira does not answer them: a slow Jira timing out the team backlog failed the whole refresh, and
+    /// left your own tickets stale with it.
+    public func openIssues(projects: [String], previousTeam: [Ticket]) async throws -> (tickets: [Ticket], teamError: String?) {
+        async let mine = myOpenIssues()
+        async let team = teamOpenIssues(projects: projects)
+        let yours = try await mine
+        do {
+            return (yours + (try await team), nil)
+        } catch {
+            return (yours + previousTeam, "Other people's tickets kept their last list: \(error)")
+        }
+    }
+
     /// Tickets referenced by a PR but assigned to someone else. The Tickets screen never shows these, so
     /// they are left unplaced rather than given a sprint they may not be in.
     public func issues(keys: [String]) async throws -> [Ticket] {
@@ -108,13 +123,17 @@ public actor JiraProvider {
             // timestamp. The JQL still orders by it.
             "--fields", "key,summary,status,priority,assignee,reporter,description",
             "--json", "--paginate",
-        ])
+        ], timeout: Self.searchTimeout)
         return try JiraDecoding.tickets(from: data, site: account.site, assignedToMe: assignedToMe, placement: placement)
     }
 
-    private func acli(_ arguments: [String]) async throws -> Data {
+    /// A search runs in the background, and a paginated one of a couple of hundred tickets has taken over two minutes
+    /// while Jira answered acli slowly — six to thirteen seconds for a single ticket — so it has four before it fails.
+    static let searchTimeout: TimeInterval = 240
+
+    private func acli(_ arguments: [String], timeout: TimeInterval = Shell.defaultTimeout) async throws -> Data {
         do {
-            return Data(try await Shell.output(acliPath, arguments, run: run).utf8)
+            return Data(try await Shell.output(acliPath, arguments, timeout: timeout, run: run).utf8)
         } catch {
             throw Self.mapAcliError(error)
         }

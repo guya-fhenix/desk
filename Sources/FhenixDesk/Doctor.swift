@@ -55,8 +55,10 @@ enum Doctor {
 
         section("Jira")
         do {
-            state.tickets = try await service.refreshJira(referencedKeys: state.referencedTicketKeys)
+            let jira = try await service.refreshJira(referencedKeys: state.referencedTicketKeys)
+            state.tickets = jira.tickets
             print("\(state.tickets.count) tickets")
+            if let error = jira.error { print("  \(error)") }
             for ticket in state.tickets { print("  \(pad(ticket.key, 9)) \(pad(ticket.status, 12)) \(ticket.summary.prefix(70))") }
         } catch {
             print("  \(error)")
