@@ -35,7 +35,7 @@ struct FinderView: View {
                     Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
                     TextField("PR, review, ticket, or #", text: $query)
                         .textFieldStyle(.plain)
-                        .scaled(.title3)
+                        .scaled(.headline.weight(.regular))
                         .focused($focused)
                         .onSubmit { open(hits, onGitHub: false) }
                         .onKeyPress(.downArrow) { move(1, in: hits) }
@@ -48,7 +48,7 @@ struct FinderView: View {
                     // Not a dead end: what the app does not know of, GitHub may.
                     VStack(alignment: .leading, spacing: 8) {
                         Text(query.isEmpty ? "No open pull requests yet." : "Nothing here matches.")
-                            .scaled(.callout).foregroundStyle(.secondary)
+                            .scaled(.secondary).foregroundStyle(.secondary)
                         if !query.isEmpty {
                             HStack(spacing: 4) {
                                 KeyCap(key: "⌘")

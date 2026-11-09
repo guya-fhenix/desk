@@ -152,7 +152,7 @@ private struct ChecksPage: View {
     var body: some View {
         FormPage(title: title) {
             HStack {
-                Text(note).scaled(.callout).foregroundStyle(.secondary)
+                Text(note).scaled(.secondary).foregroundStyle(.secondary)
                 Spacer()
                 if checking { ProgressView().controlSize(.small) }
                 Button("Check again", action: recheck).controlSize(.small).disabled(checking)
@@ -218,7 +218,7 @@ private struct FinishPage: View {
         FormPage(title: "Finish") {
             Text(missing.isEmpty ? "Desk has what it needs. Anything still open below can be set up later from Settings → General → Run setup again."
                                  : "Still needed before Desk can show anything: \(missing.joined(separator: ", ")).")
-                .scaled(.callout).foregroundStyle(missing.isEmpty ? Color.secondary : .red)
+                .scaled(.secondary).foregroundStyle(missing.isEmpty ? Color.secondary : .red)
                 .padding(.bottom, 8)
             ForEach(SetupCheck.Kind.allCases, id: \.self) { kind in
                 Hairline()

@@ -16,7 +16,7 @@ enum Entry {
         }
         #if DEBUG
         if let index = arguments.firstIndex(of: "--snapshot") {
-            await Snapshot.start(Array(arguments.dropFirst(index + 1)))
+            Snapshot.start(Array(arguments.dropFirst(index + 1)))
             return
         }
         #endif

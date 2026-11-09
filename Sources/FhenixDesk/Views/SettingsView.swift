@@ -1,4 +1,5 @@
 import DeskCore
+import ServiceManagement
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -203,7 +204,7 @@ private struct FieldGroup<Content: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Hairline().padding(.top, 20)
-            if let title { Text(title).scaled(.callout).foregroundStyle(.secondary) }
+            if let title { Text(title).scaled(.secondary).foregroundStyle(.secondary) }
             LazyVGrid(
                 columns: [GridItem(.flexible(), spacing: 32, alignment: .topLeading), GridItem(.flexible(), alignment: .topLeading)],
                 alignment: .leading, spacing: 18
@@ -256,7 +257,7 @@ private struct BoxedText: View {
     var body: some View {
         TextField(placeholder, text: $text)
             .textFieldStyle(.plain)
-            .scaled(.callout.monospaced())
+            .scaled(.secondary.monospaced())
             .modifier(InputBox())
     }
 }
@@ -272,7 +273,7 @@ private struct BoxedStepper<Value: Strideable>: View where Value.Stride: SignedN
 
     var body: some View {
         HStack {
-            Text(text).scaled(.callout.monospaced())
+            Text(text).scaled(.secondary.monospaced())
             Spacer()
             Stepper(label, value: $value, in: range, step: step).labelsHidden()
         }
@@ -298,7 +299,7 @@ private struct TokenField: View {
             VStack(alignment: .leading, spacing: 6) {
                 ForEach(tokens, id: \.self) { token in
                     HStack(spacing: 6) {
-                        Text(token).scaled(.callout.monospaced())
+                        Text(token).scaled(.secondary.monospaced())
                         if problem(token) != nil { Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange) }
                         Spacer(minLength: 4)
                         Button { set(tokens.filter { $0 != token }) } label: {
@@ -310,7 +311,7 @@ private struct TokenField: View {
                 }
                 TextField(placeholder, text: $entry)
                     .textFieldStyle(.plain)
-                    .scaled(.callout.monospaced())
+                    .scaled(.secondary.monospaced())
                     .onSubmit {
                         let new = entry.trimmingCharacters(in: .whitespaces)
                         if !new.isEmpty, !tokens.contains(new) { set(tokens + [new]) }
@@ -397,13 +398,47 @@ private struct GeneralSettings: View {
             Field(label: "macOS notifications") {
                 Toggle("Notify me", isOn: $draft.config.notificationsEnabled).toggleStyle(.switch).controlSize(.small)
             }
+            Field(
+                label: "Startup",
+                hint: Bundle.main.bundleIdentifier == nil ? "Only for the installed app: a build run with swift run has no bundle to register." : nil
+            ) { OpenAtLogin() }
         }
         FieldGroup(title: "About") {
-            Field(label: "Version") { Text(Bundle.main.versionText).scaled(.callout.monospaced()).foregroundStyle(.secondary).textSelection(.enabled) }
+            Field(label: "Version") { Text(Bundle.main.versionText).scaled(.secondary.monospaced()).foregroundStyle(.secondary).textSelection(.enabled) }
             Field(label: "Setup", hint: "Checks the tools and sign-ins again, and walks the settings it needs.") {
                 Button("Run setup again") { model.showingSetup = true }.controlSize(.small)
             }
         }
+    }
+}
+
+/// Desk as a login item, so its nudges come back after a restart without opening it first. macOS keeps this, not
+/// config.json, and can turn it off in System Settings → Login Items; the switch reads its state each time it shows.
+private struct OpenAtLogin: View {
+    @State private var status = SMAppService.mainApp.status
+    @State private var error: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Toggle("Open at login", isOn: Binding(get: { status == .enabled }, set: { set($0) }))
+                .toggleStyle(.switch).controlSize(.small)
+                .disabled(Bundle.main.bundleIdentifier == nil)
+            if status == .requiresApproval {
+                Button("Allow it in Login Items…") { SMAppService.openSystemSettingsLoginItems() }.controlSize(.small)
+            }
+            if let error { Text(error).scaled(.caption).foregroundStyle(.red).textSelection(.enabled) }
+        }
+        .onAppear { status = SMAppService.mainApp.status }
+    }
+
+    private func set(_ on: Bool) {
+        do {
+            if on { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() }
+            error = nil
+        } catch {
+            self.error = "Could not \(on ? "add" : "remove") the login item: \(error.localizedDescription)"
+        }
+        status = SMAppService.mainApp.status
     }
 }
 
@@ -449,9 +484,9 @@ struct JiraSettings: View {
         ) {
             // Plain text, not input boxes: nothing here can be typed into.
             if let account = model.jiraAccount {
-                Field(label: "Site") { Text(account.site).scaled(.callout.monospaced()).foregroundStyle(.secondary).textSelection(.enabled) }
+                Field(label: "Site") { Text(account.site).scaled(.secondary.monospaced()).foregroundStyle(.secondary).textSelection(.enabled) }
                 Field(label: "Signed in as") {
-                    Text(account.email ?? "—").scaled(.callout.monospaced()).foregroundStyle(.secondary).textSelection(.enabled)
+                    Text(account.email ?? "—").scaled(.secondary.monospaced()).foregroundStyle(.secondary).textSelection(.enabled)
                 }
             }
             VStack(alignment: .leading, spacing: 8) {

@@ -15,24 +15,19 @@ struct AppTextStyle: Equatable {
     var design: Font.Design = .default
 
     // Five roles, as they render at `scale`: title 24, headline 15, body 14, secondary 12, caption 11 — so a view
-    // has a few sizes to choose from rather than ten. The older names stay as aliases of the role they now are.
-    // Sizes and weights follow PR Cockpit's: its page title, row title, meta line and badges are these.
+    // has a few sizes to choose from rather than ten. A different weight is set where it is used.
 
     /// Page titles and the big numbers.
     static let title = AppTextStyle(size: 22.25, weight: .medium)
-    /// Section and panel titles; `title3` is the same size, its weight set where it is used.
+    /// Section and panel titles.
     static let headline = AppTextStyle(size: 14, weight: .semibold)
-    static let title3 = AppTextStyle(size: 14)
     static let body = AppTextStyle(size: 13)
     /// A list row's title: body size, medium, so it leads the line of facts under it.
     static let rowTitle = AppTextStyle(size: 13, weight: .medium)
     /// Secondary text: group headers, notes, counts.
     static let secondary = AppTextStyle(size: 11)
-    static let subheadline = secondary
-    static let callout = secondary
     /// The smallest text, key caps included.
     static let caption = AppTextStyle(size: 10)
-    static let caption2 = AppTextStyle(size: 10, weight: .medium)
     /// Code, at the secondary size. A diff's row height scales with it, or the lines would overlap.
     static let code = AppTextStyle(size: 11, design: .monospaced)
 
@@ -55,7 +50,7 @@ struct AppTextStyle: Equatable {
 
 extension EnvironmentValues {
     /// The app's text, and the few widths and heights that hold text, at this multiple of macOS's own sizes: 14 pt
-    /// body text, the reference app's size.
+    /// body text.
     @Entry var textScale: CGFloat = 1.08
 }
 

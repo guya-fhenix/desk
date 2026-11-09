@@ -14,6 +14,9 @@ git fetch --quiet --tags origin main
 [[ "$(git rev-parse HEAD)" == "$(git rev-parse origin/main)" ]] || fail "main is not at origin/main; pull or push first"
 ! git rev-parse --quiet --verify "refs/tags/${TAG}" >/dev/null || fail "${TAG} exists; raise CFBundleShortVersionString in Resources/Info.plist"
 gh auth status >/dev/null 2>&1 || fail "gh is not signed in; run gh auth login"
+# Gatekeeper blocks an ad-hoc build on every Mac that downloads it, so publishing one takes asking for it.
+[[ -n "${DEVELOPER_ID:-}" || "${ALLOW_ADHOC:-}" == 1 ]] ||
+  fail "DEVELOPER_ID is not set, so the build would be ad-hoc signed; set it (and NOTARY_PROFILE), or ALLOW_ADHOC=1"
 swift test || fail "the tests fail; fix them on main first"
 
 scripts/dmg.sh

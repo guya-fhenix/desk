@@ -214,7 +214,7 @@ struct PullRequestRow: View {
             Text(verbatim: "#\(pr.number)"),
             Text(pr.repoName),
             Text("\(pr.baseRef) ← \(pr.headRef)"),
-            Text("\(Format.sizeBucket(pr.size)) ") + Text("+\(pr.additions)").foregroundStyle(.green) + Text(" −\(pr.deletions)").foregroundStyle(.red),
+            Text("\(Format.sizeBucket(pr.size)) \(Text("+\(pr.additions)").foregroundStyle(.green)) \(Text("−\(pr.deletions)").foregroundStyle(.red))"),
         ]
         if pr.unresolvedThreads > 0 {
             parts.append(Text("\(pr.unresolvedThreads) unresolved").foregroundStyle(.orange))
@@ -286,7 +286,7 @@ private struct TicketMark: View {
                 .buttonStyle(.link).handCursor()
                 .disabled(ticket == nil)
             if let drift {
-                Image(systemName: "arrow.right.circle.fill").scaled(.caption2).foregroundStyle(.orange)
+                Image(systemName: "arrow.right.circle.fill").scaled(.caption.weight(.medium)).foregroundStyle(.orange)
                     .help("Jira says “\(drift.ticket.status)”; this PR says “\(drift.target)”. A suggested move: press Move on the ticket")
             }
         }
