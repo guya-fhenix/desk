@@ -96,7 +96,6 @@ private struct DeskRoot: View {
 
     var body: some View {
         DeskWindow()
-            .handButtons()
             .environment(model)
             .task {
                 AppDelegate.openDesk = {

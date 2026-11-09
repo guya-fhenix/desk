@@ -176,7 +176,7 @@ struct RefreshControl: View {
             .background(Theme.raised, in: Capsule())
             .contentShape(Capsule())
         }
-        .buttonStyle(.plain).handCursor()
+        .buttonStyle(.plain)
         .help(model.syncHelp)
     }
 }
@@ -254,9 +254,9 @@ extension View {
     /// The session button's look: filled and full size as a page's action, plain and small elsewhere.
     @ViewBuilder fileprivate func sessionStyle(_ prominent: Bool, menu: Bool = false) -> some View {
         if prominent {
-            if menu { menuStyle(.button).buttonStyle(.borderedProminent).handCursor() } else { buttonStyle(.borderedProminent).handCursor() }
+            if menu { menuStyle(.button).buttonStyle(.borderedProminent) } else { buttonStyle(.borderedProminent) }
         } else {
-            if menu { menuStyle(.borderlessButton).controlSize(.small).handCursor() } else { buttonStyle(.borderless).controlSize(.small).handCursor() }
+            if menu { menuStyle(.borderlessButton).controlSize(.small) } else { buttonStyle(.borderless).controlSize(.small) }
         }
     }
 }
@@ -285,7 +285,7 @@ struct PullRequestMenu: View {
 extension View {
     /// Filled for the one press a screen leads with, bordered for the rest: six filled buttons are six focal points.
     @ViewBuilder func primaryStyle(_ prominent: Bool) -> some View {
-        if prominent { buttonStyle(.borderedProminent).handCursor() } else { buttonStyle(.bordered).handCursor() }
+        if prominent { buttonStyle(.borderedProminent) } else { buttonStyle(.bordered) }
     }
 }
 
@@ -726,7 +726,7 @@ struct PageHeadline: View {
                         Image(systemName: "arrow.up.right").scaled(.caption)
                     }
                 }
-                .buttonStyle(IconButtonStyle())
+                .buttonStyle(IconButtonStyle()).handCursor()
                 .help("Open on GitHub")
                 .accessibilityLabel("Open on GitHub")
             }
@@ -813,8 +813,8 @@ struct EditableTitle<Trailing: View>: View {
             if saving {
                 ProgressView().controlSize(.small)
             } else {
-                Button(action: commit) { KeyCap(key: "↩") }.buttonStyle(.plain).handCursor().help("Save (Return)")
-                Button(action: cancel) { KeyCap(key: "Esc") }.buttonStyle(.plain).handCursor().help("Cancel (Esc)")
+                Button(action: commit) { KeyCap(key: "↩") }.buttonStyle(.plain).help("Save (Return)")
+                Button(action: cancel) { KeyCap(key: "Esc") }.buttonStyle(.plain).help("Cancel (Esc)")
             }
         }
     }
@@ -899,7 +899,6 @@ struct EditableDescription<Rendered: View>: View {
                 if !editing {
                     Button("Edit", action: start)
                         .controlSize(.small)
-                        .handCursor()
                         .disabled(!editable)
                         .help(editable ? editHelp : lockedHelp)
                 }
@@ -923,7 +922,7 @@ struct EditableDescription<Rendered: View>: View {
                     if saving { ProgressView().controlSize(.small) }
                     Button("Cancel", action: cancel).keyboardShortcut(.cancelAction).disabled(saving)
                     Button("Save", action: commit)
-                        .buttonStyle(.borderedProminent).handCursor()
+                        .buttonStyle(.borderedProminent)
                         .keyboardShortcut(.return, modifiers: .command)
                         .disabled(saving || draft == text)
                 }
@@ -1000,7 +999,6 @@ private struct IconButtonBody: View {
             .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(hovering ? Theme.controlBorder : Color.clear))
             .contentShape(Rectangle())
             .onHover { hovering = $0 }
-            .handCursor()
     }
 }
 
@@ -1033,7 +1031,6 @@ struct SessionStatus: View {
                     Button { model.attach(newest, for: pr) } label: { label }
                 }
             }
-            .handCursor()
             .fixedSize()
             .help("“\(newest.name)”, \(newest.state). Click to attach it in Desk’s terminal panel"
                 + (jobs.count > 1 ? "; the arrow lists the other sessions on this PR" : ""))

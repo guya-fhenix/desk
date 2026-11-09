@@ -387,7 +387,7 @@ private struct MoreMenu: View {
         } label: {
             if closing { ProgressView().controlSize(.small) } else { Image(systemName: "ellipsis") }
         }
-        .menuStyle(.button).handCursor()
+        .menuStyle(.button)
         .menuIndicator(.hidden)
         .fixedSize()
         .help("Open on GitHub, copy its branch or link, or close it")

@@ -99,7 +99,7 @@ struct NextStepCard: View {
             Button { confirmingMerge = true } label: {
                 Label("Squash and merge…", systemImage: "arrow.triangle.merge").frame(maxWidth: .infinity)
             }
-            .buttonStyle(.borderedProminent).handCursor()
+            .buttonStyle(.borderedProminent)
             .tint(.green)
             .controlSize(.large)
             // A merge, or a flow press, holds the PR in `busyFlows` until it is done.
@@ -140,7 +140,6 @@ struct NextStepCard: View {
             Spacer()
             DisabledReason(text: blocker)
             Button("Fix it") { model.fix(prompt, for: pr) }
-                .handCursor()
                 .disabled(blocker != nil)
                 .help("Sends the session \"\(prompt.title)\": it fixes and pushes, and asks you only for a decision it can't make")
         }
@@ -178,7 +177,6 @@ private struct RunPrePRButton: View {
                 Image(systemName: "info.circle")
             }
         }
-        .handCursor()
         .onHover { hovering = $0 }
         .task(id: hovering) {
             // A short rest first, so crossing it on the way to Mark ready opens nothing.

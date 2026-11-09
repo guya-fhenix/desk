@@ -207,7 +207,7 @@ private struct FilterToken: View {
                 Image(systemName: "xmark").scaled(.caption).foregroundStyle(.secondary)
                     .frame(width: 16, height: 16).contentShape(Rectangle())
             }
-            .buttonStyle(.plain).handCursor()
+            .buttonStyle(.plain)
             .accessibilityLabel("Remove the filter \(title)")
         }
         .scaled(.secondary)
@@ -314,8 +314,8 @@ private struct FiltersMenu: View {
             }
             .menuBox()
         }
-        .menuStyle(.button).handCursor()
-        .buttonStyle(.plain).handCursor()
+        .menuStyle(.button)
+        .buttonStyle(.plain)
         .menuIndicator(.hidden)
         .fixedSize()
         .help("Keep to the PRs that need an approval, opened lately, or by the authors you review")
@@ -463,10 +463,9 @@ struct ReviewPage: View {
                 ReviewStatusChip(status: model.state.reviewStatus(for: pr))
                 Spacer(minLength: 8)
                 Button(model.reviewRunning(pr) ? "Open review" : "Start review") { model.startReview(pr) }
-                    .buttonStyle(.borderedProminent).handCursor()
+                    .buttonStyle(.borderedProminent)
                     .help("The diff here and a Claude review session beside it: it summarizes the PR, gives its take on each question, and posts the comments and the verdict you decide on")
                 Button("Review on GitHub") { model.openDraft(pr) }
-                    .handCursor()
                     .help("The PR's Files tab, where you comment, pick the verdict and submit")
                 ClaudeSessionButton(pr: pr, model: model).fixedSize()
             }

@@ -118,7 +118,7 @@ struct InspectorToggle: View {
                 .frame(width: 28, height: 24)
                 .background(Theme.raised, in: Capsule())
         }
-        .buttonStyle(.plain).handCursor()
+        .buttonStyle(.plain)
         .help(shown ? "Hide the details panel" : "Show the details panel")
         .accessibilityLabel("Details panel")
         .accessibilityValue(shown ? "Shown" : "Hidden")
@@ -159,7 +159,7 @@ struct PillTabs<Value: Hashable>: View {
                     .overlay(Capsule().strokeBorder(chosen ? Theme.accent : Theme.controlBorder))
                     .contentShape(Capsule())
                 }
-                .buttonStyle(.plain).handCursor()
+                .buttonStyle(.plain)
                 // A pill keeps its one line: squeezed, its title broke a letter a line. The bar wraps instead.
                 .fixedSize()
                 .accessibilityAddTraits(chosen ? .isSelected : [])
@@ -428,7 +428,7 @@ struct SearchBox: View {
                         .frame(minWidth: 24, minHeight: 24).contentShape(Rectangle())
                         .padding(.vertical, -4)
                 }
-                    .buttonStyle(.plain).handCursor()
+                    .buttonStyle(.plain)
                     .accessibilityLabel("Clear search")
             }
         }
@@ -471,8 +471,8 @@ struct SortMenu<Value>: View {
                 icon: currentName == nil ? nil : current?.order == .reverse ? "arrow.down" : "arrow.up"
             )
         }
-        .menuStyle(.button).handCursor()
-        .buttonStyle(.plain).handCursor()
+        .menuStyle(.button)
+        .buttonStyle(.plain)
         .menuIndicator(.hidden)
         .fixedSize()
     }
@@ -609,7 +609,7 @@ struct SidebarItem: View {
             .hoverFill(enabled: !selected)
             .contentShape(RoundedRectangle(cornerRadius: 6))
         }
-        .buttonStyle(.plain).handCursor()
+        .buttonStyle(.plain)
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
 }
@@ -645,7 +645,7 @@ struct SidebarStatus: View {
                     Button { model.refreshAll() } label: {
                         Image(systemName: "arrow.clockwise").frame(width: 20, height: 16).contentShape(Rectangle())
                     }
-                    .buttonStyle(.plain).foregroundStyle(.secondary).handCursor()
+                    .buttonStyle(.plain).foregroundStyle(.secondary)
                     .help("Sync GitHub, Git and Jira now")
                     .accessibilityLabel("Sync now")
                 }
@@ -669,7 +669,6 @@ struct SidebarStatus: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Theme.raised, in: RoundedRectangle(cornerRadius: 8))
         .contentShape(RoundedRectangle(cornerRadius: 8))
-        .pointerStyle(.link)
         .onTapGesture { showingDetail = true }
         .accessibilityElement(children: .contain)
         .accessibilityAction(named: "Show sync details") { showingDetail = true }
@@ -929,22 +928,10 @@ struct BackLink: View {
 }
 
 extension View {
-    /// The pointing hand over a control while it is enabled: every button, menu, picker and toggle in the app has
-    /// it, as a link would. SwiftUI sets the cursor over its own views, so it has to be asked for on each; the
-    /// default-styled buttons get it from `handButtons()` at each window's root.
+    /// The pointing hand over a link while it is enabled. On macOS the hand means a link, and the arrow stays over
+    /// buttons, menus and toggles, so only links and the rows a click opens ask for it; a hand on every control would
+    /// make a real link look like everything else.
     func handCursor() -> some View { modifier(HandCursor()) }
-
-    /// Every button under it that does not name a style of its own gets the pointing hand.
-    func handButtons() -> some View { buttonStyle(HandButtonStyle(base: .automatic)) }
-}
-
-/// A system button style with the pointing hand over it.
-struct HandButtonStyle<Base: PrimitiveButtonStyle>: PrimitiveButtonStyle {
-    var base: Base
-
-    func makeBody(configuration: Configuration) -> some View {
-        Button(configuration).buttonStyle(base).handCursor()
-    }
 }
 
 private struct HandCursor: ViewModifier {

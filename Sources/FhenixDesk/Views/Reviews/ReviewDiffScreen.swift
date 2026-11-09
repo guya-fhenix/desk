@@ -144,7 +144,7 @@ struct ReviewDiffScreen: View {
             }
             .menuBox()
         }
-        .menuStyle(.button).handCursor()
+        .menuStyle(.button)
         .buttonStyle(.plain)
         .menuIndicator(.hidden)
         .help(diff.files[current].path)

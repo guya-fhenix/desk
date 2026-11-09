@@ -77,7 +77,7 @@ enum Snapshot {
             try? await Task.sleep(for: .milliseconds(500))
         }
         let size = NSSize(width: 1180, height: height)
-        await capture(DeskWindow().handButtons().environment(model), size: size, to: arguments[1], titled: true)
+        await capture(DeskWindow().environment(model), size: size, to: arguments[1], titled: true)
     }
 
     private static func appearance(_ arguments: [String]) {

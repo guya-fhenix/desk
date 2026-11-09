@@ -64,7 +64,7 @@ struct TicketsTab: View {
                     if !moves.isEmpty {
                         GroupHeader(title: "Suggested moves", count: moves.count) {
                             Button("Move all") { moves.forEach(model.moveTicket) }
-                                .controlSize(.small).handCursor()
+                                .controlSize(.small)
                                 .disabled(moves.allSatisfy { model.movingTickets.contains($0.ticket.key) })
                         }
                         .plainListRow().selectionDisabled()
@@ -385,7 +385,6 @@ struct MoveButtons: View {
         }
         .controlSize(prominent ? .regular : .small)
         .fixedSize()
-        .handCursor()
     }
 }
 
@@ -427,7 +426,6 @@ struct StartInMenu: View {
                 if prominent { menu.menuStyle(.button).buttonStyle(.borderedProminent) } else { menu }
             }
             .fixedSize()
-            .handCursor()
             .help(model.sessionErrors[ticket.key] ?? "Start \(ticket.key) in a background Claude session")
         }
     }
@@ -457,7 +455,7 @@ struct TicketPage: View {
                         Image(systemName: "arrow.up.right").scaled(.caption)
                     }
                 }
-                .buttonStyle(IconButtonStyle())
+                .buttonStyle(IconButtonStyle()).handCursor()
                 .help("Open in Jira")
                 .accessibilityLabel("Open in Jira")
             }
@@ -610,7 +608,7 @@ struct PlanSheet: View {
                     model.planTicket(request.ticket, in: request.repo, note: note)
                     dismiss()
                 }
-                .buttonStyle(.borderedProminent).handCursor()
+                .buttonStyle(.borderedProminent)
                 // Return belongs to the editor, so the press that starts it is ⌘-Return.
                 .keyboardShortcut(.return, modifiers: .command)
             }
@@ -670,7 +668,7 @@ private struct AssigneeFilter: View {
                         Toggle(isOn: Binding(get: { selection.contains(.person(person.name)) }, set: { _ in toggle(.person(person.name)) })) {
                             HStack(spacing: 8) { Avatar(login: person.name, url: person.avatar, size: 20); Text(person.name) }
                         }
-                        .toggleStyle(.checkbox).handCursor()
+                        .toggleStyle(.checkbox)
                     }
                 }
                 .padding(12)
@@ -704,7 +702,7 @@ private struct FilterFace<Face: View>: View {
                 .offset(y: hovering && !reduceMotion ? -3 : 0)
                 .contentShape(Circle())
         }
-        .buttonStyle(.plain).handCursor()
+        .buttonStyle(.plain)
         .zIndex(hovering ? 2 : on ? 1 : 0)
         .onHover { hovering = $0 }
         .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: hovering)
