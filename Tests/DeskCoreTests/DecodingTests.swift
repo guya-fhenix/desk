@@ -15,7 +15,7 @@ import Testing
           "pending":{"nodes":[{"id":"PRR_1","commit":{"oid":"abc"},"comments":{"totalCount":4}}]},
           "reviewRequests":{"nodes":[{"requestedReviewer":{"__typename":"Team","name":"Protocol Team"}}]},
           "timelineItems":{"nodes":[{"createdAt":"2026-08-27T11:12:22Z","requestedReviewer":{"__typename":"Team","name":"Protocol Team"}},{}]},
-          "reviewThreads":{"nodes":[{"id":"PRRT_1","isResolved":false},{"id":"PRRT_2","isResolved":true},{"isResolved":false}]}}]}}}
+          "reviewThreads":{"totalCount":4,"nodes":[{"id":"PRRT_1","isResolved":false},{"id":"PRRT_2","isResolved":true},{"isResolved":false}]}}]}}}
         """
         let pr = try #require(GitHubDecoding.pullRequests(from: Data(json.utf8)).prs.first)
         #expect(pr.repoName == "cofhe")
@@ -26,7 +26,8 @@ import Testing
         #expect(pr.requestedReviewers == ["Protocol Team"])
         #expect(pr.reviewRequestEvents.count == 1)
         #expect(pr.reviewRequestEvents[0].isTeam)
-        #expect(pr.unresolvedThreads == 2)
+        // Two open of the three read, and the one past them that could not be read counts as open too.
+        #expect(pr.unresolvedThreads == 3)
         // Counted only: the other searches do not ask for a thread's place or comment.
         #expect(pr.threads.isEmpty)
         // GraphQL drops a bot's `[bot]`; it is put back, so the bot checks see it.

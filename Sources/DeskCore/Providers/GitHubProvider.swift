@@ -222,16 +222,17 @@ public enum GitHubQueries {
     """
 
     /// A PR's whole conversation. An outdated thread's `line` is null; `originalLine` is where it was written.
-    /// ponytail: the first 100 threads, comments and reviews, and 100 comments a thread; page them if a PR ever has more.
+    /// ponytail: the newest 100 threads and reviews, the first 100 comments, and 100 comments a thread; page them if a PR
+    /// ever has more.
     public static let conversationQuery = """
     query($owner: String!, $name: String!, $number: Int!) {
       repository(owner: $owner, name: $name) { pullRequest(number: $number) {
-        reviewThreads(first: 100) { nodes {
+        reviewThreads(last: 100) { nodes {
           id isResolved isOutdated path line originalLine diffSide viewerCanReply viewerCanResolve viewerCanUnresolve
           comments(first: 100) { nodes { id author { __typename login avatarUrl(size: 64) } body createdAt url } }
         } }
         comments(first: 100) { nodes { id author { __typename login avatarUrl(size: 64) } body createdAt url } }
-        reviews(first: 100) { nodes { id state body submittedAt url author { __typename login avatarUrl(size: 64) } } }
+        reviews(last: 100) { nodes { id state body submittedAt url author { __typename login avatarUrl(size: 64) } } }
       } }
     }
     """
@@ -266,13 +267,13 @@ public enum GitHubQueries {
     """
 
     /// The open threads are only counted here.
-    public static let searchQuery = searchQuery(threads: "reviewThreads(first: 100) { nodes { isResolved } }")
+    public static let searchQuery = searchQuery(threads: "reviewThreads(last: 100) { totalCount nodes { isResolved } }")
 
     /// Your own PRs' search: each thread in full, for the PR page's list, and the comments the /pre-pr evidence is one
     /// of. /pre-pr edits its one evidence comment in place, and posts it while the PR is a draft, so it is early on.
     /// ponytail: the first 50 comments; read the evidence by REST if a PR ever has more before it.
     public static let mineSearchQuery = searchQuery(threads: """
-      reviewThreads(first: 100) { nodes { id isResolved isOutdated path line originalLine
+      reviewThreads(last: 100) { totalCount nodes { id isResolved isOutdated path line originalLine
         comments(first: 1) { totalCount nodes { author { __typename login } body url } } } }
       comments(first: 50) { nodes { author { __typename login } body } }
       """)
@@ -297,12 +298,12 @@ public enum GitHubQueries {
         } } }
         status { context(name: "\(ApprovalGate.context)") { description } }
       } } }
-      reviews(first: 100) { nodes { state submittedAt author { __typename login } } }
+      reviews(last: 100) { nodes { state submittedAt author { __typename login } } }
       pending: reviews(states: PENDING, first: 1) {
         nodes { id commit { oid } comments { totalCount } }
       }
       reviewRequests(first: 20) { nodes { requestedReviewer { __typename ... on User { login } ... on Team { name } } } }
-      timelineItems(itemTypes: [REVIEW_REQUESTED_EVENT], first: 50) {
+      timelineItems(itemTypes: [REVIEW_REQUESTED_EVENT], last: 50) {
         nodes { ... on ReviewRequestedEvent { createdAt requestedReviewer { __typename ... on User { login } ... on Team { name } } } }
       }
       \(threads)
@@ -482,7 +483,11 @@ public enum GitHubDecoding {
                 guard let createdAt = event.createdAt, let reviewer = event.requestedReviewer else { return nil }
                 return ReviewRequestEvent(createdAt: createdAt, reviewer: reviewer.displayName, isTeam: reviewer.typename == "Team")
             },
-            unresolvedThreads: node.reviewThreads?.nodes.filter { !$0.isResolved }.count ?? 0,
+            // Past the newest 100, the threads left unread count as unresolved: none of them can be shown resolved, and
+            // a PR must not look clean for want of reading them.
+            unresolvedThreads: node.reviewThreads.map { threads in
+                threads.nodes.count { !$0.isResolved } + max(0, (threads.totalCount ?? 0) - threads.nodes.count)
+            } ?? 0,
             pendingReview: node.pending?.nodes.first.map { review in
                 PendingReview(id: review.id, commitId: review.commit?.oid ?? "", comments: review.comments.totalCount)
             },
@@ -711,7 +716,10 @@ public enum GitHubDecoding {
         var requireCodeOwnerReview: Bool?
     }
 
-    private struct ReviewThreads: Decodable { var nodes: [ReviewThreadNode] }
+    private struct ReviewThreads: Decodable {
+        var totalCount: Int?
+        var nodes: [ReviewThreadNode]
+    }
     private struct ReviewThreadNode: Decodable {
         var id: String?
         var isResolved: Bool
