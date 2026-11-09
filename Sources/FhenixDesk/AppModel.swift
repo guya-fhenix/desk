@@ -9,6 +9,8 @@ import os
 final class AppModel {
     var state: DeskState
     var refreshing: Set<Source> = []
+    /// Sources asked to refresh while they already were, each to go once more when that one ends.
+    private var refreshAgain: Set<Source> = []
     /// Why the last settings write failed, in a sentence that says what to do; nil once one succeeds.
     var configError: String?
     /// The error itself, for the tooltip on that sentence.
@@ -135,10 +137,17 @@ final class AppModel {
         }
     }
 
+    /// A refresh asked for while one of the same source runs goes once more after it: the running fetch began before
+    /// whatever change asked, and would otherwise leave the state from before it.
     func refresh(_ source: Source) async {
-        guard !refreshing.contains(source) else { return }
-        refreshing.insert(source)
-        defer { refreshing.remove(source) }
+        guard refreshing.insert(source).inserted else {
+            refreshAgain.insert(source)
+            return
+        }
+        defer {
+            refreshing.remove(source)
+            if refreshAgain.remove(source) != nil { Task { await refresh(source) } }
+        }
         do {
             switch source {
             case .github:
