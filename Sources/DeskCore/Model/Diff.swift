@@ -65,6 +65,19 @@ public enum DiffRow: Sendable, Hashable {
     case line(DiffLine)
 }
 
+extension Array where Element == DiffRow {
+    /// Where the review screen's line cursor goes from `index` on ↓ (`step` 1) or ↑ (−1): the next line that way, past
+    /// any hunk header. From no index, the first line, or going up the last. Nil past either end of the file.
+    public func lineIndex(after index: Int?, step: Int) -> Int? {
+        var next = index.map { $0 + step } ?? (step > 0 ? startIndex : endIndex - 1)
+        while indices.contains(next) {
+            if case .line = self[next] { return next }
+            next += step
+        }
+        return nil
+    }
+}
+
 public struct DiffFile: Sendable, Hashable, Identifiable {
     public var id: String { path }
     /// The new path; for a deletion the old one, because that is the only one there is.
