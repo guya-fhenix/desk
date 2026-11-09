@@ -4,10 +4,13 @@ import Foundation
 public struct SetupFix: Sendable, Hashable {
     public var label: String
     public var command: String
+    /// What the press brings up that Desk does not choose, said beside its button.
+    public var note: String?
 
-    public init(_ label: String, _ command: String) {
+    public init(_ label: String, _ command: String, note: String? = nil) {
         self.label = label
         self.command = command
+        self.note = note
     }
 }
 
@@ -88,7 +91,14 @@ public struct GitHubAccount: Sendable, Equatable, Decodable {
 }
 
 public enum Setup {
-    static let githubLogin = SetupFix("Sign in", "gh auth login --hostname github.com --web --git-protocol https --scopes read:org")
+    /// GitHub CLI's sign-in page lists its own scopes beside the ones Desk asks for: its minimum, and Workflow whenever it
+    /// is git's login over HTTPS (gh adds it so git can push changes to workflow files), and a refresh asks again for
+    /// every scope the token already has. Said beside the buttons that open that page, so Workflow is no surprise.
+    static let githubScopesNote = "GitHub CLI asks for its own permissions too, Workflow among them: it signs git in over HTTPS, "
+        + "and pushing changes to workflow files needs it. Desk itself needs only repo and read:org."
+    static let githubLogin = SetupFix(
+        "Sign in", "gh auth login --hostname github.com --web --git-protocol https --scopes read:org", note: githubScopesNote
+    )
     static let marketplace = "FhenixProtocol/claude-marketplace"
 
     public static func check(_ kind: SetupCheck.Kind, config: DeskConfig, home: String = ClaudeJobs.home) async -> SetupCheck {
@@ -156,14 +166,14 @@ public enum Setup {
         }
         guard active.state == "success" else {
             return SetupCheck(.github, ok: false, detail: "Signed in as \(active.login), but the token no longer works.",
-                              fixes: [SetupFix("Sign in again", githubLogin.command)])
+                              fixes: [SetupFix("Sign in again", githubLogin.command, note: githubScopesNote)])
         }
         let scopes = Set((active.scopes ?? "").split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) })
         let missing = [("repo", ["repo"]), ("read:org", ["read:org", "write:org", "admin:org"])]
             .filter { _, any in any.allSatisfy { !scopes.contains($0) } }.map(\.0)
         if active.scopes != nil, !missing.isEmpty {
             return SetupCheck(.github, ok: false, detail: "Signed in as \(active.login), without the \(missing.joined(separator: " and ")) scope.",
-                              fixes: [SetupFix("Add scopes", "gh auth refresh --hostname github.com --scopes repo,read:org")])
+                              fixes: [SetupFix("Add scopes", "gh auth refresh --hostname github.com --scopes repo,read:org", note: githubScopesNote)])
         }
         let others = accounts.filter { !$0.active }.map(\.login)
         guard !others.isEmpty else { return SetupCheck(.github, ok: true, detail: "Signed in as \(active.login)") }
