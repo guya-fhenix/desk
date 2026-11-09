@@ -25,7 +25,9 @@ dmg:
 release:
 	scripts/release.sh
 
+# A running Desk is quit first: `open` would only bring the old process forward, not start the new build.
 install: app
+	pkill -x FhenixDesk || true
 	rm -rf "$(HOME)/Applications/$(APP_NAME).app"
 	cp -R "$(APP)" "$(HOME)/Applications/"
 	open "$(HOME)/Applications/$(APP_NAME).app"

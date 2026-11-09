@@ -1,4 +1,5 @@
 import DeskCore
+import ServiceManagement
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -397,6 +398,10 @@ private struct GeneralSettings: View {
             Field(label: "macOS notifications") {
                 Toggle("Notify me", isOn: $draft.config.notificationsEnabled).toggleStyle(.switch).controlSize(.small)
             }
+            Field(
+                label: "Startup",
+                hint: Bundle.main.bundleIdentifier == nil ? "Only for the installed app: a build run with swift run has no bundle to register." : nil
+            ) { OpenAtLogin() }
         }
         FieldGroup(title: "About") {
             Field(label: "Version") { Text(Bundle.main.versionText).scaled(.secondary.monospaced()).foregroundStyle(.secondary).textSelection(.enabled) }
@@ -404,6 +409,36 @@ private struct GeneralSettings: View {
                 Button("Run setup again") { model.showingSetup = true }.controlSize(.small)
             }
         }
+    }
+}
+
+/// Desk as a login item, so its nudges come back after a restart without opening it first. macOS keeps this, not
+/// config.json, and can turn it off in System Settings → Login Items; the switch reads its state each time it shows.
+private struct OpenAtLogin: View {
+    @State private var status = SMAppService.mainApp.status
+    @State private var error: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Toggle("Open at login", isOn: Binding(get: { status == .enabled }, set: { set($0) }))
+                .toggleStyle(.switch).controlSize(.small)
+                .disabled(Bundle.main.bundleIdentifier == nil)
+            if status == .requiresApproval {
+                Button("Allow it in Login Items…") { SMAppService.openSystemSettingsLoginItems() }.controlSize(.small)
+            }
+            if let error { Text(error).scaled(.caption).foregroundStyle(.red).textSelection(.enabled) }
+        }
+        .onAppear { status = SMAppService.mainApp.status }
+    }
+
+    private func set(_ on: Bool) {
+        do {
+            if on { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() }
+            error = nil
+        } catch {
+            self.error = "Could not \(on ? "add" : "remove") the login item: \(error.localizedDescription)"
+        }
+        status = SMAppService.mainApp.status
     }
 }
 

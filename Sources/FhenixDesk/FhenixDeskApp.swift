@@ -101,10 +101,11 @@ private struct DeskRoot: View {
                 AppDelegate.openDesk = {
                     openWindow(id: DeskWindow.id)
                     AppDelegate.raiseDeskWindow()
-                    // A status item click does not make the app active, and the polite `activate()` is
-                    // refused while another app holds focus — the Desk would rise over its own windows
-                    // but stay behind the editor you were in.
-                    NSApp.activate(ignoringOtherApps: true)
+                    // A status item click does not make the app active: the Desk would rise over its own windows
+                    // but stay behind the editor you were in. Regular first, as the window's appearing would make
+                    // it a moment later, so it comes forward as an app with a menu bar and a Dock icon.
+                    NSApp.setActivationPolicy(.regular)
+                    NSApp.activate()
                 }
                 delegate.installMenuBarItem(model: model)
             }
@@ -113,8 +114,9 @@ private struct DeskRoot: View {
 
 /// Owns the menu bar item. It is built by hand rather than with `MenuBarExtra` because that one
 /// answers every click the same way, and the two buttons have to mean different things here.
+@MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    @MainActor static var openDesk: (() -> Void)?
+    static var openDesk: (() -> Void)?
     private var statusItem: NSStatusItem?
     private var model: AppModel?
 
@@ -126,27 +128,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// A review session's `fhenixdesk://show/…`: the Desk comes forward on that PR's diff, at that line. Only for a PR
     /// it knows: any web page can open the link, and must not pull focus with it.
     func application(_ application: NSApplication, open urls: [URL]) {
-        MainActor.assumeIsolated {
-            // Every link is read, not only up to the first that matches.
-            if urls.map({ model?.open($0) == true }).contains(true) { Self.openDesk?() }
-        }
+        // Every link is read, not only up to the first that matches.
+        if urls.map({ model?.open($0) == true }).contains(true) { Self.openDesk?() }
     }
 
     /// Reopening the app (Dock, Spotlight, `open -a`) shows the Desk window. This is the way in when
     /// the menu bar is full and macOS hides the status item behind the notch.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        MainActor.assumeIsolated { Self.openDesk?() }
+        Self.openDesk?()
         return false
     }
 
     /// `openWindow` re-shows a window that was closed, but does nothing for one that is merely buried
     /// behind another app's, and activating the app alone does not reorder it. Raising it by hand is what
     /// makes a primary click mean "show me the Desk" in every state it can be in.
-    @MainActor static func raiseDeskWindow() {
+    static func raiseDeskWindow() {
         NSApp.windows.first { $0.identifier?.rawValue == DeskWindow.id }?.makeKeyAndOrderFront(nil)
     }
 
-    @MainActor func installMenuBarItem(model: AppModel) {
+    func installMenuBarItem(model: AppModel) {
         guard statusItem == nil else { return }
         self.model = model
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -164,7 +164,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// click always arrives as `.leftMouseUp` whichever hand it came from — reading the event type is
     /// what follows their setting, and second-guessing it here is what would break them.
     /// Control-click is the system's other way of saying "secondary".
-    @MainActor @objc private func clicked() {
+    @objc private func clicked() {
         guard let event = NSApp.currentEvent else { return }
         if event.type == .rightMouseUp || event.modifierFlags.contains(.control) {
             showMenu()
@@ -176,7 +176,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// A plain macOS menu, built afresh on each click: open the Desk, quit, then your open PRs and the review queue
     /// inside the Reviews screen's filters, each opening the Desk on that PR's page. Set on the item only while it
     /// shows, so a primary click goes on opening the Desk rather than the menu.
-    @MainActor private func showMenu() {
+    private func showMenu() {
         guard let item = statusItem, let model else { return }
         let menu = NSMenu()
         menu.addItem(.sectionHeader(title: "Fhenix Desk \(Bundle.main.versionText)"))
@@ -202,7 +202,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// One PR in the menu: its checks as a coloured mark, repo#number and title, and a press that opens its page.
-    @MainActor private static func item(for pr: PullRequest, model: AppModel, tab: DeskWindow.Tab) -> NSMenuItem {
+    private static func item(for pr: PullRequest, model: AppModel, tab: DeskWindow.Tab) -> NSMenuItem {
         let title = "\(pr.repoName)#\(pr.number)  \(pr.title)"
         let entry = MenuAction(title.count > 72 ? title.prefix(71) + "…" : title) {
             model.selectPullRequest = pr.url
