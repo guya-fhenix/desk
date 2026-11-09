@@ -1,9 +1,28 @@
 import Foundation
 
 /// The app's writes to Jira. They live in their own file so that fact stays auditable in one place —
-/// everything in `JiraProvider.swift` reads. A move happens when you plan a ticket, and on its own when a
-/// ticket of yours has fallen behind its pull requests; an edit only when you save one.
+/// everything in `JiraProvider.swift` reads. A move happens when you plan a ticket, and when you press Move on
+/// a ticket of yours that has fallen behind its pull requests; an edit only when you save one.
 extension JiraProvider {
+    /// Moves a work item to a status, through `via` first when the workflow has no transition straight there
+    /// from where it stands: a workflow that wants work started before it is ready for review has no way from
+    /// To Do to Review Ready, only to In Progress and on from there. Only that refusal steps through `via` — it
+    /// says nothing happened — so a workflow that allows the move makes the one transition it always did, and
+    /// any other failure is reported as it is.
+    public func transition(key: String, to status: String, via: String?) async throws {
+        do {
+            try await transition(key: key, to: status)
+        } catch JiraError.transitionRefused(_, _, let detail)
+            where JiraDecoding.isNoTransition(detail) && via.map({ !$0.isEmpty && $0 != status }) == true {
+            try await transition(key: key, to: via!)
+            do {
+                try await transition(key: key, to: status)
+            } catch {
+                throw JiraError.transitionRefused(key: key, status: status, detail: "moved to “\(via!)”, but then: \(error)")
+            }
+        }
+    }
+
     /// Moves a work item to a status by name. acli works out which transition that is, and refuses when
     /// the workflow has no way there from where the ticket stands.
     ///
@@ -60,6 +79,12 @@ extension JiraDecoding {
     /// costs a needless error message, while assuming success costs a ticket that never moved.
     public static func transitionFailure(in text: String) -> String? {
         writeFailure(in: text, unconfirmed: "acli did not confirm the transition")
+    }
+
+    /// Whether a refused transition was refused for want of a way there from the ticket's status — acli's own words for
+    /// it — which, unlike an unconfirmed one, says the ticket did not move.
+    public static func isNoTransition(_ detail: String) -> Bool {
+        detail.localizedCaseInsensitiveContains("No allowed transitions")
     }
 
     /// The same reading of acli's answer for any write to work items — a transition, an edit.

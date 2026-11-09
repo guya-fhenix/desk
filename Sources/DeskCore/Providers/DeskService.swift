@@ -291,10 +291,11 @@ public actor DeskService {
     }
 
     /// The only call in the app that writes to Jira: planning a ticket, and moving one that has fallen
-    /// behind its pull requests.
-    public func transitionTicket(key: String, to status: String) async throws {
+    /// behind its pull requests. A ticket still in To Do goes through the In Progress status when its workflow
+    /// has no way straight to `status`.
+    public func transitionTicket(key: String, to status: String, from category: TicketStatusCategory? = nil) async throws {
         guard let jira else { throw DeskError.jiraNotConfigured }
-        try await jira.transition(key: key, to: status)
+        try await jira.transition(key: key, to: status, via: category == .todo ? config.jiraInProgressStatus : nil)
     }
 
     /// Saves your edit to a ticket's summary or description.
