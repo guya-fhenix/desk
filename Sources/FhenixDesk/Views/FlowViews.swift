@@ -78,16 +78,6 @@ struct FlowSection: View {
             Text("Waiting for a review from \(model.config.reviewTeam).").scaled(.caption).foregroundStyle(.secondary)
         case .approved:
             Text(mergeHint).scaled(.caption).foregroundStyle(pr.mergeState == .dirty || pr.checks.isRed ? .orange : .secondary)
-            HStack {
-                Spacer()
-                if busy { ProgressView().controlSize(.mini) }
-                let blocker = busy ? "Merging…" : pr.mergeBlocker
-                if !busy { DisabledReason(text: blocker) }
-                Button("Merge") { model.merge(pr) }
-                    .buttonStyle(.borderedProminent).handCursor()
-                    .disabled(blocker != nil)
-                    .help(blocker ?? "Squash-merges the PR into \(pr.baseRef)")
-            }
         case .working, .merged, .closed:
             EmptyView()
         }

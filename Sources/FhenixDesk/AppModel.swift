@@ -368,8 +368,12 @@ final class AppModel {
         return nil
     }
 
-    /// Squash-merges a PR from its page or its flow, and shows it merged at once. Why it failed, or nil.
+    /// Squash-merges a PR from its page, and shows it merged at once. Why it failed, or nil. A press while another write
+    /// to the PR runs does nothing, so a merge never goes out twice. GitHub refuses it if the head moved past the commit
+    /// the page showed.
     func squashMerge(_ pr: PullRequest) async -> String? {
+        guard busyFlows.insert(pr.url).inserted else { return nil }
+        defer { busyFlows.remove(pr.url) }
         do {
             try await service.squashMerge(pr)
         } catch {
@@ -641,15 +645,6 @@ final class AppModel {
             }
             state.recompute()
             await refresh(.github)
-        }
-    }
-
-    /// Merge on an approved PR: always a squash.
-    func merge(_ pr: PullRequest) {
-        guard busyFlows.insert(pr.url).inserted else { return }
-        Task {
-            defer { busyFlows.remove(pr.url) }
-            flowErrors[pr.url] = await squashMerge(pr)
         }
     }
 

@@ -442,6 +442,8 @@ private struct ActionsCard: View {
 
     var body: some View {
         let blocker = pr.mergeBlocker
+        // A merge, or a flow press, holds the PR in `busyFlows` until it is done.
+        let busy = self.busy || model.busyFlows.contains(pr.url)
         SideCard(title: "Actions") {
             Button { confirming = .merge } label: {
                 HStack(spacing: 6) {

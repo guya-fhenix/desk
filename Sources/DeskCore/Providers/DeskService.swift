@@ -306,7 +306,7 @@ public actor DeskService {
 
     public func squashMerge(_ pr: PullRequest) async throws {
         guard let github else { throw DeskError.ghNotFound }
-        try await github.squashMerge(repo: pr.repo, number: pr.number)
+        try await github.squashMerge(repo: pr.repo, number: pr.number, headSha: pr.headSha)
     }
 
     public func requestTeamReview(_ pr: PullRequest) async throws {
