@@ -7,10 +7,7 @@ import SwiftUI
 /// your Move or Dismiss.
 struct TicketsTab: View {
     @Environment(AppModel.self) private var model
-    /// Remembered, so a trip to another screen does not drop you back on the sprint.
-    @AppStorage("tickets.placement") private var placement: TicketPlacement = .sprint
-    /// The assignee filter's picks, one raw value per line; empty is everyone. Remembered like the placement.
-    @AppStorage("tickets.assignees") private var storedAssignees = TicketAssignee.me.rawValue
+    private var filters = TicketFilters()
     /// By key, so a poll that replaces every ticket keeps the selection.
     @State private var selection: String?
     @State private var search = ""
@@ -23,7 +20,7 @@ struct TicketsTab: View {
     @State private var scrollTarget: String?
 
     var body: some View {
-        let groups = filtered(model.state.ticketGroups(placement, assignees: assignees))
+        let groups = filtered(model.state.ticketGroups(filters.placement, assignees: assignees))
         let moves = suggestedMoves
         Screen {
             PageHeader(title: "Jira") { HeaderControls(inspector: "tickets") }
@@ -82,10 +79,8 @@ struct TicketsTab: View {
         .onChange(of: model.selectTicket, initial: true) { _, key in
             guard let key, let ticket = model.state.ticket(key) else { return }
             // One Jira places in neither has no row, but the details panel still shows it.
-            if ticket.placement != .unknown { placement = ticket.placement }
-            if !assignees.isEmpty, !assignees.contains(.me) {
-                storedAssignees = assignees.union([.me]).map(\.rawValue).sorted().joined(separator: "\n")
-            }
+            if ticket.placement != .unknown { filters.placement = ticket.placement }
+            if !assignees.isEmpty, !assignees.contains(.me) { filters.assignees = assignees.union([.me]) }
             search = ""
             selection = key
             inspectorShown = true
@@ -120,9 +115,7 @@ struct TicketsTab: View {
         return model.state.ticketDrifts.filter { needle.isEmpty || "\($0.ticket.key) \($0.ticket.summary)".lowercased().contains(needle) }
     }
 
-    private var assignees: Set<TicketAssignee> {
-        Set(storedAssignees.split(separator: "\n").compactMap { TicketAssignee(rawValue: String($0)) })
-    }
+    private var assignees: Set<TicketAssignee> { filters.assignees }
 
     private func plan(_ ticket: Ticket, _ repo: RepoRef) {
         planNote = ""
@@ -148,7 +141,7 @@ struct TicketsTab: View {
                 actionTitle: "Open Settings → Jira", action: { model.openSettings(.jira) }
             )
         } else {
-            let place = placement == .backlog ? "the backlog" : "the open sprint"
+            let place = filters.placement == .backlog ? "the backlog" : "the open sprint"
             EmptyState(
                 icon: "checkmark.circle",
                 text: assignees == [.me] ? "Nothing of yours in \(place)." : "No tickets in \(place) for this assignee filter."
@@ -164,16 +157,30 @@ struct TicketsTab: View {
                     let count = filtered(model.state.ticketGroups(option, assignees: assignees)).reduce(0) { $0 + $1.tickets.count }
                     return .init(value: option, title: option == .sprint ? "Sprint" : "Backlog", count: count)
                 },
-                selection: $placement
+                selection: filters.$placement
             )
         } trailing: {
             SearchBox(prompt: "Key or summary", text: $search)
             AssigneeFilter(
-                selection: Binding(get: { assignees }, set: { storedAssignees = $0.map(\.rawValue).sorted().joined(separator: "\n") }),
+                selection: Binding(get: { assignees }, set: { filters.assignees = $0 }),
                 me: model.state.ticketSelf,
                 people: model.state.ticketAssignees
             )
         }
+    }
+}
+
+/// The Jira screen's placement and assignee filter. The sidebar badge reads them too, so it counts the tickets the screen
+/// opens on.
+struct TicketFilters: DynamicProperty {
+    /// Remembered, so a trip to another screen does not drop you back on the sprint.
+    @AppStorage("tickets.placement") var placement: TicketPlacement = .sprint
+    /// The assignee filter's picks, one raw value per line; empty is everyone. Remembered like the placement.
+    @AppStorage("tickets.assignees") var storedAssignees = TicketAssignee.me.rawValue
+
+    var assignees: Set<TicketAssignee> {
+        get { Set(storedAssignees.split(separator: "\n").compactMap { TicketAssignee(rawValue: String($0)) }) }
+        nonmutating set { storedAssignees = newValue.map(\.rawValue).sorted().joined(separator: "\n") }
     }
 }
 

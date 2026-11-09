@@ -490,11 +490,18 @@ struct MenuBox: View {
             Text(value)
             if let icon { Image(systemName: icon).scaled(.caption).foregroundStyle(.secondary) }
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .background(Theme.raised, in: RoundedRectangle(cornerRadius: 6))
-        .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Theme.controlBorder))
-        .contentShape(RoundedRectangle(cornerRadius: 6))
+        .menuBox()
+    }
+}
+
+extension View {
+    /// The box a header menu's face sits in, as `MenuBox` draws it.
+    func menuBox() -> some View {
+        padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(Theme.raised, in: RoundedRectangle(cornerRadius: 6))
+            .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Theme.controlBorder))
+            .contentShape(RoundedRectangle(cornerRadius: 6))
     }
 }
 

@@ -50,6 +50,7 @@ struct DeskWindow: View {
     /// Whether the sidebar shows, as its toggle and ⌃⌘S leave it; setup hides it without changing this.
     @State private var columns = NavigationSplitViewVisibility.all
     private var filters = ReviewFilters()
+    private var tickets = TicketFilters()
 
     var body: some View {
         // The sidebar stays while Settings is open, with Settings chosen in it, so you never lose your place.
@@ -149,12 +150,12 @@ struct DeskWindow: View {
     }
 
     /// The badge counts the rows the screen opens on: Up Next the rows it lists, Pull Requests every open PR of yours,
-    /// drafts too, as its Open tab lists them, Reviews what waits on you inside its filters — not the PRs you reviewed
-    /// that wait on their authors.
+    /// drafts too, as its Open tab lists them, Reviews its Needs you scope inside its filters — not the PRs you reviewed
+    /// that wait on their authors — and Jira the tickets in its placement and assignee filter.
     private func badge(for tab: Tab) -> Int {
         switch tab {
         case .upNext: return model.upNextCount(filters)
-        case .tickets: return model.state.openTickets.count
+        case .tickets: return model.state.ticketGroups(tickets.placement, assignees: tickets.assignees).reduce(0) { $0 + $1.tickets.count }
         case .pullRequests: return model.state.mine.count
         case .reviews: return model.state.reviewQueue(.needsYou, days: filters.window, hiding: filters.hidden, needingApproval: filters.needsApproval).count
         }

@@ -231,6 +231,13 @@ import Testing
         #expect(state.reviewQueue(.all).map(\.number) == [1, 2, 3])
     }
 
+    /// Needs you leads, as the screen's default; Open is gone, so a scope saved as "open" reads as none and the screen
+    /// falls back to Needs you.
+    @Test func needsYouLeadsAndASavedOpenFallsBack() {
+        #expect(ReviewScope.offered == [.needsYou, .onMe, .reviewed, .all])
+        #expect(ReviewScope(rawValue: "open") == nil)
+    }
+
     @Test func reviewIsOfferedOnPullRequestsNobodyAssignedYou() {
         var state = state
         let other = Fixtures.pr(number: 8, head: "h", author: "alice")

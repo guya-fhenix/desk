@@ -9,7 +9,7 @@ struct ReviewsTab: View {
     @AppStorage("sort.reviewQueue") private var storedSort = ""
     // The filters are remembered, not view state: the screen is rebuilt every time you come back to it,
     // and a filter that quietly resets shows a different queue than the one you left.
-    @AppStorage("reviews.scope") private var scope: ReviewScope = .all
+    @AppStorage("reviews.scope") private var scope: ReviewScope = .needsYou
     private var filters = ReviewFilters()
     @State private var selection: String?
     /// The pages open over the list; empty shows the list.
@@ -72,7 +72,7 @@ struct ReviewsTab: View {
             PageHeader(title: "Reviews") {}
             header
         } content: {
-            GroupHeader(title: "Review queue", count: rows.count)
+            GroupHeader(title: scope.title, count: rows.count)
             if rows.isEmpty, let error = model.state.errors[.github] {
                 EmptyState(
                     icon: "exclamationmark.triangle", text: "Couldn't load the review queue from GitHub.", detail: error,
@@ -135,7 +135,6 @@ struct ReviewsTab: View {
         guard let window else {
             switch scope {
             case .onMe, .needsYou: return "Nothing waits on your review."
-            case .open: return "No open PRs left unreviewed in the tracked repos."
             case .reviewed: return "No open PRs you reviewed wait on their authors."
             case .all: return "No open PRs by others in the tracked repos."
             }
@@ -143,41 +142,79 @@ struct ReviewsTab: View {
         let span = window == 1 ? "the last day" : "the last \(window) days"
         switch scope {
         case .onMe, .needsYou: return "Nothing from \(span) waits on you."
-        case .open: return "No unreviewed PRs opened in \(span)."
         case .reviewed: return "None you reviewed was opened in \(span)."
         case .all: return "Nothing opened in \(span)."
         }
     }
 
-    /// The scopes, the approval filter and how many of the rows still wait on your review. Counted over the rows on
-    /// screen, like the scope counts beside it: a number that outlived the filters would point at rows the table is not
-    /// showing.
+    /// The scopes, how many of the rows still wait on your review, the one Filters menu and the sort; under them, the
+    /// filters in force as tokens. Counted over the rows on screen, like the scope counts beside it: a number that
+    /// outlived the filters would point at rows the table is not showing.
     private var header: some View {
         let ready = rows.count { model.state.reviewNeed(for: $0) != nil }
-        return FilterBar {
-            PillTabs(
-                options: ReviewScope.offered.map { .init(value: $0, title: $0.title, count: queue($0).count) },
-                selection: $scope
-            )
-            Divider().frame(height: 18)
-            // By the review gate's status on the head commit; a repo without the gate always needs an approval.
-            PillTabs(
-                options: [
-                    .init(value: true, title: "Needs approval", count: queue(scope, needingApproval: true).count),
-                    .init(value: false, title: "All", count: queue(scope, needingApproval: false).count),
-                ],
-                selection: filters.$needsApproval
-            )
-            // Only when it says something the row count beside the scopes does not.
-            if ready > 0, ready != rows.count {
-                Chip(text: "\(ready) need review", color: .orange)
-                    .help("Of the rows shown: the ones you have not reviewed, or were asked to review again.")
+        let active = activeFilters
+        return VStack(alignment: .leading, spacing: 0) {
+            FilterBar {
+                PillTabs(
+                    options: ReviewScope.offered.map { .init(value: $0, title: $0.title, count: queue($0).count) },
+                    selection: $scope
+                )
+                // Only when it says something the row count beside the scopes does not.
+                if ready > 0, ready != rows.count {
+                    Chip(text: "\(ready) need review", color: .orange)
+                        .help("Of the rows shown: the ones you have not reviewed, or were asked to review again.")
+                }
+            } trailing: {
+                FiltersMenu(
+                    queue: model.state.reviewQueue(.all, days: window, needingApproval: filters.needsApproval), filters: filters,
+                    active: active.count
+                )
+                SortMenu(sort: Self.sort, order: $sortOrder)
             }
-        } trailing: {
-            AuthorsFilter(queue: model.state.reviewQueue(.all, days: window, needingApproval: filters.needsApproval), filters: filters)
-            DaysFilter(limited: filters.$limited, days: filters.$days)
-            SortMenu(sort: Self.sort, order: $sortOrder)
+            if !active.isEmpty {
+                HStack(spacing: Theme.Space.s) {
+                    ForEach(active, id: \.title) { FilterToken(title: $0.title, remove: $0.remove) }
+                    Text("\(rows.count) of \(model.state.reviewQueue(scope).count) shown").scaled(.secondary).foregroundStyle(.secondary)
+                }
+                .padding(.bottom, Theme.Space.m)
+            }
         }
+    }
+
+    /// The filters in force, each with the press that lifts it: the approval filter, the day limit, and the hidden authors
+    /// as one.
+    private var activeFilters: [(title: String, remove: () -> Void)] {
+        var active: [(title: String, remove: () -> Void)] = []
+        if filters.needsApproval { active.append(("Needs an approval", { filters.needsApproval = false })) }
+        if let window { active.append((window == 1 ? "Opened in the last day" : "Opened in the last \(window) days", { filters.limited = false })) }
+        let hidden = filters.hidden.sorted()
+        if let first = hidden.first {
+            active.append((hidden.count == 1 ? "Hiding \(first)" : "Hiding \(hidden.count) authors", { filters.hidden = [] }))
+        }
+        return active
+    }
+}
+
+/// One filter in force, under the Reviews bar, with the ✕ that lifts it.
+private struct FilterToken: View {
+    var title: String
+    var remove: () -> Void
+
+    var body: some View {
+        HStack(spacing: 2) {
+            Text(title)
+            Button(action: remove) {
+                Image(systemName: "xmark").scaled(.caption).foregroundStyle(.secondary)
+                    .frame(width: 16, height: 16).contentShape(Rectangle())
+            }
+            .buttonStyle(.plain).handCursor()
+            .accessibilityLabel("Remove the filter \(title)")
+        }
+        .scaled(.secondary)
+        .padding(.leading, 10)
+        .padding(.trailing, 4)
+        .padding(.vertical, 3)
+        .background(Theme.accent.opacity(0.14), in: Capsule())
     }
 }
 
@@ -216,83 +253,87 @@ struct ReviewFilters: DynamicProperty {
     private static func authors(_ text: String) -> Set<String> { Set(text.split(separator: "\n").map(String.init)) }
 }
 
-/// Whose PRs the queue shows: every author in it, ticked while shown; unticking one filters their PRs out here and on
-/// Up Next. One already hidden stays listed, so it can be brought back while it has nothing open.
-private struct AuthorsFilter: View {
+/// The queue's filters in one menu, drawn like the sort menu beside it, its badge counting the ones in force: only the
+/// PRs that still need an approval, how far back the queue reaches, and whose PRs it leaves out. The common spans are
+/// one pick; Other… takes any number of days. Every author in the queue is listed, ticked while shown; unticking one
+/// filters their PRs out here and on Up Next, and one already hidden stays listed, so it can be brought back while it has
+/// nothing open.
+private struct FiltersMenu: View {
     var queue: [PullRequest]
     var filters: ReviewFilters
+    var active: Int
+    @State private var choosing = false
+
+    private static let spans = [1, 3, 7, 14, 30]
 
     var body: some View {
         let hidden = filters.hidden
         let counts = Dictionary(grouping: queue, by: \.author).mapValues(\.count)
         let authors = Set(counts.keys).union(hidden).sorted { $0.lowercased() < $1.lowercased() }
         Menu {
-            if !hidden.isEmpty {
-                Button("Show everyone") { filters.hidden = [] }
-                Divider()
+            Section("Show") {
+                // By the review gate's status on the head commit; a repo without the gate always needs an approval.
+                Toggle("Only PRs that need an approval", isOn: filters.$needsApproval)
             }
-            ForEach(authors, id: \.self) { author in
-                Toggle(
-                    counts[author].map { "\(author)  \($0)" } ?? author,
-                    isOn: Binding(
-                        get: { !hidden.contains(author) },
-                        set: { shown in filters.hidden = shown ? hidden.subtracting([author]) : hidden.union([author]) }
+            Section("Opened") {
+                Toggle("Any time", isOn: Binding(get: { !filters.limited }, set: { if $0 { filters.limited = false } }))
+                ForEach(Self.spans, id: \.self) { span in
+                    Toggle(
+                        span == 1 ? "Last day" : "Last \(span) days",
+                        isOn: Binding(get: { filters.limited && filters.days == span }, set: { if $0 { filters.days = span; filters.limited = true } })
                     )
-                )
+                }
+                Toggle("Other…", isOn: Binding(get: { filters.limited && !Self.spans.contains(filters.days) }, set: { _ in choosing = true }))
+            }
+            Divider()
+            Menu(hidden.isEmpty ? "Authors: everyone" : "Authors: \(hidden.count) hidden") {
+                if !hidden.isEmpty {
+                    Button("Show everyone") { filters.hidden = [] }
+                    Divider()
+                }
+                ForEach(authors, id: \.self) { author in
+                    Toggle(
+                        counts[author].map { "\(author)  \($0)" } ?? author,
+                        isOn: Binding(
+                            get: { !hidden.contains(author) },
+                            set: { shown in filters.hidden = shown ? hidden.subtracting([author]) : hidden.union([author]) }
+                        )
+                    )
+                }
             }
         } label: {
-            MenuBox(title: "Authors", value: hidden.isEmpty ? "Everyone" : "\(hidden.count) hidden")
+            HStack(spacing: 6) {
+                Image(systemName: "line.3.horizontal.decrease").scaled(.caption).foregroundStyle(.secondary)
+                Text("Filters")
+                if active > 0 {
+                    Text("\(active)").scaled(.caption.weight(.semibold)).monospacedDigit().foregroundStyle(.white)
+                        .padding(.horizontal, 5)
+                        .frame(minWidth: 16, minHeight: 16)
+                        .background(Theme.accent, in: Capsule())
+                }
+            }
+            .menuBox()
         }
         .menuStyle(.button).handCursor()
         .buttonStyle(.plain).handCursor()
         .menuIndicator(.hidden)
         .fixedSize()
-        .help(hidden.isEmpty ? "Filter out the PRs of authors you do not review" : "Hiding: " + hidden.sorted().joined(separator: ", "))
-    }
-}
-
-/// How far back the queue reaches, drawn like the sort menu beside it: every PR, or only the ones opened in the
-/// last few days. The common spans are one pick; Other… takes any number of days.
-private struct DaysFilter: View {
-    @Binding var limited: Bool
-    @Binding var days: Int
-    @State private var choosing = false
-
-    private static let spans = [1, 3, 7, 14, 30]
-
-    var body: some View {
-        Menu {
-            Toggle("All time", isOn: Binding(get: { !limited }, set: { if $0 { limited = false } }))
-            Divider()
-            ForEach(Self.spans, id: \.self) { span in
-                Toggle(Self.title(span), isOn: Binding(get: { limited && days == span }, set: { if $0 { days = span; limited = true } }))
-            }
-            Divider()
-            Toggle("Other…", isOn: Binding(get: { limited && !Self.spans.contains(days) }, set: { _ in choosing = true }))
-        } label: {
-            MenuBox(title: "Opened", value: limited ? Self.title(max(days, 1)) : "All time")
-        }
-        .menuStyle(.button).handCursor()
-        .buttonStyle(.plain).handCursor()
-        .menuIndicator(.hidden)
-        .fixedSize()
-        .help("Show every pull request, or only the ones opened in the last few days")
+        .help("Keep to the PRs that need an approval, opened lately, or by the authors you review")
+        .accessibilityLabel(active == 0 ? "Filters" : "Filters, \(active) on")
         .popover(isPresented: $choosing, arrowEdge: .bottom) {
             HStack(spacing: 8) {
                 Text("Last")
-                TextField("Days", value: $days, format: .number)
+                TextField("Days", value: filters.$days, format: .number)
                     .textFieldStyle(.roundedBorder)
                     .multilineTextAlignment(.trailing)
                     .frame(width: 52)
-                Stepper("Days", value: $days, in: 1...365).labelsHidden()
-                Text(days == 1 ? "day" : "days").foregroundStyle(.secondary)
+                Stepper("Days", value: filters.$days, in: 1...365).labelsHidden()
+                Text(filters.days == 1 ? "day" : "days").foregroundStyle(.secondary)
             }
             .padding(12)
-            .onAppear { limited = true }
+            .onAppear { filters.limited = true }
         }
     }
-
-    private static func title(_ days: Int) -> String { days == 1 ? "Last day" : "Last \(days) days" }
 }
 
 /// One PR in the queue: the author's picture, where the review stands and the title, a monospaced line with
