@@ -3,11 +3,9 @@ import Foundation
 import Testing
 
 @Suite struct TicketSyncTests {
-    static let branches = ["cofhe": "master"]
-
     func drifts(tickets: [Ticket], open: [PullRequest] = [], merged: [PullRequest] = []) -> [TicketDrift] {
         TicketSync.drifts(TicketSyncInput(
-            tickets: tickets, open: open, merged: merged, defaultBranches: Self.branches,
+            tickets: tickets, open: open, merged: merged,
             projectKeys: ["PRO"], inProgressStatus: "In Progress", reviewStatus: "👀 Review Ready", doneStatus: "Done"
         ))
     }
@@ -45,6 +43,14 @@ import Testing
     @Test func mergingIntoAParentBranchDoesNotFinishIt() {
         let pr = Fixtures.pr(number: 5, head: "feat/pro-395-part-2", base: "feat/pro-395-part-1", merged: Fixtures.hours(3))
         #expect(drifts(tickets: [Fixtures.ticket("PRO-395")], merged: [pr]).isEmpty)
+    }
+
+    /// Done goes by the default branch GitHub names, not a guess at main or master.
+    @Test func doneGoesByTheRepositorysOwnDefaultBranch() {
+        var pr = Fixtures.pr(number: 20, head: "feat/pro-407-gauge", base: "develop", merged: Fixtures.hours(3))
+        #expect(drifts(tickets: [Fixtures.ticket("PRO-407")], merged: [pr]).isEmpty)
+        pr.defaultBranch = "develop"
+        #expect(drifts(tickets: [Fixtures.ticket("PRO-407")], merged: [pr]).map(\.stage) == [.done])
     }
 
     @Test func oneOpenPullRequestHoldsTheTicketInReview() {
@@ -107,7 +113,7 @@ import Testing
         let landed = Fixtures.pr(number: 15, head: "feat/pro-403-gauge", merged: Fixtures.hours(3))
         let found = TicketSync.drifts(TicketSyncInput(
             tickets: [Fixtures.ticket("PRO-402"), Fixtures.ticket("PRO-403")], open: [open], merged: [landed],
-            defaultBranches: Self.branches, projectKeys: ["PRO"], inProgressStatus: "In Progress", reviewStatus: "", doneStatus: "Done"
+            projectKeys: ["PRO"], inProgressStatus: "In Progress", reviewStatus: "", doneStatus: "Done"
         ))
         #expect(found.map(\.ticket.key) == ["PRO-403"])
     }

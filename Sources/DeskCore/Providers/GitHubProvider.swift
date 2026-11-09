@@ -286,7 +286,7 @@ public enum GitHubQueries {
     fragment PR on PullRequest {
       number title body url isDraft createdAt updatedAt mergedAt state baseRefName headRefName isCrossRepository additions deletions
       author { __typename login }
-      repository { nameWithOwner }
+      repository { nameWithOwner defaultBranchRef { name } }
       reviewDecision
       mergeStateStatus
       baseRef { rules(first: 20) { nodes { type parameters { ... on PullRequestParameters { requiredApprovingReviewCount requireCodeOwnerReview } } } } }
@@ -470,6 +470,7 @@ public enum GitHubDecoding {
             baseRef: node.baseRefName,
             headRef: node.headRefName,
             isCrossRepository: node.isCrossRepository ?? false,
+            defaultBranch: node.repository.defaultBranchRef?.name ?? "",
             headSha: commit?.oid ?? "",
             additions: node.additions,
             deletions: node.deletions,
@@ -549,7 +550,11 @@ public enum GitHubDecoding {
             case avatarUrl
         }
     }
-    private struct Repository: Decodable { var nameWithOwner: String }
+    private struct Repository: Decodable {
+        var nameWithOwner: String
+        var defaultBranchRef: Name?
+    }
+    private struct Name: Decodable { var name: String }
 
     private struct ConversationData: Decodable { var repository: ConversationRepository? }
     private struct ConversationRepository: Decodable { var pullRequest: ConversationPR? }

@@ -230,7 +230,7 @@ struct PullRequestRow: View {
         if let parent = model.state.stackParent(of: pr) {
             Text(verbatim: "on #\(parent.number)").scaled(.caption).foregroundStyle(.secondary).fixedSize()
                 .help("Stacked on #\(parent.number) by \(parent.author)" as String)
-        } else if pr.baseRef != model.state.defaultBranches[pr.repoName] ?? "main" {
+        } else if pr.baseRef != pr.defaultBranch {
             Text("on \(pr.baseRef)").scaled(.caption).foregroundStyle(.orange).fixedSize()
                 .help("Base branch has no open PR")
         }

@@ -22,8 +22,9 @@ import Testing
         #expect(pr.checks == .success)
         #expect(pr.checkCount == 9)
         #expect(pr.headSha == "abc")
-        // Not asked for, as in an older answer: from origin.
+        // Not asked for, as in an older answer: from origin, default branch unknown.
         #expect(!pr.isCrossRepository)
+        #expect(pr.defaultBranch == "")
         #expect(pr.mergeState == .blocked)
         #expect(pr.requestedReviewers == ["Protocol Team"])
         #expect(pr.reviewRequestEvents.count == 1)
@@ -45,7 +46,7 @@ import Testing
         let json = """
         {"data":{"search":{"nodes":[{"number":7,"title":"t","url":"https://github.com/o/r/pull/7","isDraft":true,"createdAt":"2026-08-27T11:12:21Z",
           "updatedAt":"2026-08-27T12:26:33Z","mergedAt":null,"state":"OPEN","baseRefName":"main","headRefName":"h","isCrossRepository":true,"additions":0,"deletions":0,
-          "author":{"login":"me"},"repository":{"nameWithOwner":"o/r"},"reviewDecision":null,"mergeStateStatus":null,
+          "author":{"login":"me"},"repository":{"nameWithOwner":"o/r","defaultBranchRef":{"name":"develop"}},"reviewDecision":null,"mergeStateStatus":null,
           "commits":{"nodes":[{"commit":{"oid":"abc","statusCheckRollup":null,
             "status":{"context":{"description":"medium risk: 0 of 1 approvals on the latest commit"}}}}]},
           "reviews":{"nodes":[]},"reviewRequests":{"nodes":[]},"timelineItems":{"nodes":[]},
@@ -61,6 +62,7 @@ import Testing
         """
         let pr = try #require(GitHubDecoding.pullRequests(from: Data(json.utf8)).prs.first)
         #expect(pr.isCrossRepository)
+        #expect(pr.defaultBranch == "develop")
         #expect(pr.unresolvedThreads == 1)
         #expect(pr.threads == [ReviewThread(
             id: "PRRT_1", path: "src/a.rs", line: 12, isOutdated: true, url: "https://github.com/o/r/pull/7#discussion_r1",

@@ -13,7 +13,7 @@ enum Fixtures {
         PullRequest(
             number: number, title: title, url: "https://github.com/\(repo)/pull/\(number)", repo: repo, isDraft: draft,
             state: merged == nil ? .open : .merged, createdAt: created, updatedAt: updated, mergedAt: merged,
-            baseRef: base, headRef: head, headSha: "sha\(number)", additions: 10, deletions: 2, author: author,
+            baseRef: base, headRef: head, defaultBranch: "master", headSha: "sha\(number)", additions: 10, deletions: 2, author: author,
             reviewDecision: review, mergeState: merge, checks: checks, checkCount: 3, reviews: reviews, reviewRequestEvents: events
         )
     }

@@ -32,7 +32,6 @@ public struct TicketSyncInput: Sendable {
     public var open: [PullRequest]
     /// Your recently merged ones.
     public var merged: [PullRequest]
-    public var defaultBranches: [String: String]
     public var projectKeys: [String]
     /// The status a ticket is in while you work on it. With To Do, it is the only place a move to review is forward from.
     public var inProgressStatus: String
@@ -42,13 +41,12 @@ public struct TicketSyncInput: Sendable {
     public var doneStatus: String
 
     public init(
-        tickets: [Ticket], open: [PullRequest], merged: [PullRequest], defaultBranches: [String: String],
-        projectKeys: [String], inProgressStatus: String, reviewStatus: String, doneStatus: String
+        tickets: [Ticket], open: [PullRequest], merged: [PullRequest], projectKeys: [String],
+        inProgressStatus: String, reviewStatus: String, doneStatus: String
     ) {
         self.tickets = tickets
         self.open = open
         self.merged = merged
-        self.defaultBranches = defaultBranches
         self.projectKeys = projectKeys
         self.inProgressStatus = inProgressStatus
         self.reviewStatus = reviewStatus
@@ -78,7 +76,7 @@ public enum TicketSync {
             // Never someone else's ticket, and never backwards: one Jira already calls done stays done,
             // whatever happens to its pull requests afterwards.
             guard ticket.assignedToMe, ticket.category != .done else { return nil }
-            guard let prs = byKey[ticket.key], let stage = stage(prs, defaultBranches: input.defaultBranches) else { return nil }
+            guard let prs = byKey[ticket.key], let stage = stage(prs) else { return nil }
             // A ticket past In Progress, in QA say, is further along than review, not behind it.
             if stage == .inReview, ticket.category != .todo, ticket.status != input.inProgressStatus { return nil }
             let target = stage == .done ? input.doneStatus : input.reviewStatus
@@ -92,12 +90,12 @@ public enum TicketSync {
     /// below it in a stack has finished nothing anybody would call finished. A draft blocks done for the
     /// same reason and opens no review, so a ticket with only drafts left is neither. A revert lands nothing, and
     /// the PR it undid no longer counts as landed either.
-    private static func stage(_ prs: [PullRequest], defaultBranches: [String: String]) -> TicketStage? {
+    private static func stage(_ prs: [PullRequest]) -> TicketStage? {
         if prs.contains(where: { $0.state == .open && !$0.isDraft }) { return .inReview }
         guard !prs.isEmpty, prs.allSatisfy({ $0.state == .merged }) else { return nil }
         let undone = Set(prs.compactMap(revertedTitle))
         guard prs.contains(where: { pr in
-            revertedTitle(pr) == nil && !undone.contains(pr.title) && pr.baseRef == defaultBranches[pr.repoName] ?? "main"
+            revertedTitle(pr) == nil && !undone.contains(pr.title) && pr.baseRef == pr.defaultBranch
         }) else { return nil }
         return .done
     }

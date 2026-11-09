@@ -6,8 +6,8 @@ public struct NudgeInput: Sendable {
     public var config: DeskConfig
     public var mine: [PullRequest]
     public var reviewRequests: [PullRequest]
-    public var openHeadsByRepo: [String: Set<String>]
-    public var defaultBranches: [String: String]
+    /// Your merged PRs' head branches, by repo `owner/name`: a PR based on one needs a rebase.
+    public var mergedHeadsByRepo: [String: Set<String>]
     /// The background sessions, newest first: one on a PR of yours puts it in the flow.
     public var sessions: [ClaudeJob]
     /// The Jira keys each PR of yours names, by PR url: a ticket's session carries its PRs.
@@ -15,16 +15,14 @@ public struct NudgeInput: Sendable {
 
     public init(
         now: Date, login: String, config: DeskConfig, mine: [PullRequest], reviewRequests: [PullRequest],
-        openHeadsByRepo: [String: Set<String>], defaultBranches: [String: String],
-        sessions: [ClaudeJob] = [], ticketKeys: [String: [String]] = [:]
+        mergedHeadsByRepo: [String: Set<String>], sessions: [ClaudeJob] = [], ticketKeys: [String: [String]] = [:]
     ) {
         self.now = now
         self.login = login
         self.config = config
         self.mine = mine
         self.reviewRequests = reviewRequests
-        self.openHeadsByRepo = openHeadsByRepo
-        self.defaultBranches = defaultBranches
+        self.mergedHeadsByRepo = mergedHeadsByRepo
         self.sessions = sessions
         self.ticketKeys = ticketKeys
     }
@@ -51,9 +49,7 @@ public enum NudgeEngine {
                 let latest = pr.reviews.filter { $0.state == "CHANGES_REQUESTED" }.map(\.submittedAt).max() ?? pr.updatedAt
                 nudges.append(Nudge(id: "changes:\(pr.url):\(latest.timeIntervalSince1970)", kind: .changesRequested, severity: .warning, title: "Changes requested on \(label)", detail: pr.title, url: pr.url))
             }
-            let openHeads = input.openHeadsByRepo[pr.repoName] ?? []
-            let defaultBranch = input.defaultBranches[pr.repoName] ?? "main"
-            if let reason = Linker.rebaseReason(pr, openHeads: openHeads, defaultBranch: defaultBranch) {
+            if let reason = Linker.rebaseReason(pr, mergedHeads: input.mergedHeadsByRepo[pr.repo] ?? []) {
                 nudges.append(Nudge(id: "rebase:\(pr.url):\(reason.rawValue):\(pr.headSha)", kind: .needsRebase, severity: .warning, title: "\(label) needs a rebase", detail: "\(reason.text): \(pr.baseRef)", url: pr.url))
             }
             if pr.reviewDecision == .approved && pr.mergeState == .clean && !pr.checks.isRed && !pr.checks.isPending && !inFlow {

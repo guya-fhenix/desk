@@ -68,7 +68,6 @@ public struct DeskState: Sendable {
     public private(set) var ticketDrifts: [TicketDrift] = []
     /// The suggested moves you dismissed, by `TicketDrift.moveKey`.
     public var dismissedMoves: Set<String> = []
-    public private(set) var defaultBranches: [String: String] = [:]
     /// Which queued PRs wait on your review, and why.
     public private(set) var reviewNeeds: [String: ReviewNeed] = [:]
 
@@ -188,20 +187,18 @@ public struct DeskState: Sendable {
     public mutating func recompute(now: Date = Date()) {
         let openAll = github?.allOpen ?? []
         let merged = github?.mergedRecent ?? []
-        defaultBranches = Linker.defaultBranches(worktrees: worktrees, pullRequests: openAll + merged)
-        stackParents = Linker.stackParents(openAll, defaultBranches: defaultBranches)
+        stackParents = Linker.stackParents(openAll)
         reviewNeeds = ReviewReadiness.needs(login: login, queue: reviewRequests + openForReview)
         let matcher = TicketKeyMatcher(projectKeys: config.jiraProjectKeys)
         // The merged ones too, so their rows name the ticket they closed.
         ticketKeys = Dictionary((mine + merged).map { ($0.url, TicketSync.keys(for: $0, matcher: matcher)) }, uniquingKeysWith: { first, _ in first })
         ticketDrifts = TicketSync.drifts(TicketSyncInput(
-            tickets: tickets, open: mine, merged: merged, defaultBranches: defaultBranches, projectKeys: config.jiraProjectKeys,
+            tickets: tickets, open: mine, merged: merged, projectKeys: config.jiraProjectKeys,
             inProgressStatus: config.jiraInProgressStatus, reviewStatus: config.jiraReviewStatus, doneStatus: config.jiraDoneStatus
         )).filter { !dismissedMoves.contains($0.moveKey) }
         nudges = NudgeEngine.nudges(NudgeInput(
             now: now, login: login, config: config, mine: mine, reviewRequests: reviewRequests,
-            openHeadsByRepo: Linker.openHeadsByRepo(openAll), defaultBranches: defaultBranches,
-            sessions: claudeJobs, ticketKeys: ticketKeys
+            mergedHeadsByRepo: Linker.mergedHeadsByRepo(merged), sessions: claudeJobs, ticketKeys: ticketKeys
         ))
     }
 
@@ -247,8 +244,7 @@ public struct DeskState: Sendable {
     }
 
     public func rebaseReason(_ pr: PullRequest) -> RebaseReason? {
-        let openHeads = Linker.openHeadsByRepo(github?.allOpen ?? [])[pr.repoName] ?? []
-        return Linker.rebaseReason(pr, openHeads: openHeads, defaultBranch: defaultBranches[pr.repoName] ?? "main")
+        Linker.rebaseReason(pr, mergedHeads: Linker.mergedHeadsByRepo(github?.mergedRecent ?? [])[pr.repo] ?? [])
     }
 
     // MARK: Reviews

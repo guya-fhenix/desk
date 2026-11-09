@@ -5,10 +5,10 @@ import Testing
 @Suite struct NudgeEngineTests {
     var config: DeskConfig { DeskConfig() }
 
-    func input(mine: [PullRequest] = [], reviews: [PullRequest] = []) -> NudgeInput {
+    func input(mine: [PullRequest] = [], reviews: [PullRequest] = [], merged: [PullRequest] = []) -> NudgeInput {
         NudgeInput(
             now: Fixtures.t0, login: "me", config: config, mine: mine, reviewRequests: reviews,
-            openHeadsByRepo: Linker.openHeadsByRepo(mine + reviews), defaultBranches: ["cofhe": "master"]
+            mergedHeadsByRepo: Linker.mergedHeadsByRepo(merged)
         )
     }
 
@@ -71,6 +71,19 @@ import Testing
         let nudges = NudgeEngine.nudges(input(mine: [Fixtures.pr(number: 1, head: "a", checks: .failure)]))
         #expect(nudges.first?.kind == .ciFailed)
         #expect(nudges.first?.severity == .urgent)
+    }
+
+    /// Only a merged parent says a PR needs a rebase; a base Desk knows nothing about, such as a release branch, says nothing.
+    @Test func aRebaseNeedsAMergedBase() {
+        let release = Fixtures.pr(number: 1, head: "fix", base: "release/x")
+        #expect(NudgeEngine.nudges(input(mine: [release])).isEmpty)
+        let stacked = Fixtures.pr(number: 2, head: "part-2", base: "part-1")
+        let parent = Fixtures.pr(number: 3, head: "part-1", merged: Fixtures.hours(1))
+        #expect(NudgeEngine.nudges(input(mine: [stacked], merged: [parent])).map(\.kind) == [.needsRebase])
+        // The default branch is GitHub's, so a repo on `develop` is no PR's merged base.
+        var onDevelop = Fixtures.pr(number: 4, head: "feat", base: "develop")
+        onDevelop.defaultBranch = "develop"
+        #expect(NudgeEngine.nudges(input(mine: [onDevelop], merged: [Fixtures.pr(number: 5, head: "develop", base: "release", merged: Fixtures.hours(1))])).isEmpty)
     }
 
     @Test func approvedCleanPullRequestIsReadyToMerge() {
