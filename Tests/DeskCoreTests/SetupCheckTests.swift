@@ -20,7 +20,7 @@ import Testing
         #expect(old.fixes.isEmpty, "signing in again cannot fix it")
         // Nobody signed in is still that: gh's JSON with no account.
         let nobody = Setup.github(statusOutput: Data(#"{"hosts":{}}"#.utf8), stderr: "")
-        #expect(nobody.detail == "Not signed in." && nobody.fixes.map(\.label) == ["Sign in"])
+        #expect(nobody.detail == "Not signed in." && nobody.fixes.map(\.label) == ["Use the browser"] && nobody.asksForToken)
     }
 
     @Test func readsGitHubAccountsOffGhJSON() throws {
@@ -38,7 +38,7 @@ import Testing
     }
 
     @Test func gitHubNeedsAnActiveWorkingTokenWithReadOrg() {
-        #expect(Setup.github([]).fixes.map(\.label) == ["Sign in"])
+        #expect(Setup.github([]).fixes.map(\.label) == ["Use the browser"])
         #expect(!Setup.github([GitHubAccount(login: "a", active: true, state: "failure")]).ok)
         let noOrg = Setup.github([GitHubAccount(login: "a", active: true, scopes: "repo, gist")])
         #expect(!noOrg.ok)
@@ -51,6 +51,58 @@ import Testing
         let pages = [Setup.github([]), Setup.github([GitHubAccount(login: "a", active: true, state: "failure")]), noOrg]
         for check in pages {
             #expect(check.fixes.allSatisfy { $0.note?.contains("Workflow") == true })
+            #expect(check.asksForToken, "a sign-in that does not work asks for a token first")
+        }
+        #expect(!Setup.github([GitHubAccount(login: "a", active: true, scopes: "read:org, repo")]).asksForToken)
+    }
+
+    /// Jira caps a browser (OAuth) sign-in by the hour and then refuses it until the hour turns, which stopped the
+    /// ticket sync; API tokens have no such cap. So a browser sign-in passes, but still asks for a token.
+    @Test func jiraAsksForATokenUntilItHasOne() throws {
+        let browser = try #require(JiraDecoding.account(fromStatus: """
+        ✓ Authenticated
+          Site: fhenix.atlassian.net
+          Email: guya@fhenix.io
+          Authentication Type: oauth
+        """))
+        #expect(browser.signedInWithBrowser)
+        let check = Setup.jira(browser)
+        #expect(check.ok && check.asksForToken)
+        #expect(check.detail == "Signed in to fhenix.atlassian.net as guya@fhenix.io through the browser")
+
+        let token = Setup.jira(JiraAccount(site: "fhenix.atlassian.net", email: "guya@fhenix.io", authType: "api_token"))
+        #expect(token.ok && !token.asksForToken)
+        #expect(token.detail.hasSuffix("with an API token"))
+
+        let nobody = Setup.jira(nil)
+        #expect(!nobody.ok && nobody.asksForToken)
+        #expect(nobody.fixes.map(\.label) == ["Use the browser"])
+    }
+
+    /// The token goes to the CLI on stdin, so it shows in no process list and no error message, which carry the arguments.
+    @Test func aTokenGoesOnStdinNeverInTheArguments() async throws {
+        actor Calls {
+            var all: [(arguments: [String], stdin: String?)] = []
+            func add(_ arguments: [String], _ stdin: Data?) { all.append((arguments, stdin.map { String(decoding: $0, as: UTF8.self) })) }
+        }
+        let calls = Calls()
+        let run: ShellRun = { _, arguments, _, stdin, _, _ in
+            await calls.add(arguments, stdin)
+            return ShellResult(status: 0, stdout: Data())
+        }
+        try await Setup.signInJira(acli: "/acli", site: " fhenix.atlassian.net ", email: "guya@fhenix.io", token: " secret\n", run: run)
+        try await Setup.signInGitHub(gh: "/gh", token: "ghp_secret", run: run)
+        let all = await calls.all
+        #expect(all.map(\.arguments) == [
+            ["jira", "auth", "login", "--site", "fhenix.atlassian.net", "--email", "guya@fhenix.io", "--token"],
+            ["auth", "login", "--hostname", "github.com", "--git-protocol", "https", "--with-token"],
+            ["auth", "setup-git", "--hostname", "github.com"],
+        ])
+        #expect(all.map(\.stdin) == ["secret\n", "ghp_secret\n", nil])
+
+        let refused: ShellRun = { _, _, _, _, _, _ in ShellResult(status: 1, stdout: Data(), stderr: "✗ Error: Unauthorized\n") }
+        await #expect(throws: ShellError.self) {
+            try await Setup.signInJira(acli: "/acli", site: "s", email: "e", token: "bad", run: refused)
         }
     }
 

@@ -17,8 +17,10 @@ make run      # run from the build tree
 make install  # quit a running Desk, build the .app, copy it to ~/Applications, open it
 ```
 
-Jira goes through the Atlassian CLI: run `acli jira auth login --web` once, then Settings (⌘,) → Jira →
-Recheck. Desk stores no Jira token.
+GitHub and Jira go through their CLIs, signed in with a token: Setup's Sign in step and Settings (⌘,) → GitHub and
+→ Jira take one and hand it to `gh` or `acli` on stdin, and Desk keeps none of it. A token rather than the browser
+because Jira limits how much a browser (OAuth) sign-in may ask each hour and then refuses it until the hour turns,
+which stops the ticket sync; API tokens have no such limit. So a Jira signed in through the browser is asked for one too.
 
 ## Setup
 
@@ -26,8 +28,9 @@ The window opens on Setup until you finish it once; Settings → General → Run
 bring it back. **Tools** checks Homebrew, the Command Line Tools, `gh` (2.81.0 or later, the first that reports its
 sign-ins as JSON; an older one gets an Upgrade press), `acli` and Claude Code; **Sign in** checks `gh`
 (the active account, with the `repo` and `read:org` scopes), `acli jira`, `claude` and the `fhenix-workflow` plugin,
-which needs 0.8.0 or later for Start review. Each check is read off the tool every time. Install, Sign in and the
-other fixes run their command in the terminal panel, in a login shell, so you can follow it and type a password; the
+which needs 0.8.0 or later for Start review. Each check is read off the tool every time. GitHub and Jira ask for a token
+there (Create a token opens GitHub with a classic token's scopes ticked, or Atlassian's API tokens page), with Use the
+browser beside it. Install, Use the browser and the other fixes run their command in the terminal panel, in a login shell, so you can follow it and type a password; the
 checks run again when the tab ends. Then come Settings' own GitHub, Repos (Track my clones ticks every org repo you
 have a clone of) and Jira pages, and Finish, which needs the Command Line Tools, `gh` signed in and one tracked repo.
 Later closes Setup until the next launch. `make doctor` prints the same checks.

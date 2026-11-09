@@ -59,15 +59,16 @@ enum Snapshot {
         await capture(view, size: NSSize(width: 1180, height: height), to: out)
     }
 
-    /// The whole window, sidebar and screen, on a tab or Settings, once every source has answered. `open=<pr url>` shows
-    /// that PR's page, as Search would; `terminal` puts a tab in the terminal panel, which otherwise only shows with a
-    /// session in it.
+    /// The whole window, sidebar and screen, on a tab, Settings or Setup, once every source has answered. `open=<pr url>`
+    /// shows that PR's page, as Search would; `terminal` puts a tab in the terminal panel, which otherwise only shows with
+    /// a session in it; `pane=<github|jira|…>` picks Settings' page and `step=<accounts|…>` Setup's.
     private static func window(_ arguments: [String]) async {
         let screen = arguments.first ?? ""
-        guard arguments.count >= 2, screen == "settings" || DeskWindow.Tab(rawValue: screen) != nil else {
-            print("usage: --snapshot window <upNext|pullRequests|reviews|tickets|settings> <out.png> [height] [dark] [open=<pr url>] [terminal]")
+        guard arguments.count >= 2, screen == "settings" || screen == "setup" || DeskWindow.Tab(rawValue: screen) != nil else {
+            print("usage: --snapshot window <upNext|pullRequests|reviews|tickets|settings|setup> <out.png> [height] [dark] [open=<pr url>] [terminal] [pane=<pane>] [step=<step>]")
             return
         }
+        func value(_ name: String) -> String? { arguments.first { $0.hasPrefix("\(name)=") }.map { String($0.dropFirst(name.count + 1)) } }
         let height = arguments.count > 2 ? CGFloat(Double(arguments[2]) ?? 720) : 720
         appearance(arguments)
         let model = AppModel()
@@ -81,8 +82,13 @@ enum Snapshot {
         if arguments.contains("terminal") {
             model.terminals.open(id: "snapshot", title: "Session", executable: "/bin/sh", arguments: ["-c", "echo a session; sleep 30"])
         }
+        if let pane = value("pane").flatMap(SettingsPane.init(rawValue:)) { model.settings.pane = pane }
         let size = NSSize(width: 1180, height: height)
-        await capture(DeskWindow().environment(model), size: size, to: arguments[1], titled: true)
+        if screen == "setup" {
+            await capture(SetupView(step: value("step").flatMap(SetupStep.init(rawValue:)) ?? .tools).environment(model), size: size, to: arguments[1], titled: true)
+        } else {
+            await capture(DeskWindow().environment(model), size: size, to: arguments[1], titled: true)
+        }
     }
 
     private static func appearance(_ arguments: [String]) {
