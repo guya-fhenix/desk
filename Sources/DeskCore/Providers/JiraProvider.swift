@@ -75,25 +75,31 @@ public actor JiraProvider {
 
     /// Everyone else's unfinished tickets in these projects, unassigned ones included, for the Jira screen's
     /// assignee filter. Placed the way yours are; nothing without a project to scope it to, or it would be the site.
-    public func teamOpenIssues(projects: [String]) async throws -> [Ticket] {
+    /// Their backlog only when `backlog` asks for it: it is most of every refresh — 228 tickets with their descriptions
+    /// against 16 in the sprint and 7 of yours — and fetched every few minutes for a screen that seldom shows it, it was
+    /// enough for Jira to slow acli down until searches failed.
+    public func teamOpenIssues(projects: [String], backlog: Bool) async throws -> [Ticket] {
         guard !projects.isEmpty else { return [] }
         let others = "project in (\(projects.joined(separator: ","))) AND resolution = Unresolved"
             + " AND (assignee is EMPTY OR assignee != currentUser())"
         async let sprint = search(jql: "\(others) AND sprint in openSprints() ORDER BY updated DESC", assignedToMe: false, placement: .sprint)
-        async let backlog = search(
+        guard backlog else { return try await sprint }
+        async let backlogTickets = search(
             jql: "\(others) AND (sprint is EMPTY OR sprint not in openSprints()) ORDER BY updated DESC",
             assignedToMe: false, placement: .backlog
         )
-        return try await sprint + backlog
+        return try await sprint + backlogTickets
     }
 
     /// Your unfinished tickets and everyone else's in `projects`. Yours decide whether the refresh worked. Everyone
     /// else's — the biggest searches, there only for the Jira screen's assignee filter — come back as `previousTeam`,
     /// with why, when Jira does not answer them: a slow Jira timing out the team backlog failed the whole refresh, and
     /// left your own tickets stale with it.
-    public func openIssues(projects: [String], previousTeam: [Ticket]) async throws -> (tickets: [Ticket], teamError: String?) {
+    public func openIssues(
+        projects: [String], teamBacklog: Bool, previousTeam: [Ticket]
+    ) async throws -> (tickets: [Ticket], teamError: String?) {
         async let mine = myOpenIssues()
-        async let team = teamOpenIssues(projects: projects)
+        async let team = teamOpenIssues(projects: projects, backlog: teamBacklog)
         let yours = try await mine
         do {
             return (yours + (try await team), nil)

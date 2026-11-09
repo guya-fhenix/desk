@@ -209,12 +209,33 @@ import Testing
         }
         let previous = try JiraDecoding.tickets(from: Data(ticket("PRO-9").utf8), site: "s", assignedToMe: false, placement: .backlog)
 
-        let fresh = try await jira(teamTimesOut: false).openIssues(projects: ["PRO"], previousTeam: previous)
+        let fresh = try await jira(teamTimesOut: false).openIssues(projects: ["PRO"], teamBacklog: true, previousTeam: previous)
         #expect(fresh.tickets.map(\.key) == ["PRO-1", "PRO-2"] && fresh.teamError == nil)
 
-        let slow = try await jira(teamTimesOut: true).openIssues(projects: ["PRO"], previousTeam: previous)
+        let slow = try await jira(teamTimesOut: true).openIssues(projects: ["PRO"], teamBacklog: true, previousTeam: previous)
         #expect(slow.tickets.map(\.key) == ["PRO-1", "PRO-9"], "yours fresh, everyone else's from the last refresh")
         #expect(slow.teamError == "Other people's tickets kept their last list: acli jira workitem search timed out")
+    }
+
+    /// Other people's backlog is most of a Jira refresh — 228 tickets against 16 in the sprint and 7 of yours, here — so
+    /// it is searched only when the Jira screen shows it; fetched on every poll regardless, it was enough for Jira to
+    /// slow acli until searches failed.
+    @Test func otherPeoplesBacklogIsSearchedOnlyWhenShown() async throws {
+        actor Asked { var jql: [String] = []; func add(_ query: String) { jql.append(query) } }
+        func searches(teamBacklog: Bool) async throws -> [String] {
+            let asked = Asked()
+            let jira = JiraProvider(acliPath: "/acli") { _, arguments, _, _, _, _ in
+                if arguments.contains("auth") { return .ok("✓ Authenticated\n  Site: fhenix.atlassian.net\n") }
+                await asked.add(arguments[arguments.firstIndex(of: "--jql")! + 1])
+                return .ok("[]")
+            }
+            _ = try await jira.openIssues(projects: ["PRO"], teamBacklog: teamBacklog, previousTeam: [])
+            return await asked.jql
+        }
+        let teamBacklog = { (jql: String) in jql.contains("assignee != currentUser()") && jql.contains("sprint not in openSprints()") }
+        #expect(try await searches(teamBacklog: false).count(where: teamBacklog) == 0)
+        #expect(try await searches(teamBacklog: false).count == 3, "yours in the sprint and the backlog, and theirs in the sprint")
+        #expect(try await searches(teamBacklog: true).count(where: teamBacklog) == 1)
     }
 
     @Test func decodesAcliWorkItemSearch() throws {

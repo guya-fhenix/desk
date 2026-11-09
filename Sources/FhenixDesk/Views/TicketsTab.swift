@@ -41,6 +41,11 @@ struct TicketsTab: View {
             model.selectTicket = nil
         }
         .selectsFirstRow(moves.first?.moveKey ?? groups.first?.tickets.first?.key, selection: $selection)
+        // Other people's backlog is fetched only while the screen shows it: turned on, it is fetched now, not at the next
+        // poll.
+        .onChange(of: filters.showsTeamBacklog) { _, shows in
+            if shows { Task { await model.refresh(.jira) } }
+        }
         .sheet(item: $planning) { request in
             PlanSheet(request: request, model: model, note: $planNote) { planning = nil }
         }
@@ -211,6 +216,22 @@ struct TicketFilters: DynamicProperty {
     var assignees: Set<TicketAssignee> {
         get { Set(storedAssignees.split(separator: "\n").compactMap { TicketAssignee(rawValue: String($0)) }) }
         nonmutating set { storedAssignees = newValue.map(\.rawValue).sorted().joined(separator: "\n") }
+    }
+
+    /// Whether the screen shows other people's backlog: on Backlog, with anyone besides you in the filter (nothing
+    /// picked is everyone). Only then is that backlog fetched — it is most of what a Jira refresh costs.
+    var showsTeamBacklog: Bool { Self.showsTeamBacklog(placement: placement, assignees: assignees) }
+
+    /// The same, read where no view is, as the model's refresh is.
+    static var showsTeamBacklog: Bool {
+        let defaults = UserDefaults.standard
+        let placement = defaults.string(forKey: "tickets.placement").flatMap(TicketPlacement.init) ?? .sprint
+        let stored = defaults.string(forKey: "tickets.assignees") ?? TicketAssignee.me.rawValue
+        return showsTeamBacklog(placement: placement, assignees: Set(stored.split(separator: "\n").compactMap { TicketAssignee(rawValue: String($0)) }))
+    }
+
+    private static func showsTeamBacklog(placement: TicketPlacement, assignees: Set<TicketAssignee>) -> Bool {
+        placement == .backlog && assignees != [.me]
     }
 }
 

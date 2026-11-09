@@ -272,13 +272,15 @@ public actor DeskService {
         try await gh().requestTeamReview(repo: pr.repo, number: pr.number, team: config.reviewTeam)
     }
 
-    /// Your tickets, everyone else's in the projects, and the ones PRs name. `previous` is what the last refresh had:
-    /// everyone else's from it stand in when Jira does not answer for them, and `error` says so.
-    public func refreshJira(referencedKeys: [String], previous: [Ticket] = []) async throws -> (tickets: [Ticket], error: String?) {
+    /// Your tickets, everyone else's in the projects, and the ones PRs name. Everyone else's backlog only with
+    /// `teamBacklog`: when the Jira screen shows it. `previous` is what the last refresh had: everyone else's from it
+    /// stand in when Jira does not answer for them, and `error` says so.
+    public func refreshJira(
+        referencedKeys: [String], teamBacklog: Bool, previous: [Ticket] = []
+    ) async throws -> (tickets: [Ticket], error: String?) {
         guard let jira else { throw DeskError.jiraNotConfigured }
-        let open = try await jira.openIssues(
-            projects: config.jiraProjectKeys, previousTeam: previous.filter { !$0.assignedToMe && $0.placement != .unknown }
-        )
+        let standIns = previous.filter { !$0.assignedToMe && ($0.placement == .sprint || (teamBacklog && $0.placement == .backlog)) }
+        let open = try await jira.openIssues(projects: config.jiraProjectKeys, teamBacklog: teamBacklog, previousTeam: standIns)
         if let error = open.teamError { Self.log.error("jira team tickets: \(error, privacy: .public)") }
         let placed = open.tickets
         let placedKeys = Set(placed.map(\.key))
