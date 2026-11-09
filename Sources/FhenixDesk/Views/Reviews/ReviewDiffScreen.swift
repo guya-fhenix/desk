@@ -38,9 +38,9 @@ struct DiffSelection: Equatable {
     var range: ClosedRange<Int> { min(anchor, end)...max(anchor, end) }
 }
 
-/// Reviewing a teammate's PR: its diff here, the review session in the terminal panel beside it. Each review thread
-/// shows under the line it ends on, to reply to or resolve; new line comments and the verdict are the session's to
-/// post, on your word.
+/// Reviewing a teammate's PR: its diff here, the review session in the terminal panel beside it, and the window's
+/// sidebar folded away while it shows, so the code has the room. Each review thread shows under the line it ends on, to
+/// reply to or resolve; new line comments and the verdict are the session's to post, on your word.
 struct ReviewDiffScreen: View {
     var pr: PullRequest
     var model: AppModel
@@ -49,7 +49,20 @@ struct ReviewDiffScreen: View {
     @State private var scrollTarget: DiffRowID?
     @State private var flash: DiffRowID?
     @State private var collapsed: Set<String> = []
-    private let mono = Font.system(size: 12, design: .monospaced)
+    /// The files whose header is pinned at the top of the scroll, or being pushed off it by the next: the last of them is
+    /// the file you are in.
+    @State private var atTop: Set<String> = []
+    /// The diff has the keyboard, for its line cursor.
+    @FocusState private var focused: Bool
+    @Environment(\.reviewRoom) private var reviewRoom
+    @Environment(\.textScale) private var scale
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    /// The code at the app's text size; the rows' heights follow it.
+    private var mono: Font { AppTextStyle.code.font(scale: scale) }
+    /// The one line-number column, the new number or a removed line's old one: five digits and a gap at the code's size,
+    /// 44 pt at the default.
+    private var gutter: CGFloat { (AppTextStyle.code.size * scale).rounded() * 3.7 }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -59,7 +72,7 @@ struct ReviewDiffScreen: View {
                 Button("Ask Claude") { askClaude() }
                     .keyboardShortcut(.return, modifiers: .command)
                     .disabled(selection == nil)
-                    .help("Pastes the selected lines into the review session, for you to ask about. Click a line, shift-click to extend. ⌘↩")
+                    .help("Pastes the selected lines into the review session, for you to ask about. Click a line, shift-click to extend, or move with ↑↓ and extend with ⇧↑↓. ⌘↩")
                 Button(model.reviewRunning(pr) ? "Review session" : "Start review") { model.startReview(pr) }
                     .help("The review session in the terminal panel")
                 Button("Review on GitHub") { model.openDraft(pr) }
@@ -67,7 +80,11 @@ struct ReviewDiffScreen: View {
             .padding(.horizontal, Theme.gutter)
             .padding(.top, 6)
             VStack(alignment: .leading, spacing: 6) {
-                Text(pr.title).scaled(.title3.weight(.semibold)).lineLimit(2)
+                HStack(alignment: .firstTextBaseline, spacing: Theme.Space.m) {
+                    Text(pr.title).scaled(.title3.weight(.semibold)).lineLimit(2)
+                    Spacer(minLength: 0)
+                    if let diff = model.diffs[pr.url], !diff.files.isEmpty { jumpMenu(diff) }
+                }
                 if let error = model.sessionErrors[pr.url] {
                     Text(error).scaled(.caption).foregroundStyle(.red).textSelection(.enabled)
                 }
@@ -87,15 +104,13 @@ struct ReviewDiffScreen: View {
         .background(Theme.background)
         .task(id: pr.url) { model.loadDiff(pr) }
         .task(id: "\(pr.url) \(pr.updatedAt)") { await model.loadConversation(pr) }
+        .onAppear { reviewRoom(true) }
+        .onDisappear { reviewRoom(false) }
     }
 
     @ViewBuilder private var content: some View {
         if let diff = model.diffs[pr.url] {
-            HStack(spacing: 0) {
-                fileList(diff)
-                Rectangle().fill(Theme.line).frame(width: 1)
-                rows(diff)
-            }
+            rows(diff)
         } else if let error = model.diffErrors[pr.url] {
             EmptyState(icon: "exclamationmark.triangle", text: "Couldn't load the diff.", detail: error,
                        actionTitle: "Retry", action: { model.loadDiff(pr, force: true) })
@@ -105,20 +120,34 @@ struct ReviewDiffScreen: View {
         }
     }
 
-    private func fileList(_ diff: LoadedDiff) -> some View {
-        List(diff.files) { file in
-            Button { scrollTarget = DiffRowID(path: file.path, index: -1) } label: {
-                HStack(spacing: 6) {
-                    Text(file.name).lineLimit(1).truncationMode(.middle)
-                    Spacer(minLength: 4)
-                    Text("+\(file.additions) −\(file.deletions)").scaled(.caption).monospacedDigit().foregroundStyle(.secondary)
+    /// The file at the top of the scroll.
+    private func topFile(_ diff: LoadedDiff) -> Int { diff.files.lastIndex { atTop.contains($0.path) } ?? 0 }
+
+    /// "File 2 of 4 · contracts/ACL.sol ▾": the file at the top of the scroll, and every file with its +/− counts, that
+    /// one ticked, each scrolling to its header.
+    private func jumpMenu(_ diff: LoadedDiff) -> some View {
+        let current = topFile(diff)
+        return Menu {
+            ForEach(diff.files) { file in
+                Toggle(isOn: Binding(get: { file.path == diff.files[current].path }, set: { _ in
+                    scrollTarget = DiffRowID(path: file.path, index: -1)
+                })) {
+                    Text(file.path)
+                    Text("+\(file.additions) −\(file.deletions)")
                 }
             }
-            .buttonStyle(.plain)
-            .help(file.path)
+        } label: {
+            HStack(spacing: 6) {
+                Text("File \(current + 1) of \(diff.files.count)").foregroundStyle(.secondary).fixedSize()
+                Text(diff.files[current].path).lineLimit(1).truncationMode(.head)
+                Image(systemName: "chevron.down").scaled(.caption).foregroundStyle(.secondary)
+            }
+            .menuBox()
         }
-        .listStyle(.sidebar)
-        .frame(width: 230)
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .help(diff.files[current].path)
     }
 
     private func rows(_ diff: LoadedDiff) -> some View {
@@ -145,10 +174,31 @@ struct ReviewDiffScreen: View {
                 }
                 .padding(.bottom, Theme.Space.xl)
             }
+            // ↑ and ↓ move the line cursor, the selection's one line; with ⇧ they stretch the selection. Not while a reply is
+            // being typed under a line: there the arrows move the caret, and this handler would run first.
+            .focusable()
+            .focusEffectDisabled()
+            .focused($focused)
+            .onKeyPress(keys: [.upArrow, .downArrow]) { press in
+                let step = press.key == .downArrow ? 1 : -1
+                guard !(NSApp.keyWindow?.firstResponder is NSText),
+                      let next = moved(step, extend: press.modifiers.contains(.shift), in: diff) else { return .ignored }
+                selection = next
+                // A line or two of what is above it comes into view too, so going up it is not left under the pinned header.
+                let lead = DiffRowID(path: next.path, index: step < 0 ? max(next.end - 2, -1) : next.end)
+                withAnimation(reduceMotion ? nil : .default) { proxy.scrollTo(lead) }
+                return .handled
+            }
+            .task {
+                // A turn of the run loop later, as a page's focus is: asked for while the screen is still being put up, it
+                // is dropped.
+                await Task.yield()
+                focused = true
+            }
             .onChange(of: scrollTarget) { _, target in
                 guard let target else { return }
                 collapsed.remove(target.path)
-                withAnimation { proxy.scrollTo(target, anchor: target.index < 0 ? .top : .center) }
+                withAnimation(reduceMotion ? nil : .default) { proxy.scrollTo(target, anchor: target.index < 0 ? .top : .center) }
                 scrollTarget = nil
             }
             // A session's link: the line it named, or the nearest one the diff has, lit up for a moment.
@@ -166,26 +216,38 @@ struct ReviewDiffScreen: View {
         }
     }
 
+    /// A button, so the keyboard and VoiceOver can fold a file too.
     private func fileHeader(_ file: DiffFile) -> some View {
-        HStack(spacing: 8) {
-            Image(systemName: collapsed.contains(file.path) ? "chevron.right" : "chevron.down")
-                .font(.system(size: 10, weight: .semibold)).foregroundStyle(.secondary).frame(width: 12)
-            Text(file.previousPath.map { "\($0) → \(file.path)" } ?? file.path)
-                .font(mono.weight(.semibold)).lineLimit(1).truncationMode(.head)
-            Text(file.status == .modified ? "" : file.status.rawValue).scaled(.caption).foregroundStyle(.secondary)
-            Spacer(minLength: 8)
-            Text("+\(file.additions)").foregroundStyle(.green)
-            Text("−\(file.deletions)").foregroundStyle(.red)
+        let folded = collapsed.contains(file.path)
+        return Button {
+            if folded { collapsed.remove(file.path) } else { collapsed.insert(file.path) }
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: folded ? "chevron.right" : "chevron.down")
+                    .scaled(.caption.weight(.semibold)).foregroundStyle(.secondary).frame(width: 12)
+                Text(file.previousPath.map { "\($0) → \(file.path)" } ?? file.path)
+                    .font(mono.weight(.semibold)).lineLimit(1).truncationMode(.head)
+                Text(file.status == .modified ? "" : file.status.rawValue).scaled(.caption).foregroundStyle(.secondary)
+                Spacer(minLength: 8)
+                Text("+\(file.additions)").foregroundStyle(.green)
+                Text("−\(file.deletions)").foregroundStyle(.red)
+            }
+            .font(mono)
+            .padding(.horizontal, 10).padding(.vertical, 7)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
         }
-        .font(mono)
-        .padding(.horizontal, 10).padding(.vertical, 7)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .buttonStyle(.plain)
         .background(Theme.raised)
         .overlay(alignment: .bottom) { Rectangle().fill(Theme.line).frame(height: 1) }
-        .contentShape(Rectangle())
-        .onTapGesture {
-            if collapsed.contains(file.path) { collapsed.remove(file.path) } else { collapsed.insert(file.path) }
+        .help(folded ? "Show its lines" : "Hide its lines")
+        .accessibilityValue(folded ? "Collapsed" : "Expanded")
+        // Pinned, it sits at the scroll's top edge; the next file's header pushes it off. One gone from the lazy stack is
+        // out of the running: the file on top always has its header on screen.
+        .onGeometryChange(for: Bool.self) { $0.frame(in: .scrollView).minY <= 1 } action: { onTop in
+            if onTop { atTop.insert(file.path) } else { atTop.remove(file.path) }
         }
+        .onDisappear { atTop.remove(file.path) }
         .id(DiffRowID(path: file.path, index: -1))
     }
 
@@ -194,19 +256,19 @@ struct ReviewDiffScreen: View {
         case .hunk(let header):
             Text(header)
                 .font(mono).foregroundStyle(.secondary).lineLimit(1)
-                .padding(.vertical, 3).padding(.leading, 100)
+                .padding(.vertical, 3).padding(.leading, gutter + 12)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(Color.blue.opacity(0.08))
                 .id(id)
         case .line(let line):
             HStack(alignment: .top, spacing: 0) {
-                Text(line.oldLine.map(String.init) ?? "").frame(width: 44, alignment: .trailing).foregroundStyle(.secondary)
-                Text(line.newLine.map(String.init) ?? "").frame(width: 44, alignment: .trailing).foregroundStyle(.secondary)
+                Text((line.newLine ?? line.oldLine).map(String.init) ?? "").frame(width: gutter, alignment: .trailing).foregroundStyle(.secondary)
                 Text(marker(line) + line.text).padding(.leading, 12)
             }
             .font(mono)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(background(line, id))
+            .help(line.oldLine.map { "Was line \($0)" } ?? "")
             .contentShape(Rectangle())
             .onTapGesture { select(id, extend: NSEvent.modifierFlags.contains(.shift)) }
             .id(id)
@@ -224,7 +286,7 @@ struct ReviewDiffScreen: View {
                     ForEach(threads) { ThreadView(thread: $0, pr: pr, model: model, showsLocation: false) }
                 }
                 .frame(maxWidth: 760, alignment: .leading)
-                .padding(.leading, 100)
+                .padding(.leading, gutter + 12)
                 .padding(.trailing, 16)
                 .padding(.vertical, 8)
             }
@@ -249,7 +311,23 @@ struct ReviewDiffScreen: View {
         }
     }
 
+    /// The selection after ↑ or ↓: the cursor a line on, into the next open file past the last line, or from the file on
+    /// top when there is none yet; with ⇧, the selection stretched a line, within its file. Nil when it would go nowhere.
+    private func moved(_ step: Int, extend: Bool, in diff: LoadedDiff) -> DiffSelection? {
+        let open = diff.files.map(\.path).filter { !collapsed.contains($0) }
+        let line = { (path: String) in diff.rows[path]?.lineIndex(after: nil, step: step).map { DiffSelection(path: path, anchor: $0, end: $0) } }
+        guard let selection, let at = open.firstIndex(of: selection.path) else {
+            return open.drop { $0 != diff.files[topFile(diff)].path }.lazy.compactMap(line).first ?? open.lazy.compactMap(line).first
+        }
+        if let index = diff.rows[selection.path]?.lineIndex(after: selection.end, step: step) {
+            return DiffSelection(path: selection.path, anchor: extend ? selection.anchor : index, end: index)
+        }
+        guard !extend else { return nil }
+        return (step > 0 ? Array(open[(at + 1)...]) : open[..<at].reversed()).lazy.compactMap(line).first
+    }
+
     private func select(_ id: DiffRowID, extend: Bool) {
+        focused = true
         if extend, var selection, selection.path == id.path {
             selection.end = id.index
             self.selection = selection

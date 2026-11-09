@@ -231,6 +231,13 @@ import Testing
         #expect(state.reviewQueue(.all).map(\.number) == [1, 2, 3])
     }
 
+    /// Needs you leads, as the screen's default; Open is gone, so a scope saved as "open" reads as none and the screen
+    /// falls back to Needs you.
+    @Test func needsYouLeadsAndASavedOpenFallsBack() {
+        #expect(ReviewScope.offered == [.needsYou, .onMe, .reviewed, .all])
+        #expect(ReviewScope(rawValue: "open") == nil)
+    }
+
     @Test func reviewIsOfferedOnPullRequestsNobodyAssignedYou() {
         var state = state
         let other = Fixtures.pr(number: 8, head: "h", author: "alice")
@@ -343,5 +350,16 @@ import Testing
         #expect(state.ticketAssignees.map(\.name) == ["Dana", "Roee"])
         #expect(state.ticketSelf?.name == "Guy")
         #expect(TicketAssignee(rawValue: TicketAssignee.person("Roee Z").rawValue) == .person("Roee Z"))
+    }
+}
+
+@Suite struct SourceTests {
+    /// The sidebar offers Settings for a missing CLI or a sign-in, which Settings fixes, and not for an outage.
+    @Test func aSignInProblemIsOneSettingsFixes() {
+        #expect(Source.isSignInProblem(DeskError.jiraSignedOut.description))
+        #expect(Source.isSignInProblem(DeskError.jiraNotConfigured.description))
+        #expect(Source.isSignInProblem(DeskError.ghNotFound.description))
+        #expect(Source.isSignInProblem("gh: HTTP 401: Bad credentials (https://api.github.com/graphql)"))
+        #expect(!Source.isSignInProblem("gh: HTTP 502 from api.github.com"))
     }
 }

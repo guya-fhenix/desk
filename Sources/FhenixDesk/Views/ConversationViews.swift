@@ -203,7 +203,7 @@ struct ThreadView: View {
                         toggling = false
                     }
                 }
-                .controlSize(.small).handCursor()
+                .controlSize(.small)
                 .disabled(toggling)
             }
             if let url = thread.comments.first?.url {
@@ -311,7 +311,7 @@ struct CommentBox: View {
                     }
                     .focused($focused)
                 Button(submit) { Task { await send() } }
-                    .buttonStyle(.borderedProminent).handCursor()
+                    .buttonStyle(.borderedProminent)
                     // Only from this box: the review diff's Ask Claude has ⌘↩ too.
                     .keyboardShortcut(focused ? KeyboardShortcut(.return, modifiers: .command) : nil)
                     .disabled(posting || empty)

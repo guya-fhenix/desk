@@ -8,21 +8,21 @@ public struct TicketGroup: Sendable, Identifiable {
     public var tickets: [Ticket]
 }
 
-/// Which slice of the review queue to show: the ones asked of you, the open ones you have not reviewed, the ones you
-/// reviewed that wait on their authors, or every open PR by someone else. `needsYou` — asked of you, or not yet
-/// reviewed — is what the sidebar badge, Up Next and the menu bar count; the screen does not offer it.
+/// Which slice of the review queue to show: the ones that need you — asked of you, or open and not yet reviewed — the
+/// ones asked of you, the ones you reviewed that wait on their authors, or every open PR by someone else. `needsYou` is
+/// the screen's first scope and its default, and what the sidebar badge, Up Next and the menu bar count. A scope saved by
+/// an older version, such as `open`, reads as none, so the screen falls back to its default.
 public enum ReviewScope: String, CaseIterable, Sendable, Identifiable {
-    case onMe, open, reviewed, all, needsYou
+    case needsYou, onMe, reviewed, all
 
     /// The scopes the Reviews screen offers, in order.
-    public static let offered: [ReviewScope] = [.onMe, .open, .reviewed, .all]
+    public static let offered: [ReviewScope] = allCases
 
     public var id: ReviewScope { self }
 
     public var title: String {
         switch self {
         case .onMe: return "On you"
-        case .open: return "Open"
         case .reviewed: return "Reviewed"
         case .all: return "All"
         case .needsYou: return "Needs you"
@@ -39,6 +39,16 @@ public enum Source: String, CaseIterable, Sendable, Codable {
         case .git: return "Git"
         case .jira: return "Jira"
         }
+    }
+
+    /// "GitHub, Git, and Jira", for a sentence about several sources at once.
+    public static func names(_ sources: [Source]) -> String { sources.map(\.title).formatted(.list(type: .and)) }
+
+    /// Whether a source's error is one Settings fixes: its CLI missing, or nobody signed in. Errors arrive as text, so
+    /// this reads the words gh, acli and Desk's own errors use for those.
+    public static func isSignInProblem(_ error: String) -> Bool {
+        let error = error.lowercased()
+        return ["auth login", "not signed in", "cli not found", "http 401", "bad credentials"].contains { error.contains($0) }
     }
 }
 
@@ -116,7 +126,6 @@ public struct DeskState: Sendable {
         var rows: [PullRequest]
         switch scope {
         case .onMe: rows = reviewRequests
-        case .open: rows = openForReview
         case .reviewed: rows = reviewedByYou
         case .all: rows = reviewRequests + openForReview + reviewedByYou
         case .needsYou: rows = reviewRequests + openForReview

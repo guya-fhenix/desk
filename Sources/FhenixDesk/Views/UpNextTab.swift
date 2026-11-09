@@ -45,13 +45,33 @@ struct UpNextTab: View {
         let waiting = plan.first { $0.section == .waiting }
         let titles = early.map(\.section.title) + (drifts.isEmpty ? [] : [Self.jira]) + (tickets.isEmpty ? [] : [Self.start])
             + [waiting?.section.title].compactMap { $0 }
+        // The sources that have neither answered nor failed yet: until GitHub has, an empty list means nothing.
+        let pending = Source.allCases.filter { model.state.lastRefresh[$0] == nil && model.state.errors[$0] == nil }
         Screen {
             PageHeader(title: "Up Next") {}
         } content: {
-            if titles.isEmpty {
+            if pending.contains(.github) || (titles.isEmpty && !pending.isEmpty) { syncing(pending) }
+            ForEach(Source.allCases, id: \.self) { source in
+                if source == .github, model.state.github == nil, let error = model.state.errors[.github] {
+                    // Nothing from GitHub has ever loaded, so this is no stale list: say what is missing.
+                    EmptyState(
+                        icon: "exclamationmark.triangle", text: "GitHub didn't answer, so Up Next can't say which PRs wait on you.",
+                        detail: error, actionTitle: "Retry", action: { Task { await model.refresh(.github) } }
+                    )
+                    .padding(Theme.Space.m)
+                    .background(Color.orange.opacity(0.14), in: RoundedRectangle(cornerRadius: 8))
+                    .padding(.vertical, Theme.Space.m)
+                } else {
+                    StaleBanner(source: source)
+                }
+            }
+            if pending.contains(.github) {
+                placeholders
+            } else if titles.isEmpty, pending.isEmpty, model.state.errors.isEmpty {
                 // Says how fresh "nothing" is, and where to go next, rather than one grey line.
                 EmptyState(
-                    icon: "checkmark.circle", text: "All clear · synced \(Format.age(model.state.lastRefresh.values.max())) ago",
+                    icon: "checkmark.circle",
+                    text: "All clear. \(Source.names(Source.allCases)) all synced \(Format.ago(model.state.lastRefresh.values.min())).",
                     actionTitle: "Browse the review queue", action: { model.pendingTab = .reviews }
                 )
                 .padding(.vertical, 20)
@@ -100,6 +120,39 @@ struct UpNextTab: View {
                 }
             }
         }
+    }
+
+    /// "Reading GitHub and Jira… Git answered.": which sources Up Next still waits on, over the rows that stand in for
+    /// theirs.
+    private func syncing(_ pending: [Source]) -> some View {
+        let answered = Source.allCases.filter { model.state.lastRefresh[$0] != nil }
+        return HStack(spacing: Theme.Space.s) {
+            ProgressView().controlSize(.mini)
+            Text("Reading \(Source.names(pending))…" + (answered.isEmpty ? "" : " \(Source.names(answered)) answered."))
+        }
+        .scaled(.secondary)
+        .foregroundStyle(.secondary)
+        .padding(.vertical, Theme.Space.m)
+    }
+
+    /// Grey bars where the first rows will be, so the screen reads as loading rather than empty.
+    private var placeholders: some View {
+        VStack(spacing: 0) {
+            ForEach([CGFloat(360), 280, 320], id: \.self) { width in
+                HStack(spacing: Theme.Space.m) {
+                    VStack(alignment: .leading, spacing: 7) {
+                        Capsule().frame(width: width, height: 10)
+                        Capsule().frame(width: width - 90, height: 8).opacity(0.7)
+                    }
+                    Spacer()
+                    Capsule().frame(width: 90, height: 10)
+                }
+                .foregroundStyle(Theme.raised)
+                .padding(Theme.Space.m)
+                .overlay(alignment: .bottom) { Hairline() }
+            }
+        }
+        .accessibilityHidden(true)
     }
 
     private static let start = "Ready to start"

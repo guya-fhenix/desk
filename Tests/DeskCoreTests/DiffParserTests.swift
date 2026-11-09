@@ -175,4 +175,16 @@ import Testing
         #expect(DiffParser.parse("").isEmpty)
         #expect(DiffParser.parse("not a diff at all\n").isEmpty)
     }
+
+    @Test func lineCursorPassesOverHunkHeadersAndStopsAtTheEnds() {
+        let line = DiffRow.line(DiffLine(kind: .context, oldLine: 1, newLine: 1, text: ""))
+        let rows: [DiffRow] = [.hunk("@@ -1 +1 @@"), line, line, .hunk("@@ -9 +9 @@"), line]
+        #expect(rows.lineIndex(after: nil, step: 1) == 1)
+        #expect(rows.lineIndex(after: nil, step: -1) == 4)
+        #expect(rows.lineIndex(after: 2, step: 1) == 4)
+        #expect(rows.lineIndex(after: 4, step: -1) == 2)
+        #expect(rows.lineIndex(after: 1, step: -1) == nil)
+        #expect(rows.lineIndex(after: 4, step: 1) == nil)
+        #expect([DiffRow]().lineIndex(after: nil, step: 1) == nil)
+    }
 }

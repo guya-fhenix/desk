@@ -49,6 +49,29 @@ struct StageChip: View {
     }
 }
 
+/// What one of your PRs waits on, as its row's one pill: red when the move is yours to fix, green when it is yours to
+/// merge, blue while it waits on someone else, grey for a draft.
+struct StatePill: View {
+    var state: RowState
+
+    var body: some View {
+        let color: Color = switch state.move {
+        case .yoursToFix: .red
+        case .yoursToMerge: .green
+        case .others: .blue
+        case .draft: .secondary
+        }
+        Text(state.title)
+            .scaled(.secondary.weight(.semibold))
+            .foregroundStyle(color)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 3)
+            .background(color.opacity(0.12), in: Capsule())
+            .overlay(Capsule().strokeBorder(color.opacity(0.45)))
+            .fixedSize()
+    }
+}
+
 struct StatusDot: View {
     var color: Color
     /// What the dot says, for VoiceOver. Without one the dot is decoration and stays silent.
@@ -153,7 +176,7 @@ struct RefreshControl: View {
             .background(Theme.raised, in: Capsule())
             .contentShape(Capsule())
         }
-        .buttonStyle(.plain).handCursor()
+        .buttonStyle(.plain)
         .help(model.syncHelp)
     }
 }
@@ -231,9 +254,9 @@ extension View {
     /// The session button's look: filled and full size as a page's action, plain and small elsewhere.
     @ViewBuilder fileprivate func sessionStyle(_ prominent: Bool, menu: Bool = false) -> some View {
         if prominent {
-            if menu { menuStyle(.button).buttonStyle(.borderedProminent).handCursor() } else { buttonStyle(.borderedProminent).handCursor() }
+            if menu { menuStyle(.button).buttonStyle(.borderedProminent) } else { buttonStyle(.borderedProminent) }
         } else {
-            if menu { menuStyle(.borderlessButton).controlSize(.small).handCursor() } else { buttonStyle(.borderless).controlSize(.small).handCursor() }
+            if menu { menuStyle(.borderlessButton).controlSize(.small) } else { buttonStyle(.borderless).controlSize(.small) }
         }
     }
 }
@@ -262,7 +285,7 @@ struct PullRequestMenu: View {
 extension View {
     /// Filled for the one press a screen leads with, bordered for the rest: six filled buttons are six focal points.
     @ViewBuilder func primaryStyle(_ prominent: Bool) -> some View {
-        if prominent { buttonStyle(.borderedProminent).handCursor() } else { buttonStyle(.bordered).handCursor() }
+        if prominent { buttonStyle(.borderedProminent) } else { buttonStyle(.bordered) }
     }
 }
 
@@ -498,28 +521,43 @@ struct PullRequestStatus: View {
     }
 }
 
-/// A PR page's Checks card: every check on its head commit, fetched when the page shows the PR, again when its head or
-/// overall state moves, and every 20 s while a job is still running, since one finishing leaves the overall state
-/// pending until the last.
+/// A PR page's Checks card: one line that sums up every check on its head commit, "✓ 14 passed, 2 skipped", and under it
+/// the press that lists them all. Fetched when the page shows the PR, again when its head or overall state moves, and
+/// every 20 s while a job is still running, since one finishing leaves the overall state pending until the last.
 struct WorkflowsSection: View {
     var pr: PullRequest
     var model: AppModel
     /// The PR these were fetched for: the page keeps this view as it moves to another PR.
     @State private var loaded: (url: String, checks: [PullRequestCheck])?
     @State private var error: String?
+    @State private var expanded = false
 
     var body: some View {
-        SideCard(title: "Checks", count: pr.checkCount > 0 ? pr.checkCount : nil) {
-            if let loaded, loaded.url == pr.url {
-                if loaded.checks.isEmpty {
+        let checks = loaded.flatMap { $0.url == pr.url ? $0.checks : nil }
+        SideCard(title: "Checks") {
+            if let checks {
+                if checks.isEmpty {
                     Text("No checks on the latest commit.").foregroundStyle(.secondary)
                 } else {
-                    Text(CheckList.summary(loaded.checks)).scaled(.secondary).foregroundStyle(.secondary)
-                    CheckList(checks: loaded.checks, model: model)
+                    Button(expanded ? "Hide them" : "Show all \(checks.count)") { expanded.toggle() }
+                        .buttonStyle(.link).handCursor()
+                    if expanded { CheckList(checks: checks, model: model) }
                 }
             } else if let error {
                 Text(error).scaled(.caption).foregroundStyle(.red).textSelection(.enabled)
-            } else {
+            }
+        } trailing: {
+            if let checks {
+                if !checks.isEmpty {
+                    let summary = CheckList.summary(checks)
+                    HStack(spacing: 5) {
+                        ChecksBadge(pr: pr).accessibilityHidden(true)
+                        Text(summary).lineLimit(1)
+                    }
+                    .scaled(.secondary)
+                    .help(summary)
+                }
+            } else if error == nil {
                 ProgressView().controlSize(.small)
             }
         }
@@ -570,10 +608,10 @@ private struct CheckList: View {
         }
     }
 
-    /// "11 successful", or "2 failed, 9 successful".
+    /// "11 passed", or "2 failed, 9 passed".
     static func summary(_ checks: [PullRequestCheck]) -> String {
         Dictionary(grouping: checks, by: \.outcome).sorted { $0.key < $1.key }
-            .map { "\($0.value.count) \(word($0.key))" }.joined(separator: ", ")
+            .map { "\($0.value.count) \($0.key.word)" }.joined(separator: ", ")
     }
 
     static func word(_ outcome: PullRequestCheck.Outcome) -> String {
@@ -688,7 +726,7 @@ struct PageHeadline: View {
                         Image(systemName: "arrow.up.right").scaled(.caption)
                     }
                 }
-                .buttonStyle(IconButtonStyle())
+                .buttonStyle(IconButtonStyle()).handCursor()
                 .help("Open on GitHub")
                 .accessibilityLabel("Open on GitHub")
             }
@@ -775,8 +813,8 @@ struct EditableTitle<Trailing: View>: View {
             if saving {
                 ProgressView().controlSize(.small)
             } else {
-                Button(action: commit) { KeyCap(key: "↩") }.buttonStyle(.plain).handCursor().help("Save (Return)")
-                Button(action: cancel) { KeyCap(key: "Esc") }.buttonStyle(.plain).handCursor().help("Cancel (Esc)")
+                Button(action: commit) { KeyCap(key: "↩") }.buttonStyle(.plain).help("Save (Return)")
+                Button(action: cancel) { KeyCap(key: "Esc") }.buttonStyle(.plain).help("Cancel (Esc)")
             }
         }
     }
@@ -861,7 +899,6 @@ struct EditableDescription<Rendered: View>: View {
                 if !editing {
                     Button("Edit", action: start)
                         .controlSize(.small)
-                        .handCursor()
                         .disabled(!editable)
                         .help(editable ? editHelp : lockedHelp)
                 }
@@ -885,7 +922,7 @@ struct EditableDescription<Rendered: View>: View {
                     if saving { ProgressView().controlSize(.small) }
                     Button("Cancel", action: cancel).keyboardShortcut(.cancelAction).disabled(saving)
                     Button("Save", action: commit)
-                        .buttonStyle(.borderedProminent).handCursor()
+                        .buttonStyle(.borderedProminent)
                         .keyboardShortcut(.return, modifiers: .command)
                         .disabled(saving || draft == text)
                 }
@@ -962,7 +999,6 @@ private struct IconButtonBody: View {
             .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(hovering ? Theme.controlBorder : Color.clear))
             .contentShape(Rectangle())
             .onHover { hovering = $0 }
-            .handCursor()
     }
 }
 
@@ -995,25 +1031,11 @@ struct SessionStatus: View {
                     Button { model.attach(newest, for: pr) } label: { label }
                 }
             }
-            .handCursor()
             .fixedSize()
             .help("“\(newest.name)”, \(newest.state). Click to attach it in Desk’s terminal panel"
                 + (jobs.count > 1 ? "; the arrow lists the other sessions on this PR" : ""))
         } else {
             ClaudeSessionButton(pr: pr, model: model, prominent: true).fixedSize()
-        }
-    }
-}
-
-/// A PR page's Details card: how big the change is, and when it was opened and last updated, the exact time on hover.
-struct DetailsCard: View {
-    var pr: PullRequest
-
-    var body: some View {
-        SideCard(title: "Details") {
-            LabeledContent("Size") { DiffStat(pr: pr) }
-            LabeledContent("Opened", value: "\(Format.age(pr.createdAt)) ago").help(Format.date(pr.createdAt))
-            LabeledContent("Updated", value: "\(Format.age(pr.updatedAt)) ago").help(Format.date(pr.updatedAt))
         }
     }
 }

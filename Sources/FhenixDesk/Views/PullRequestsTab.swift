@@ -65,11 +65,11 @@ struct PullRequestsTab: View {
             PageHeader(title: "Pull Requests") {}
             FilterBar {
                 // Counted over what the search leaves, like the Reviews and Jira tabs; the key cap marks the tab
-                // that Tab in the list goes to.
+                // that ⌃Tab goes to.
                 PillTabs(
                     options: [
-                        .init(value: .open, title: "Open", count: rows.count, hint: scope == .open ? nil : "tab"),
-                        .init(value: .merged, title: "Recently merged", count: merged.count, hint: scope == .merged ? nil : "tab"),
+                        .init(value: .open, title: "Open", count: rows.count, hint: scope == .open ? nil : "⌃⇥"),
+                        .init(value: .merged, title: "Recently merged", count: merged.count, hint: scope == .merged ? nil : "⌃⇥"),
                     ],
                     selection: $scope
                 )
@@ -124,12 +124,6 @@ struct PullRequestsTab: View {
                     open(selection)
                     return .handled
                 }
-                // Tab flips between the two tabs; Shift-Tab still moves focus out of the list, so it is no trap.
-                .onKeyPress(.tab, phases: .down) { press in
-                    guard press.modifiers.isEmpty else { return .ignored }
-                    scope = scope == .open ? .merged : .open
-                    return .handled
-                }
                 .contextMenu(forSelectionType: String.self) { urls in
                     if let pr = urls.first.flatMap(pullRequest) { PullRequestMenu(pr: pr, model: model) }
                 } primaryAction: { urls in
@@ -140,6 +134,13 @@ struct PullRequestsTab: View {
                     if let url { withAnimation(reduceMotion ? nil : .default) { proxy.scrollTo(url, anchor: .center) } }
                 }
             }
+        }
+        // ⌃Tab and ⌃⇧Tab flip between the two tabs, from the list or the search box, as they flip a browser's tabs;
+        // Tab is left to move focus. With Shift, AppKit reports Tab as backtab.
+        .onKeyPress(keys: [.tab, KeyEquivalent("\u{19}")], phases: .down) { press in
+            guard press.modifiers.contains(.control) else { return .ignored }
+            scope = scope == .open ? .merged : .open
+            return .handled
         }
     }
 
@@ -165,10 +166,10 @@ struct PullRequestsTab: View {
     private func pullRequest(_ url: String) -> PullRequest? { model.yourPullRequest(url) }
 }
 
-/// One open PR of yours: its status chips in aligned columns, then its title, and a monospaced line with
-/// number, repo, branches, size, open threads and ticket; its stage and ages on the right. Sessions are started and
-/// attached to from the PR's page. A stack reads top-down: each PR stacked on another sits indented beneath it, and a root notes a parent that is not
-/// in the list, or a base branch that has no open PR at all.
+/// One open PR of yours, title first: its title over a monospaced line of checks, number, repo, branches, size, open
+/// threads and ticket; on the right one pill for what it waits on, its session's marks, and when it last moved. Sessions
+/// are started and attached to from the PR's page. A stack reads top-down: each PR stacked on another sits indented
+/// beneath it, and a root notes a parent that is not in the list, or a base branch that has no open PR at all.
 struct PullRequestRow: View {
     var row: StackedPullRequest
     var model: AppModel
@@ -180,8 +181,6 @@ struct PullRequestRow: View {
         ListRow(selected: selected, open: open) {
             // No avatar and no tick: every PR here is yours, and a mark that is gone on the next launch is no mark.
             HStack(alignment: .center, spacing: 12) {
-                // The status leads, in fixed columns, so checks, review and merge state read straight down the list.
-                PullRequestStatus(pr: pr).fixedSize()
                 if row.depth > 0 {
                     Image(systemName: "arrow.turn.down.right")
                         .foregroundStyle(.secondary)
@@ -194,18 +193,18 @@ struct PullRequestRow: View {
                         if row.depth == 0 { stackNote(pr) }
                     }
                     HStack(spacing: 8) {
+                        ChecksBadge(pr: pr).scaled(.secondary)
                         MetaLine(parts: Self.meta(pr))
                         TicketMark(pr: pr, model: model)
                     }
                 }
                 Spacer(minLength: 8)
-                FlowStageCell(pr: pr, model: model)
-                VStack(alignment: .trailing, spacing: 3) {
-                    Text(Format.age(pr.updatedAt)).monospacedDigit().foregroundStyle(.secondary)
-                        .help("Updated \(Format.date(pr.updatedAt))")
-                    Text("opened \(Format.age(pr.createdAt))").scaled(.caption).monospacedDigit().foregroundStyle(.secondary)
-                        .help("Opened \(Format.date(pr.createdAt))")
-                }
+                StatePill(state: RowState.of(pr))
+                // The marks and the age keep their width on every row, so the pills line up down the list.
+                Color.clear.frame(width: 16, height: 16).overlay { SessionMarks(pr: pr, model: model) }
+                Text(Format.age(pr.updatedAt)).monospacedDigit().foregroundStyle(.secondary)
+                    .frame(minWidth: 36, alignment: .trailing)
+                    .help("Updated \(Format.date(pr.updatedAt)) · opened \(Format.date(pr.createdAt))")
             }
         }
     }
@@ -297,9 +296,9 @@ private struct TicketMark: View {
 }
 
 /// A pull request's own page, opened from its row. At the top what it is, its status line — checks, review and merge
-/// state, its Jira ticket, and its session or the press that starts one — and, top right, any warning about its review
-/// skill; in the wide column the description and under it the conversation; beside it, as PR Cockpit lays it
-/// out, a card each for the actions, the flow, the reviewers, the facts and the checks.
+/// state, its Jira ticket, its session or the press that starts one, and ⋯ for the rest — and, top right, any warning
+/// about its review skill; in the wide column the description and under it the conversation; beside it the next step
+/// its stage waits for, its checks in a line, and its facts in one card.
 struct PullRequestPage: View {
     var pr: PullRequest
     var model: AppModel
@@ -336,6 +335,7 @@ struct PullRequestPage: View {
                 // The page's action on the right, where a status line's presses go.
                 Spacer(minLength: 8)
                 if pr.state == .open { SessionStatus(pr: pr, model: model) }
+                MoreMenu(pr: pr, model: model)
             }
             if let error = model.sessionErrors[pr.url] {
                 Text(error).scaled(.caption).foregroundStyle(.red).textSelection(.enabled)
@@ -344,28 +344,13 @@ struct PullRequestPage: View {
             description
             ConversationSection(pr: pr, model: model)
         } side: {
-            // An ended PR has nothing left to act on or check: who reviewed it and its facts. How it ended is on the
-            // status line.
-            if pr.state != .open {
-                ReviewersCard(pr: pr)
-                LabelsCard(pr: pr)
-                DetailsCard(pr: pr)
-            } else {
-                ActionsCard(pr: pr, model: model)
+            // An ended PR has nothing left to act on or check: its facts. How it ended is on the status line.
+            if pr.state == .open {
                 // Every open PR of yours, session or not: Mark ready and Merge need none, and Run /pre-pr starts one.
-                FlowSection(pr: pr, session: model.state.session(for: pr), model: model).sideCard()
-                ThreadsCard(pr: pr, model: model)
-                ReviewersCard(pr: pr)
-                LabelsCard(pr: pr)
-                DetailsCard(pr: pr)
-                if parent != nil || !children.isEmpty {
-                    SideCard(title: "Stack") {
-                        if let parent { stackLine("On", parent) }
-                        ForEach(children) { stackLine("Under it", $0) }
-                    }
-                }
+                NextStepCard(pr: pr, session: model.state.session(for: pr), model: model)
                 WorkflowsSection(pr: pr, model: model)
             }
+            AboutCard(pr: pr, model: model)
         } accessory: {
             if let skill = model.state.reviewSkill(for: pr), !skill.has(skill.selfReview) {
                 Label(skill.text, systemImage: "exclamationmark.triangle.fill")
@@ -377,16 +362,57 @@ struct PullRequestPage: View {
         }
     }
 
-    private var parent: PullRequest? { model.state.stackParent(of: pr) }
+}
 
-    private var children: [PullRequest] {
-        (model.state.github?.allOpen ?? []).filter { model.state.stackParents[$0.url] == pr.url }
-    }
+/// ⋯ on the page's status line: the presses kept out of the way of its next step — the ways out to GitHub and the
+/// clipboard, and Close, asked about first.
+private struct MoreMenu: View {
+    var pr: PullRequest
+    var model: AppModel
+    @State private var confirmingClose = false
+    @State private var closing = false
+    @State private var error: String?
 
-    private func stackLine(_ label: String, _ other: PullRequest) -> some View {
-        LabeledContent(label) {
-            Button { model.open(other.url) } label: { Text(verbatim: "#\(other.number) \(other.title)").lineLimit(1) }
-                .buttonStyle(.link).handCursor()
+    var body: some View {
+        Menu {
+            Button("Open on GitHub") { model.open(pr.url) }
+            Button("Copy Branch") { Clipboard.copy(pr.headRef) }
+            Button("Copy Link") { Clipboard.copy(pr.url) }
+            if pr.state == .open {
+                Divider()
+                // Not while a merge or a flow press is under way on it.
+                Button("Close Pull Request…", role: .destructive) { confirmingClose = true }
+                    .disabled(closing || model.busyFlows.contains(pr.url))
+            }
+        } label: {
+            if closing { ProgressView().controlSize(.small) } else { Image(systemName: "ellipsis") }
+        }
+        .menuStyle(.button)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help("Open on GitHub, copy its branch or link, or close it")
+        .accessibilityLabel("More")
+        .confirmationDialog(
+            // Verbatim: a localized title prints the number as "1,082".
+            Text(verbatim: "Close #\(pr.number) without merging?"), isPresented: $confirmingClose
+        ) {
+            Button("Close pull request", role: .destructive) {
+                closing = true
+                Task {
+                    error = await model.close(pr)
+                    closing = false
+                }
+            }
+        } message: {
+            Text("It closes without merging. It can be reopened on GitHub.")
+        }
+        .alert(
+            Text(verbatim: "#\(pr.number) is still open"),
+            isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })
+        ) {
+            Button("OK") { error = nil }
+        } message: {
+            Text(error ?? "")
         }
     }
 }
@@ -422,118 +448,6 @@ private struct JiraStatus: View {
             .foregroundStyle(.secondary)
             .pill()
             .help("No Jira key in the branch name or title")
-        }
-    }
-}
-
-/// Merge — a squash, the one kind this app makes — and Close, each asked about first. Merge is dead, with GitHub's
-/// reason under it, while GitHub would refuse it.
-private struct ActionsCard: View {
-    enum Action: Identifiable {
-        case merge, close
-        var id: Self { self }
-    }
-
-    var pr: PullRequest
-    var model: AppModel
-    @State private var confirming: Action?
-    @State private var busy = false
-    @State private var error: String?
-
-    var body: some View {
-        let blocker = pr.mergeBlocker
-        // A merge, or a flow press, holds the PR in `busyFlows` until it is done.
-        let busy = self.busy || model.busyFlows.contains(pr.url)
-        SideCard(title: "Actions") {
-            Button { confirming = .merge } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: "arrow.triangle.merge")
-                    Text("Merge")
-                    Text("Squash").opacity(0.75)
-                }
-                .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.borderedProminent).handCursor()
-            .tint(.green)
-            .controlSize(.large)
-            .disabled(blocker != nil || busy)
-            if let blocker { Text(blocker).scaled(.caption).foregroundStyle(.secondary) }
-            if let reason = model.state.rebaseReason(pr) {
-                Text("Needs a rebase: \(reason.text)").scaled(.caption).foregroundStyle(.orange)
-            }
-            Button(role: .destructive) { confirming = .close } label: {
-                Label("Close pull request", systemImage: "xmark.circle")
-                    .foregroundStyle(.red)
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.bordered).handCursor()
-            .controlSize(.large)
-            .disabled(busy)
-            if busy { ProgressView().controlSize(.small) }
-            if let error { Text(error).scaled(.caption).foregroundStyle(.red).textSelection(.enabled) }
-        }
-        .confirmationDialog(
-            // Verbatim: a localized title prints the number as "1,082".
-            Text(verbatim: confirming == .close ? "Close #\(pr.number) without merging?" : "Squash and merge #\(pr.number) into \(pr.baseRef)?"),
-            isPresented: Binding(get: { confirming != nil }, set: { if !$0 { confirming = nil } }),
-            presenting: confirming
-        ) { action in
-            switch action {
-            case .merge: Button("Squash and merge") { run { await model.squashMerge($0) } }
-            case .close: Button("Close pull request", role: .destructive) { run { await model.close($0) } }
-            }
-        } message: { action in
-            switch action {
-            case .merge: Text("Its commits become one commit on \(pr.baseRef).")
-            case .close: Text("It closes without merging. It can be reopened on GitHub.")
-            }
-        }
-    }
-
-    private func run(_ act: @escaping (PullRequest) async -> String?) {
-        busy = true
-        error = nil
-        Task {
-            error = await act(pr)
-            busy = false
-        }
-    }
-}
-
-/// Who reviewed and where each stands, then who is asked and has not answered, as GitHub keeps them.
-private struct ReviewersCard: View {
-    var pr: PullRequest
-
-    var body: some View {
-        let reviewers = pr.reviewerStatuses
-        SideCard(title: "Reviewers") {
-            if reviewers.isEmpty { Text("None yet").foregroundStyle(.secondary) }
-            ForEach(reviewers) { reviewer in
-                HStack(spacing: 8) {
-                    Avatar(login: reviewer.name, size: 18)
-                    Chip(text: word(reviewer.state), color: color(reviewer.state))
-                    Text(reviewer.name).lineLimit(1)
-                }
-            }
-        }
-    }
-
-    private func word(_ state: ReviewerStatus.State) -> String {
-        switch state {
-        case .approved: return "approved"
-        case .changesRequested: return "changes requested"
-        case .commented: return "commented"
-        case .dismissed: return "dismissed"
-        case .pending: return "pending"
-        }
-    }
-
-    private func color(_ state: ReviewerStatus.State) -> Color {
-        switch state {
-        case .approved: return .green
-        case .changesRequested: return .red
-        case .commented: return .orange
-        case .dismissed, .pending: return .secondary
         }
     }
 }
