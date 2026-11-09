@@ -187,7 +187,7 @@ private struct RunPrePRButton: View {
             explaining = true
         }
         .popover(isPresented: $explaining, arrowEdge: .bottom) {
-            Text(explanation).scaled(.callout).padding(12).frame(width: 300).fixedSize(horizontal: false, vertical: true)
+            Text(explanation).scaled(.secondary).padding(12).frame(width: 300).fixedSize(horizontal: false, vertical: true)
         }
         .accessibilityHint(explanation)
     }

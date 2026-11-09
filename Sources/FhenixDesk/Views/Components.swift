@@ -1,7 +1,7 @@
 import DeskCore
 import SwiftUI
 
-/// A status tag: a small tinted rectangle, the way the reference app marks "ready" or "failing".
+/// A status tag: a small tinted rectangle that marks a state such as "ready" or "failing".
 struct Chip: View {
     var text: String
     var color: Color = .secondary
@@ -156,40 +156,6 @@ struct MergeBadge: View {
     }
 }
 
-/// The sync pill doubles as the refresh button: "Synced" with a green dot, a spinner while any source loads,
-/// and an orange dot when one failed, whose error is the tooltip. Pressing it refreshes everything.
-struct RefreshControl: View {
-    @Environment(AppModel.self) private var model
-
-    var body: some View {
-        Button { model.refreshAll() } label: {
-            HStack(spacing: 6) {
-                if model.refreshing.isEmpty {
-                    Circle().fill(model.state.errors.isEmpty ? Color.green : .orange).frame(width: 6, height: 6)
-                } else {
-                    ProgressView().controlSize(.mini)
-                }
-                Text(!model.refreshing.isEmpty ? "Syncing" : model.state.errors.isEmpty ? "Synced" : "Sync failed")
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 5)
-            .background(Theme.raised, in: Capsule())
-            .contentShape(Capsule())
-        }
-        .buttonStyle(.plain)
-        .help(model.syncHelp)
-    }
-}
-
-extension AppModel {
-    /// The sync controls' tooltip: each failed source with its error, or what pressing does.
-    var syncHelp: String {
-        let errors = Source.allCases.compactMap { source in state.errors[source].map { "\(source.title): \($0)" } }
-        if !errors.isEmpty { return errors.joined(separator: "\n") }
-        return refreshing.isEmpty ? "Sync GitHub, Git and Jira now" : "Syncing…"
-    }
-}
-
 /// GitHub's diff stat: the size bucket, then additions in green and deletions in red.
 struct DiffStat: View {
     var pr: PullRequest
@@ -202,18 +168,6 @@ struct DiffStat: View {
         }
         .scaled(.caption)
         .monospacedDigit()
-    }
-}
-
-struct SectionTitle: View {
-    var title: String
-    var count: Int?
-
-    var body: some View {
-        HStack(spacing: 6) {
-            Text(title).scaled(.headline)
-            if let count { Text("\(count)").scaled(.caption).foregroundStyle(.secondary) }
-        }
     }
 }
 
@@ -312,7 +266,7 @@ struct EmptyState: View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
             if let icon { Image(systemName: icon).foregroundStyle(.secondary) }
             VStack(alignment: .leading, spacing: 4) {
-                Text(text).scaled(.callout).foregroundStyle(.secondary)
+                Text(text).scaled(.secondary).foregroundStyle(.secondary)
                 if let detail {
                     Text(detail).scaled(.caption).foregroundStyle(.secondary).lineLimit(2).textSelection(.enabled).help(detail)
                 }
@@ -349,21 +303,6 @@ extension AppModel {
     func openSettings(_ pane: SettingsPane) {
         settings.pane = pane
         showingSettings = true
-    }
-}
-
-/// GitHub's +/− pair, shared by the PR tables, the file list and the diff headers.
-struct AddDeleteCounts: View {
-    var additions: Int
-    var deletions: Int
-
-    var body: some View {
-        HStack(spacing: 4) {
-            Text("+\(additions)").foregroundStyle(.green)
-            Text("−\(deletions)").foregroundStyle(.red)
-        }
-        .scaled(.caption)
-        .monospacedDigit()
     }
 }
 
@@ -500,27 +439,6 @@ extension TicketDrift {
     }
 }
 
-/// Checks, review decision and merge state in one cell; the inspector spells each out. Each chip sits in a
-/// column as wide as its longest label, so down a list the three line up whatever the chip says or the text size.
-struct PullRequestStatus: View {
-    var pr: PullRequest
-
-    var body: some View {
-        HStack(spacing: 5) {
-            ChecksBadge(pr: pr)
-            column(widest: ["Changes requested", "Review required"]) { ReviewBadge(pr: pr) }
-            column(widest: ["Conflicts", "Unstable"]) { MergeBadge(pr: pr) }
-        }
-    }
-
-    private func column(widest: [String], @ViewBuilder chip: () -> some View) -> some View {
-        ZStack(alignment: .leading) {
-            ForEach(widest, id: \.self) { Chip(text: $0).hidden() }
-            chip()
-        }
-    }
-}
-
 /// A PR page's Checks card: one line that sums up every check on its head commit, "✓ 14 passed, 2 skipped", and under it
 /// the press that lists them all. Fetched when the page shows the PR, again when its head or overall state moves, and
 /// every 20 s while a job is still running, since one finishing leaves the overall state pending until the last.
@@ -584,7 +502,7 @@ private func elapsed(_ check: PullRequestCheck) -> String? {
         .formatted(.units(allowed: [.hours, .minutes, .seconds], width: .narrow, maximumUnitCount: 2))
 }
 
-/// Every check in one list, PR Cockpit's way: a heading per outcome, worst first, and under it each check as
+/// Every check in one list: a heading per outcome, worst first, and under it each check as
 /// "Workflow / job" with how it ended under that; a failed one also says where it stopped and what it reported.
 private struct CheckList: View {
     var checks: [PullRequestCheck]
@@ -894,7 +812,7 @@ struct EditableDescription<Rendered: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Space.s) {
             HStack {
-                Text("Description").scaled(.callout.weight(.medium)).foregroundStyle(.secondary)
+                Text("Description").scaled(.secondary.weight(.medium)).foregroundStyle(.secondary)
                 Spacer()
                 if !editing {
                     Button("Edit", action: start)
@@ -982,7 +900,7 @@ struct GitHubMark: View {
     }()
 }
 
-/// An icon that is a button: faint until the pointer is on it, then on a raised square, as PR Cockpit's are.
+/// An icon that is a button: faint until the pointer is on it, then on a raised square.
 struct IconButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View { IconButtonBody(configuration: configuration) }
 }

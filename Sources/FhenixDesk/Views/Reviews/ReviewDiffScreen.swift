@@ -81,7 +81,7 @@ struct ReviewDiffScreen: View {
             .padding(.top, 6)
             VStack(alignment: .leading, spacing: 6) {
                 HStack(alignment: .firstTextBaseline, spacing: Theme.Space.m) {
-                    Text(pr.title).scaled(.title3.weight(.semibold)).lineLimit(2)
+                    Text(pr.title).scaled(.headline).lineLimit(2)
                     Spacer(minLength: 0)
                     if let diff = model.diffs[pr.url], !diff.files.isEmpty { jumpMenu(diff) }
                 }

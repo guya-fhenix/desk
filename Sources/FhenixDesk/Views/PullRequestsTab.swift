@@ -286,7 +286,7 @@ private struct TicketMark: View {
                 .buttonStyle(.link).handCursor()
                 .disabled(ticket == nil)
             if let drift {
-                Image(systemName: "arrow.right.circle.fill").scaled(.caption2).foregroundStyle(.orange)
+                Image(systemName: "arrow.right.circle.fill").scaled(.caption.weight(.medium)).foregroundStyle(.orange)
                     .help("Jira says “\(drift.ticket.status)”; this PR says “\(drift.target)”. A suggested move: press Move on the ticket")
             }
         }

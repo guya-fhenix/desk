@@ -284,7 +284,7 @@ private struct TicketInspector: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(ticket.key).scaled(.caption.monospaced()).foregroundStyle(.secondary).textSelection(.enabled)
                     EditableTitle(
-                        prefix: "", title: ticket.summary, what: "the ticket", editable: true, style: .title3.weight(.semibold)
+                        prefix: "", title: ticket.summary, what: "the ticket", editable: true, style: .headline
                     ) {
                         await model.editTicket(ticket, summary: $0)
                     } trailing: {
@@ -582,7 +582,7 @@ struct PlanSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Start \(request.ticket.key) in \(request.repo.name)").scaled(.headline)
-            Text(request.ticket.summary).scaled(.callout).foregroundStyle(.secondary).lineLimit(2)
+            Text(request.ticket.summary).scaled(.secondary).foregroundStyle(.secondary).lineLimit(2)
             if let skill = model.state.reviewSkills[request.repo.root], !skill.has(skill.selfReview) {
                 Label(skill.text, systemImage: "exclamationmark.triangle.fill").scaled(.caption).foregroundStyle(.orange)
             }
@@ -590,7 +590,7 @@ struct PlanSheet: View {
                 .scaled(.caption)
                 .foregroundStyle(.secondary)
             TextEditor(text: $note)
-                .scaled(.callout)
+                .scaled(.secondary)
                 .focused($writing)
                 .frame(minHeight: 96)
                 .padding(4)

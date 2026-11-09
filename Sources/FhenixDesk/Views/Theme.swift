@@ -55,7 +55,7 @@ enum Theme {
     static let gutter = Space.xxl
 }
 
-/// A key as the reference app draws one: a small rounded cap with the key in it.
+/// A key as a small rounded cap with the key in it.
 struct KeyCap: View {
     var key: String
 
@@ -80,7 +80,7 @@ struct PageHeader<Trailing: View>: View {
         VStack(spacing: 0) {
             HStack(alignment: .center, spacing: 10) {
                 Text(title).scaled(.title)
-                if let subtitle { Text(subtitle).scaled(.callout).foregroundStyle(.secondary) }
+                if let subtitle { Text(subtitle).scaled(.secondary).foregroundStyle(.secondary) }
                 Spacer()
                 trailing
             }
@@ -193,7 +193,7 @@ struct FilterBar<Leading: View, Trailing: View>: View {
     }
 }
 
-/// A group's name and count over its rows, the way the reference app heads "Ready to merge".
+/// A group's name and count over its rows, such as "Ready to merge".
 struct GroupHeader<Trailing: View>: View {
     var title: String
     var count: Int?
@@ -203,9 +203,9 @@ struct GroupHeader<Trailing: View>: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                Text(title).scaled(.callout.weight(.medium)).foregroundStyle(.secondary)
+                Text(title).scaled(.secondary.weight(.medium)).foregroundStyle(.secondary)
                 Spacer()
-                if let count { Text("\(count)").scaled(.callout).monospacedDigit().foregroundStyle(.secondary) }
+                if let count { Text("\(count)").scaled(.secondary).monospacedDigit().foregroundStyle(.secondary) }
                 trailing
             }
             .padding(.horizontal, Theme.Space.m)
@@ -234,7 +234,7 @@ struct ListRow<Content: View>: View {
     var body: some View {
         content
             .padding(.horizontal, Theme.Space.m)
-            // About PR Cockpit's: two lines of text with room above and below, not packed edge to edge.
+            // Two lines of text with room above and below, not packed edge to edge.
             .padding(.vertical, Theme.Space.m)
             .frame(maxWidth: .infinity, alignment: .leading)
             .hoverFill(Theme.raised.opacity(0.6), cornerRadius: 0, enabled: !selected)
@@ -407,7 +407,7 @@ final class AvatarStore {
     }
 }
 
-/// A search field drawn as one of the reference app's boxed inputs.
+/// A search field drawn as a boxed input.
 struct SearchBox: View {
     @Environment(AppModel.self) private var model
     var prompt: String
@@ -520,7 +520,7 @@ struct Panel<Content: View>: View {
     }
 }
 
-/// One part of a details panel, headed the way the reference app heads "Quick actions".
+/// One part of a details panel, under a small secondary heading such as "Quick actions".
 struct PanelSection<Content: View>: View {
     var title: String?
     @ViewBuilder var content: Content
@@ -532,7 +532,7 @@ struct PanelSection<Content: View>: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Space.s) {
-            if let title { Text(title).scaled(.callout.weight(.medium)).foregroundStyle(.secondary) }
+            if let title { Text(title).scaled(.secondary.weight(.medium)).foregroundStyle(.secondary) }
             content
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -583,7 +583,7 @@ struct SidebarHeading: View {
     var title: String
 
     var body: some View {
-        Text(title).scaled(.subheadline).foregroundStyle(.secondary)
+        Text(title).scaled(.secondary).foregroundStyle(.secondary)
             .padding(.horizontal, Theme.Space.m).padding(.top, Theme.Space.s).padding(.bottom, Theme.Space.xs)
     }
 }
@@ -774,9 +774,9 @@ struct Screen<Header: View, Body: View>: View {
     }
 }
 
-/// A pull request's own page, in place of the list it was opened from, laid out as PR Cockpit lays its PR page: a back
-/// link at the top, a header, then the long reads in a wide column and the facts and presses in a side one. ← goes
-/// back; the page takes focus when it opens so that works without a click first.
+/// A pull request's own page, in place of the list it was opened from: a back link at the top, a header, then the
+/// long reads in a wide column and the facts and presses in a side one. ← goes back; the page takes focus when it
+/// opens so that works without a click first.
 struct DetailPage<Header: View, Main: View, Side: View, Accessory: View>: View {
     var back: String
     var onBack: () -> Void
@@ -847,8 +847,8 @@ extension DetailPage where Accessory == EmptyView {
     }
 }
 
-/// One card of a PR page's side column, as PR Cockpit's: a title, a count beside it where there is one, what sits at its
-/// right, the content.
+/// One card of a PR page's side column: a title, a count beside it where there is one, what sits at its right,
+/// the content.
 struct SideCard<Content: View, Trailing: View>: View {
     var title: String
     var count: Int? = nil
@@ -904,7 +904,7 @@ extension EnvironmentValues {
     @Entry var focusPage: () -> Void = {}
 }
 
-/// "‹ Pull Requests": PR Cockpit's back link, faint until the pointer is on it.
+/// "‹ Pull Requests": the back link, faint until the pointer is on it.
 struct BackLink: View {
     var title: String
     var action: () -> Void
