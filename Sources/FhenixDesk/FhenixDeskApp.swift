@@ -22,6 +22,9 @@ struct FhenixDeskApp: App {
                 .frame(minWidth: 960, minHeight: 560)
         }
         .defaultSize(width: 1180, height: 720)
+        // Shown at every launch, even one that restores no window: the window's task is what builds the menu bar item
+        // and `openDesk`, and without them this Dock-less app has no way back in.
+        .defaultLaunchBehavior(.presented)
         .windowResizability(.contentMinSize)
         // The window's buttons sit on the sidebar and its title bar is gone; the background drags the window.
         .windowStyle(.hiddenTitleBar)
