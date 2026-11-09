@@ -197,9 +197,11 @@ import Testing
         #expect(JiraDecoding.account(fromStatus: "✗ Error: unauthorized: use 'acli jira auth login' to authenticate") == nil)
     }
 
-    @Test func parsesDatesWithAndWithoutFractions() {
-        #expect(JSON.parseISO8601("2026-08-27T11:12:21Z") != nil)
-        #expect(JSON.parseISO8601("2026-08-23T11:54:57.327Z") != nil)
+    @Test func parsesDatesWithAndWithoutFractionsAndKeepsTheOffset() throws {
+        #expect(JSON.parseISO8601("2026-08-27T11:12:21Z") == Date(timeIntervalSince1970: 1_787_829_141))
+        #expect(JSON.parseISO8601("2026-08-27T13:12:21+02:00") == Date(timeIntervalSince1970: 1_787_829_141))
+        let fractional = try #require(JSON.parseISO8601("2026-08-23T13:54:57.327+02:00"))
+        #expect(abs(fractional.timeIntervalSince1970 - 1_787_486_097.327) < 0.001)
         #expect(JSON.parseISO8601("nope") == nil)
     }
 }

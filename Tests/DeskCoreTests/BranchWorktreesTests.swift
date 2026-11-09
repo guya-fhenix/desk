@@ -34,6 +34,8 @@ import Testing
         let pr = Fixtures.pr(number: 7, head: "guy/pro-1")
         let path = try await worktrees.prepareBranch(pr: pr, repoRoot: mine)
         #expect(path == mine + "/.claude/worktrees/guy-pro-1")
+        // Excluded, the worktree leaves the main checkout clean.
+        #expect(try await run(["status", "--porcelain"], cwd: mine) == "")
         #expect(try await run(["rev-parse", "HEAD"], cwd: path) == head)
         // On the branch, not detached, and pushing back to the PR needs no arguments.
         #expect(try await run(["rev-parse", "--abbrev-ref", "HEAD"], cwd: path) == "guy/pro-1")

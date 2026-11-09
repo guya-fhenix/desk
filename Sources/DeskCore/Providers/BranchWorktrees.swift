@@ -33,6 +33,7 @@ public actor BranchWorktrees {
             _ = try? await self.git(["worktree", "prune"], cwd: repoRoot)
             if try await self.isWorktree(path, of: repoRoot) { return path }
             if FileManager.default.fileExists(atPath: path) { throw BranchWorktreeError.notAWorktree(path) }
+            try? await self.excludeWorktrees(repoRoot: repoRoot)
             try FileManager.default.createDirectory(atPath: (path as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
             _ = try? await self.git(["fetch", "--no-tags", "origin", pr.headRef], cwd: repoRoot)
             if (try? await self.git(["rev-parse", "--verify", "--quiet", "refs/remotes/origin/\(pr.headRef)"], cwd: repoRoot)) != nil {
@@ -56,6 +57,19 @@ public actor BranchWorktrees {
     public nonisolated static func branchWorktree(branch: String, repoRoot: String) -> String {
         let name = branch.replacingOccurrences(of: "/", with: "-")
         return (repoRoot as NSString).appendingPathComponent(".claude/worktrees/\(name)")
+    }
+
+    /// Untracked, the worktrees would make the main checkout count as dirty, and a session's `git add -A` there would
+    /// stage them. The clone's own `info/exclude` keeps them out without changing anything the repo tracks.
+    private nonisolated func excludeWorktrees(repoRoot: String) async throws {
+        let pattern = "/.claude/worktrees/"
+        let commonDir = try await git(["rev-parse", "--path-format=absolute", "--git-common-dir"], cwd: repoRoot)
+        let exclude = (commonDir as NSString).appendingPathComponent("info/exclude")
+        let text = (try? String(contentsOfFile: exclude, encoding: .utf8)) ?? ""
+        guard !text.split(separator: "\n").contains(Substring(pattern)) else { return }
+        try FileManager.default.createDirectory(atPath: (exclude as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
+        let separator = text.isEmpty || text.hasSuffix("\n") ? "" : "\n"
+        try (text + separator + pattern + "\n").write(toFile: exclude, atomically: true, encoding: .utf8)
     }
 
     private nonisolated func isWorktree(_ path: String, of repoRoot: String) async throws -> Bool {

@@ -22,8 +22,6 @@ final class TerminalTab: Identifiable, LocalProcessTerminalViewDelegate {
         environment["TERM"] = "xterm-256color"
         environment["COLORTERM"] = "truecolor"
         environment["LANG"] = environment["LANG"] ?? "en_US.UTF-8"
-        // Set when Desk itself was started from a Claude session, and then claude refuses to start inside it.
-        environment["CLAUDECODE"] = nil
         view.startProcess(
             executable: executable, args: arguments, environment: environment.map { "\($0.key)=\($0.value)" },
             currentDirectory: directory

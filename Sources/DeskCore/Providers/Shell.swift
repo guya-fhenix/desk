@@ -139,10 +139,6 @@ private final class ProcessRun: @unchecked Sendable {
                     finish(.failure(error))
                     return
                 }
-                if let stdin, let stdinPipe {
-                    stdinPipe.fileHandleForWriting.write(stdin)
-                    try? stdinPipe.fileHandleForWriting.close()
-                }
                 let work = DispatchWorkItem { [weak self] in
                     guard let self else { return }
                     terminateIfRunning()
@@ -150,6 +146,15 @@ private final class ProcessRun: @unchecked Sendable {
                 }
                 lock.withLock { timeoutWork = work }
                 DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + timeout, execute: work)
+                // The write blocks until the child has read it all, so it waits on a queue of its own rather than a
+                // cooperative thread, and after the timeout is armed, which ends a child that never reads. One that
+                // exits without reading fails the write with EPIPE: the app ignores SIGPIPE, which would kill it.
+                if let stdin, let handle = stdinPipe?.fileHandleForWriting {
+                    DispatchQueue.global(qos: .utility).async {
+                        try? handle.write(contentsOf: stdin)
+                        try? handle.close()
+                    }
+                }
             }
         } onCancel: {
             terminateIfRunning()
@@ -227,10 +232,12 @@ public enum Shell {
     }
 
     /// The app's environment with the login shell's PATH and then the tool directories in front of its own: what every
-    /// command here runs with, and the terminal panel's sessions too.
+    /// command here runs with, and the terminal panel's sessions too. Without `CLAUDECODE`, which is set when Desk itself
+    /// was started from a Claude session, and makes every claude it runs think it is nested in that one.
     public static var toolEnvironment: [String: String] {
         var environment = ProcessInfo.processInfo.environment
         environment["PATH"] = toolPath(login: loginPath.withLock { $0 }, inherited: environment["PATH"])
+        environment["CLAUDECODE"] = nil
         return environment
     }
 
