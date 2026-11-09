@@ -70,7 +70,8 @@ struct UpNextTab: View {
             } else if titles.isEmpty, pending.isEmpty, model.state.errors.isEmpty {
                 // Says how fresh "nothing" is, and where to go next, rather than one grey line.
                 EmptyState(
-                    icon: "checkmark.circle", text: "All clear. \(Self.names(Source.allCases)) all synced \(syncedAgo).",
+                    icon: "checkmark.circle",
+                    text: "All clear. \(Source.names(Source.allCases)) all synced \(Format.ago(model.state.lastRefresh.values.min())).",
                     actionTitle: "Browse the review queue", action: { model.pendingTab = .reviews }
                 )
                 .padding(.vertical, 20)
@@ -127,7 +128,7 @@ struct UpNextTab: View {
         let answered = Source.allCases.filter { model.state.lastRefresh[$0] != nil }
         return HStack(spacing: Theme.Space.s) {
             ProgressView().controlSize(.mini)
-            Text("Reading \(Self.names(pending))…" + (answered.isEmpty ? "" : " \(Self.names(answered)) answered."))
+            Text("Reading \(Source.names(pending))…" + (answered.isEmpty ? "" : " \(Source.names(answered)) answered."))
         }
         .scaled(.secondary)
         .foregroundStyle(.secondary)
@@ -153,15 +154,6 @@ struct UpNextTab: View {
         }
         .accessibilityHidden(true)
     }
-
-    /// How long ago the source that synced longest ago did: "1m ago", or "just now".
-    private var syncedAgo: String {
-        let oldest = model.state.lastRefresh.values.min()
-        return oldest.map { Date().timeIntervalSince($0) < 60 } == true ? "just now" : "\(Format.age(oldest)) ago"
-    }
-
-    /// "GitHub, Git and Jira".
-    private static func names(_ sources: [Source]) -> String { sources.map(\.title).formatted(.list(type: .and)) }
 
     private static let start = "Ready to start"
     private static let jira = "Jira moves"

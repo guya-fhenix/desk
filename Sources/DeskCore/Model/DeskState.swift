@@ -40,6 +40,16 @@ public enum Source: String, CaseIterable, Sendable, Codable {
         case .jira: return "Jira"
         }
     }
+
+    /// "GitHub, Git, and Jira", for a sentence about several sources at once.
+    public static func names(_ sources: [Source]) -> String { sources.map(\.title).formatted(.list(type: .and)) }
+
+    /// Whether a source's error is one Settings fixes: its CLI missing, or nobody signed in. Errors arrive as text, so
+    /// this reads the words gh, acli and Desk's own errors use for those.
+    public static func isSignInProblem(_ error: String) -> Bool {
+        let error = error.lowercased()
+        return ["auth login", "not signed in", "cli not found", "http 401", "bad credentials"].contains { error.contains($0) }
+    }
 }
 
 /// Everything the UI shows. Raw data per source plus values derived from it.

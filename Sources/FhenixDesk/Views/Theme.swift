@@ -614,144 +614,147 @@ struct SidebarItem: View {
     }
 }
 
-/// Pinned under the sidebar, three cards alike: where your Claude plan stands, whether each source answered, and the
-/// sync row, which refreshes every source at once.
+/// Pinned under the sidebar, one block: the sync state with its one press — the arrow that syncs every source, a spinner
+/// while one syncs, Retry naming the sources that failed — and your Claude plan's session and week limits as two thin
+/// meters. A click on it opens the detail: each source's age and error, and each limit's reset and the sessions at work.
 struct SidebarStatus: View {
+    @Environment(AppModel.self) private var model
+    @State private var showingDetail = false
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            ClaudeUsageCard()
-            SourcesCard()
-            SyncRow()
+        // A failed source that is trying again shows as syncing, so Retry gives way to the spinner it started.
+        let failed = Source.allCases.filter { model.state.errors[$0] != nil && !model.refreshing.contains($0) }
+        let limits = model.state.claudeLimits.prefix(2)
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(spacing: Theme.Space.s) {
+                if !failed.isEmpty {
+                    StatusDot(color: .red)
+                    Text("\(Source.names(failed)) didn't answer").lineLimit(1)
+                    Spacer(minLength: Theme.Space.xs)
+                    Button("Retry") { for source in failed { Task { await model.refresh(source) } } }
+                        .buttonStyle(.link).handCursor()
+                } else if !model.refreshing.isEmpty {
+                    ProgressView().controlSize(.mini)
+                    Text("Syncing \(Source.names(Source.allCases.filter(model.refreshing.contains)))…").lineLimit(1)
+                    Spacer(minLength: Theme.Space.xs)
+                } else {
+                    StatusDot(color: model.state.lastRefresh.isEmpty ? .gray : .green)
+                    Text(model.state.lastRefresh.isEmpty ? "Not synced yet" : "Synced \(Format.ago(model.state.lastRefresh.values.min()))")
+                        .lineLimit(1)
+                    Spacer(minLength: Theme.Space.xs)
+                    Button { model.refreshAll() } label: {
+                        Image(systemName: "arrow.clockwise").frame(width: 20, height: 16).contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain).foregroundStyle(.secondary).handCursor()
+                    .help("Sync GitHub, Git and Jira now")
+                    .accessibilityLabel("Sync now")
+                }
+            }
+            .scaled(.secondary)
+            if !limits.isEmpty {
+                HStack(spacing: 6) {
+                    Text("Claude").scaled(.caption).foregroundStyle(.secondary)
+                    ForEach(limits) { limit in
+                        ProgressView(value: Double(min(limit.percent, 100)), total: 100)
+                            .tint(limit.color)
+                            .controlSize(.small)
+                            .help("\(limit.name): \(limit.percent)% used")
+                            .accessibilityLabel("\(limit.name): \(limit.percent)% used")
+                    }
+                }
+            }
         }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 9)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Theme.raised, in: RoundedRectangle(cornerRadius: 8))
+        .contentShape(RoundedRectangle(cornerRadius: 8))
+        .pointerStyle(.link)
+        .onTapGesture { showingDetail = true }
+        .accessibilityElement(children: .contain)
+        .accessibilityAction(named: "Show sync details") { showingDetail = true }
+        .popover(isPresented: $showingDetail, arrowEdge: .trailing) { SyncDetail() }
     }
 }
 
-/// One source a row: green once it answered, with how long ago; red and "Failed" with the error as its tooltip; a
-/// spinner while it loads; grey before the first poll.
-struct SourcesCard: View {
+/// The sidebar status's detail: each source with its dot, how long ago it synced, and its error with Retry — and, when
+/// the error is a sign-in or a missing CLI, the Settings pane that fixes it; then each Claude limit with when it starts
+/// over, and the sessions at work now.
+private struct SyncDetail: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Theme.Space.s) {
-            Text("Sources").fontWeight(.semibold)
+        let running = model.state.claudeJobs.count { $0.isRunning }
+        VStack(alignment: .leading, spacing: Theme.Space.m) {
+            heading("Sources")
             ForEach(Source.allCases, id: \.self) { source in
                 let error = model.state.errors[source]
-                let updated = model.state.lastRefresh[source]
-                HStack(spacing: Theme.Space.s) {
-                    StatusDot(color: error != nil ? .red : updated == nil ? .gray : .green)
-                    Text(source.title).foregroundStyle(.secondary)
-                    Spacer(minLength: Theme.Space.xs)
-                    if model.refreshing.contains(source) {
+                VStack(alignment: .leading, spacing: Theme.Space.s) {
+                    HStack(spacing: Theme.Space.s) {
+                        StatusDot(color: error != nil ? .red : model.state.lastRefresh[source] == nil ? .gray : .green)
+                        Text(source.title)
+                        Spacer(minLength: Theme.Space.s)
+                        Text(age(source)).monospacedDigit().foregroundStyle(.secondary)
+                    }
+                    if let error {
+                        Text(error).scaled(.caption.monospaced()).foregroundStyle(.red).textSelection(.enabled)
+                            .padding(.horizontal, Theme.Space.s).padding(.vertical, 6)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(Color.red.opacity(0.1), in: RoundedRectangle(cornerRadius: 6))
+                        HStack(spacing: Theme.Space.s) {
+                            Button("Retry") { Task { await model.refresh(source) } }
+                                .disabled(model.refreshing.contains(source))
+                            if source != .git, Source.isSignInProblem(error) {
+                                Button("Open Settings → \(source.title)") {
+                                    model.openSettings(source == .jira ? .jira : .github)
+                                    dismiss()
+                                }
+                            }
+                        }
+                        .controlSize(.small)
+                    }
+                }
+            }
+            if !model.state.claudeLimits.isEmpty || running > 0 {
+                heading("Claude")
+                ForEach(model.state.claudeLimits) { limit in
+                    HStack(spacing: Theme.Space.s) {
+                        Text(limit.name)
+                        Spacer(minLength: Theme.Space.s)
+                        Text("\(limit.percent)%" + (limit.resetsAt.map { " · resets in \(TimeText.duration($0.timeIntervalSinceNow))" } ?? ""))
+                            .monospacedDigit().foregroundStyle(limit.percent >= 70 ? limit.color : .secondary)
+                    }
+                    .help(limit.resetsAt.map { "Starts over \(Format.date($0))" } ?? "Starts over with your next session")
+                }
+                if running > 0 {
+                    HStack(spacing: Theme.Space.s) {
+                        Text("Running")
+                        Spacer(minLength: Theme.Space.s)
                         ProgressView().controlSize(.mini)
-                    } else if error != nil {
-                        Text("Failed").foregroundStyle(.red)
-                    } else if let updated {
-                        Text(Date().timeIntervalSince(updated) < 60 ? "now" : "\(Format.age(updated)) ago").monospacedDigit()
-                    }
-                }
-                .help(error ?? updated.map { "Updated \(Format.date($0))" } ?? "Not synced yet")
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel(error != nil ? "\(source.title) failed"
-                    : updated == nil ? "\(source.title) not synced yet" : "\(source.title) synced")
-            }
-        }
-        .sidebarCard()
-    }
-}
-
-/// Where your Claude plan stands: each usage limit with how much of it is gone and when it starts over, as Claude
-/// Code last handed them to the statusline, and the reviews and sessions at work now. Left out while there is neither.
-struct ClaudeUsageCard: View {
-    @Environment(AppModel.self) private var model
-
-    var body: some View {
-        let limits = model.state.claudeLimits
-        if !limits.isEmpty || running != nil {
-            VStack(alignment: .leading, spacing: Theme.Space.s) {
-                Text("Claude").fontWeight(.semibold)
-                ForEach(limits) { LimitRow(limit: $0) }
-                if let running {
-                    HStack(spacing: Theme.Space.xs) {
-                        Text("Running").foregroundStyle(.secondary)
-                        Spacer(minLength: Theme.Space.xs)
-                        ProgressView().controlSize(.mini)
-                        Text(running)
+                        Text("\(running) \(running == 1 ? "session" : "sessions")").foregroundStyle(.secondary)
                     }
                 }
             }
-            .sidebarCard()
         }
+        .padding(14)
+        .frame(width: 300, alignment: .leading)
     }
 
-    /// The background sessions at work now.
-    private var running: String? {
-        let sessions = model.state.claudeJobs.count { $0.isRunning }
-        return sessions > 0 ? "\(sessions) \(sessions == 1 ? "session" : "sessions")" : nil
+    private func heading(_ title: String) -> some View {
+        Text(title).scaled(.secondary.weight(.semibold)).foregroundStyle(.secondary)
     }
 
-    private struct LimitRow: View {
-        var limit: ClaudeLimit
-
-        var body: some View {
-            // Blue while there is room, orange from 70%, red from 90%: the statusline's thresholds.
-            let color: Color = limit.percent >= 90 ? .red : limit.percent >= 70 ? .orange : Theme.accent
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: Theme.Space.xs) {
-                    Text(limit.name).foregroundStyle(.secondary).lineLimit(1)
-                    Spacer(minLength: Theme.Space.xs)
-                    Text("\(limit.percent)%").monospacedDigit().foregroundStyle(limit.percent >= 70 ? color : .primary)
-                    if let resets = limit.resetsAt {
-                        Text("· resets in \(TimeText.duration(resets.timeIntervalSinceNow))").monospacedDigit().foregroundStyle(.secondary)
-                    }
-                }
-                ProgressView(value: Double(min(limit.percent, 100)), total: 100).tint(color)
-            }
-            .help(limit.resetsAt.map { "Starts over \(Format.date($0))" } ?? "Starts over with your next session")
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel("\(limit.name): \(limit.percent)% used")
-        }
+    private func age(_ source: Source) -> String {
+        if model.refreshing.contains(source) { return "syncing…" }
+        if model.state.errors[source] != nil { return "failed" }
+        return model.state.lastRefresh[source].map { "synced \(Format.ago($0))" } ?? "not synced yet"
     }
 }
 
-extension View {
-    /// A card at the foot of the sidebar: a raised panel as wide as the items above it, in caption text.
-    func sidebarCard() -> some View {
-        scaled(.caption)
-            .padding(.horizontal, Theme.Space.m)
-            .padding(.vertical, Theme.Space.s + 2)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Theme.raised, in: RoundedRectangle(cornerRadius: 6))
-    }
-}
-
-/// The sidebar's sync row, as wide as the items above it: whether every source is synced, and the arrow that syncs
-/// them all now, which gives way to a spinner while any of them loads. A press anywhere on the row syncs.
-struct SyncRow: View {
-    @Environment(AppModel.self) private var model
-
-    var body: some View {
-        let syncing = !model.refreshing.isEmpty
-        let failed = !model.state.errors.isEmpty
-        Button { model.refreshAll() } label: {
-            HStack(spacing: 9) {
-                Circle().fill(failed ? Color.orange : .green).frame(width: 7, height: 7).frame(width: 16)
-                Text(syncing ? "Syncing…" : failed ? "Sync failed" : "Synced").foregroundStyle(.secondary)
-                Spacer(minLength: 4)
-                if syncing {
-                    ProgressView().controlSize(.small)
-                } else {
-                    Image(systemName: "arrow.clockwise").foregroundStyle(.secondary)
-                }
-            }
-            .scaled(.body)
-            .padding(.horizontal, Theme.Space.m)
-            .padding(.vertical, Theme.Space.s)
-            .background(Theme.raised, in: RoundedRectangle(cornerRadius: 6))
-            .contentShape(RoundedRectangle(cornerRadius: 6))
-        }
-        .buttonStyle(.plain).handCursor()
-        .help(model.syncHelp)
-    }
+extension ClaudeLimit {
+    /// Blue while there is room, orange from 70%, red from 90%: the statusline's thresholds.
+    var color: Color { percent >= 90 ? .red : percent >= 70 ? .orange : Theme.accent }
 }
 
 /// A screen of the workspace: header and filters at the top, a scrolling body under them, in the content's
