@@ -583,6 +583,12 @@ final class AppModel {
             sessionErrors[pr.url] = "Can't start the review session: \(skill.text)."
             return
         }
+        do {
+            try DeskService.installShowHelper()
+        } catch {
+            sessionErrors[pr.url] = "Can't start the review session: couldn't write \(DeskService.showHelper.path): \(error)"
+            return
+        }
         let ticket = DeskService.reviewTicket(for: pr, tickets: state.tickets, projectKeys: config.jiraProjectKeys)
         terminals.open(
             id: Self.reviewTab(pr), title: "Review \(pr.repoName)#\(pr.number)", executable: claude,
@@ -608,14 +614,14 @@ final class AppModel {
         sessionErrors[pr.url] = terminals.paste(text, into: Self.reviewTab(pr)) ? nil : "No review session is running: press Start review."
     }
 
-    /// A review session's `open fhenixdesk://show/…`: that PR's diff, at that line. A PR Desk does not know is ignored —
-    /// any app can open the link, so it only ever moves the diff.
-    func open(_ url: URL) {
-        guard let link = DeskLink(url) else { return }
+    /// A review session's `fhenixdesk://show/…`: that PR's diff, at that line. A PR Desk does not know is ignored —
+    /// any app can open the link, so it only ever moves the diff. Whether it was a PR Desk knows.
+    func open(_ url: URL) -> Bool {
+        guard let link = DeskLink(url) else { return false }
         let known = state.reviewRequests + state.openForReview + (state.github?.allOpen ?? [])
         guard let pr = known.first(where: { ClaudeJobs.prKey($0.url) == link.prKey }) else {
             Self.log.info("link for an unknown PR: \(url.absoluteString, privacy: .public)")
-            return
+            return false
         }
         reviewing = pr.url
         loadDiff(pr)
@@ -623,6 +629,7 @@ final class AppModel {
         showingSettings = false
         pendingTab = .reviews
         selectPullRequest = pr.url
+        return true
     }
 
     // MARK: Flows

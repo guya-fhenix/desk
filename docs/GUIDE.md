@@ -49,7 +49,7 @@ panel, on the fhenix-workflow `review-pr` skill: it summarizes the description, 
 /pre-pr evidence, gives its take on each of those questions with where to look, and posts the comments and the
 verdict you decide on. Each review thread shows under the line it ends on, with Reply and Resolve; new line
 comments and the verdict stay the session's. The two are linked: when the session points at a line, the diff
-moves there (it runs `open fhenixdesk://show/…`, allowed for it without asking); select lines in the diff (click,
+moves there (it runs Desk's `desk-show fhenixdesk://show/…` helper, allowed for it without asking); select lines in the diff (click,
 shift-click) and Ask Claude (⌘↩) pastes them into its input for your question. To background the session, use
 Claude's own agents view. Review on GitHub still opens the Files tab. The row says where your review stands —
 `draft · 7` while you have a pending review, or the verdict you sent. Nothing of it is stored: every poll reads your

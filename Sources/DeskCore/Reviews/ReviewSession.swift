@@ -1,7 +1,7 @@
 import Foundation
 
-/// `fhenixdesk://show/<owner>/<repo>/<number>/<new|old>/<line>/<path>`: a review session runs `open` on one to move
-/// the diff beside it to a line. A path rather than a query, so it needs no quoting in a shell, where `?` and `&`
+/// `fhenixdesk://show/<owner>/<repo>/<number>/<new|old>/<line>/<path>`: a review session opens one, through
+/// `DeskService.showHelper`, to move the diff beside it to a line. A path rather than a query, so it needs no quoting in a shell, where `?` and `&`
 /// would.
 public struct DeskLink: Equatable, Sendable {
     public static let scheme = "fhenixdesk"
@@ -37,21 +37,43 @@ public struct DeskLink: Equatable, Sendable {
 }
 
 extension DeskService {
+    /// The one command a review session may run without asking. It opens a single show link and nothing else, where an
+    /// allowed `open` also opened any URL or file added after the link. In the per-user temporary folder, whose path
+    /// has no spaces: Claude Code matches a rule against the command's text, and a quoted path would not match.
+    public static let showHelper = FileManager.default.temporaryDirectory.appending(path: "fhenix-desk/desk-show")
+
+    /// Writes `showHelper` before a review session starts, when it is missing or differs: the system clears the
+    /// temporary folder now and then.
+    public static func installShowHelper() throws {
+        let script = """
+        #!/bin/sh
+        [ $# -eq 1 ] || exit 64
+        case "$1" in *[[:space:]]*) exit 64;; \(DeskLink.scheme)://show/*) exec /usr/bin/open -u "$1";; esac
+        exit 64
+
+        """
+        try FileManager.default.createDirectory(at: showHelper.deletingLastPathComponent(), withIntermediateDirectories: true)
+        if (try? String(contentsOf: showHelper, encoding: .utf8)) != script {
+            try Data(script.utf8).write(to: showHelper, options: .atomic)
+        }
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: showHelper.path)
+    }
+
     /// What a review session is told on top of its own instructions: how to move the diff beside it. Fixed, not a
     /// Settings prompt, because the app parses what comes back.
     public static func reviewLinkInstructions(for pr: PullRequest) -> String {
         """
         Fhenix Desk shows the diff of \(pr.url) beside you, and that is how the reviewer moves through the code. \
         Whenever you point at a specific line of that diff, also move their view there by running exactly this \
-        command, without quotes: open \(DeskLink.scheme)://show/\(pr.repo)/\(pr.number)/<side>/<line>/<path> — \
+        command, without quotes: \(showHelper.path) \(DeskLink.scheme)://show/\(pr.repo)/\(pr.number)/<side>/<line>/<path> — \
         <side> is new for an added or unchanged line (its number in the new file) and old for a removed line (its \
         number in the old file); <path> is the file's path as the diff shows it. Lines the reviewer selects in the \
         diff arrive pasted into your input, with their path and line numbers.
         """
     }
 
-    /// The arguments of the regular `claude` a review runs in the terminal panel. The allowed `open` is what lets
-    /// the session move the diff without asking each time; the prompt goes last, because `--allowedTools` takes
+    /// The arguments of the regular `claude` a review runs in the terminal panel. The allowed `showHelper` is what
+    /// lets the session move the diff without asking each time; the prompt goes last, because `--allowedTools` takes
     /// every argument after it up to the next option.
     public static func reviewArguments(for pr: PullRequest, ticket: String?, config: DeskConfig = DeskConfig()) -> [String] {
         let prompt = config.prompt(
@@ -60,7 +82,7 @@ extension DeskService {
             when: ["ticket": ticket != nil]
         )
         return [
-            "--allowedTools", "Bash(open \(DeskLink.scheme)://*)",
+            "--allowedTools", "Bash(\(showHelper.path) *)",
             "--append-system-prompt", reviewLinkInstructions(for: pr),
             prompt,
         ]
