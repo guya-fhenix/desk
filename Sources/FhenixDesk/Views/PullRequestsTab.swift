@@ -166,10 +166,10 @@ struct PullRequestsTab: View {
     private func pullRequest(_ url: String) -> PullRequest? { model.yourPullRequest(url) }
 }
 
-/// One open PR of yours: its status chips in aligned columns, then its title, and a monospaced line with
-/// number, repo, branches, size, open threads and ticket; its stage and ages on the right. Sessions are started and
-/// attached to from the PR's page. A stack reads top-down: each PR stacked on another sits indented beneath it, and a root notes a parent that is not
-/// in the list, or a base branch that has no open PR at all.
+/// One open PR of yours, title first: its title over a monospaced line of checks, number, repo, branches, size, open
+/// threads and ticket; on the right one pill for what it waits on, its session's marks, and when it last moved. Sessions
+/// are started and attached to from the PR's page. A stack reads top-down: each PR stacked on another sits indented
+/// beneath it, and a root notes a parent that is not in the list, or a base branch that has no open PR at all.
 struct PullRequestRow: View {
     var row: StackedPullRequest
     var model: AppModel
@@ -181,8 +181,6 @@ struct PullRequestRow: View {
         ListRow(selected: selected, open: open) {
             // No avatar and no tick: every PR here is yours, and a mark that is gone on the next launch is no mark.
             HStack(alignment: .center, spacing: 12) {
-                // The status leads, in fixed columns, so checks, review and merge state read straight down the list.
-                PullRequestStatus(pr: pr).fixedSize()
                 if row.depth > 0 {
                     Image(systemName: "arrow.turn.down.right")
                         .foregroundStyle(.secondary)
@@ -195,18 +193,18 @@ struct PullRequestRow: View {
                         if row.depth == 0 { stackNote(pr) }
                     }
                     HStack(spacing: 8) {
+                        ChecksBadge(pr: pr).scaled(.secondary)
                         MetaLine(parts: Self.meta(pr))
                         TicketMark(pr: pr, model: model)
                     }
                 }
                 Spacer(minLength: 8)
-                FlowStageCell(pr: pr, model: model)
-                VStack(alignment: .trailing, spacing: 3) {
-                    Text(Format.age(pr.updatedAt)).monospacedDigit().foregroundStyle(.secondary)
-                        .help("Updated \(Format.date(pr.updatedAt))")
-                    Text("opened \(Format.age(pr.createdAt))").scaled(.caption).monospacedDigit().foregroundStyle(.secondary)
-                        .help("Opened \(Format.date(pr.createdAt))")
-                }
+                StatePill(state: RowState.of(pr))
+                // The marks and the age keep their width on every row, so the pills line up down the list.
+                Color.clear.frame(width: 16, height: 16).overlay { SessionMarks(pr: pr, model: model) }
+                Text(Format.age(pr.updatedAt)).monospacedDigit().foregroundStyle(.secondary)
+                    .frame(minWidth: 36, alignment: .trailing)
+                    .help("Updated \(Format.date(pr.updatedAt)) · opened \(Format.date(pr.createdAt))")
             }
         }
     }

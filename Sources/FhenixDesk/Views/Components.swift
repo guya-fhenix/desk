@@ -49,6 +49,29 @@ struct StageChip: View {
     }
 }
 
+/// What one of your PRs waits on, as its row's one pill: red when the move is yours to fix, green when it is yours to
+/// merge, blue while it waits on someone else, grey for a draft.
+struct StatePill: View {
+    var state: RowState
+
+    var body: some View {
+        let color: Color = switch state.move {
+        case .yoursToFix: .red
+        case .yoursToMerge: .green
+        case .others: .blue
+        case .draft: .secondary
+        }
+        Text(state.title)
+            .scaled(.secondary.weight(.semibold))
+            .foregroundStyle(color)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 3)
+            .background(color.opacity(0.12), in: Capsule())
+            .overlay(Capsule().strokeBorder(color.opacity(0.45)))
+            .fixedSize()
+    }
+}
+
 struct StatusDot: View {
     var color: Color
     /// What the dot says, for VoiceOver. Without one the dot is decoration and stays silent.

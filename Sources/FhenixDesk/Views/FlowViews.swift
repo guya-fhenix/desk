@@ -185,23 +185,21 @@ struct LabelsCard: View {
     }
 }
 
-/// The PR's stage in the list, with a mark when its session asks you something or the last press failed.
-struct FlowStageCell: View {
+/// Beside a PR row's pill, what its session is doing: a spinner while it works, a bubble while it asks you something, or a
+/// red mark when the last press on it failed.
+struct SessionMarks: View {
     var pr: PullRequest
     var model: AppModel
 
     var body: some View {
         if let session = model.state.session(for: pr) {
-            HStack(spacing: 4) {
-                StageChip(stage: FlowStage.of(pr), sessionBusy: session.isBusy).fixedSize()
-                if session.isRunning {
-                    ProgressView().controlSize(.mini).help("The session is working")
-                } else if session.isAsking {
-                    Image(systemName: "exclamationmark.bubble.fill").foregroundStyle(.orange)
-                        .help("The session is asking you something")
-                } else if let error = model.flowErrors[pr.url] {
-                    Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.red).help(error)
-                }
+            if session.isRunning {
+                ProgressView().controlSize(.mini).help("The session is working")
+            } else if session.isAsking {
+                Image(systemName: "exclamationmark.bubble.fill").foregroundStyle(.orange)
+                    .help("The session is asking you something")
+            } else if let error = model.flowErrors[pr.url] {
+                Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.red).help(error)
             }
         }
     }
