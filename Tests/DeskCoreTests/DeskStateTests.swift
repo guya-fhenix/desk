@@ -20,6 +20,19 @@ import Testing
         }
     }
 
+    /// A move or edit of this app's is laid over a Jira answer that does not show it yet, and dropped once one does.
+    @Test func ticketEditsCorrectALaggingJira() {
+        var state = state
+        state.tickets = [Fixtures.ticket("PRO-1", status: "In Progress"), Fixtures.ticket("PRO-2")]
+        let moved = TicketEdit(status: "Done", category: .done).merging(TicketEdit(summary: "Renamed"))
+        #expect(state.apply(ticketEdits: ["PRO-1": moved, "PRO-9": moved]).isEmpty)
+        #expect(state.ticket("PRO-1")?.status == "Done" && state.ticket("PRO-1")?.category == .done)
+        #expect(state.ticket("PRO-1")?.summary == "Renamed" && state.ticket("PRO-1")?.description == "")
+        #expect(state.ticket("PRO-2") == Fixtures.ticket("PRO-2"))
+        // Jira caught up: the edit changes nothing, so it can go.
+        #expect(state.apply(ticketEdits: ["PRO-1": moved]) == ["PRO-1"])
+    }
+
     /// A dismissed move stays hidden; the same ticket's next one, once its PR merges, is suggested again.
     @Test func aDismissedMoveStaysHiddenUntilItsTargetChanges() {
         var state = state

@@ -148,6 +148,23 @@ public struct DeskState: Sendable {
 
     public func ticket(_ key: String) -> Ticket? { tickets.first { $0.key == key } }
 
+    /// Lays this app's own writes, by ticket key, over the tickets Jira returned, and returns the keys whose ticket shows
+    /// its write already. Jira's search lags a write, so until it agrees a refresh brings back what was there before.
+    @discardableResult
+    public mutating func apply(ticketEdits edits: [String: TicketEdit]) -> Set<String> {
+        var agreed = Set<String>()
+        for index in tickets.indices {
+            guard let edit = edits[tickets[index].key] else { continue }
+            let before = tickets[index]
+            if let status = edit.status { tickets[index].status = status }
+            if let category = edit.category { tickets[index].category = category }
+            if let summary = edit.summary { tickets[index].summary = summary }
+            if let description = edit.description { tickets[index].description = description }
+            if tickets[index] == before { agreed.insert(before.key) }
+        }
+        return agreed
+    }
+
     /// Everyone but you with an unfinished ticket in the sprint or the backlog, by name: the assignee filter's list.
     public var ticketAssignees: [TicketPerson] {
         let open = tickets.filter { !$0.assignedToMe && $0.placement != .unknown && $0.category != .done }
