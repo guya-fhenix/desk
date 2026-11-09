@@ -1,6 +1,22 @@
 import DeskCore
 import Foundation
 
+/// What a stand-in for a tool was asked, in order.
+actor Calls {
+    private(set) var list: [String] = []
+
+    /// Records one call, and returns how many of the same there have been, this one included.
+    @discardableResult func add(_ call: String) -> Int {
+        list.append(call)
+        return list.count { $0 == call }
+    }
+}
+
+extension ShellResult {
+    static func ok(_ stdout: String) -> ShellResult { ShellResult(status: 0, stdout: Data(stdout.utf8)) }
+    static func failed(_ stderr: String, stdout: String = "") -> ShellResult { ShellResult(status: 1, stdout: Data(stdout.utf8), stderr: stderr) }
+}
+
 enum Fixtures {
     static let t0 = Date(timeIntervalSince1970: 1_787_000_000)
 
@@ -33,7 +49,7 @@ enum Fixtures {
         PendingReview(id: "draft1", commitId: commit, comments: comments)
     }
 
-    static func review(_ state: String = "COMMENTED", at: Date, by author: String = "me") -> Review {
+    static func review(_ state: ReviewState = .commented, at: Date, by author: String = "me") -> Review {
         Review(state: state, submittedAt: at, author: author)
     }
 

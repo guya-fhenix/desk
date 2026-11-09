@@ -12,8 +12,8 @@ struct ReviewsTab: View {
     @AppStorage("reviews.scope") private var scope: ReviewScope = .all
     private var filters = ReviewFilters()
     @State private var selection: String?
-    /// The PR whose page is showing in place of the list; nil shows the list.
-    @State private var opened: String?
+    /// The pages open over the list; empty shows the list.
+    @State private var path: [Route] = []
     @FocusState private var listFocused: Bool
     /// With Reduce Motion on, the list jumps to the selected row instead of sliding there.
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -41,26 +41,18 @@ struct ReviewsTab: View {
     var body: some View {
         let rows = self.rows
         let onMe = self.onMe
-        Group {
-            // Looked up in the whole queue, not the rows: a PR you just reviewed may leave the filtered list.
-            if let url = opened, let pr = (rows + (model.state.github?.allOpen ?? [])).first(where: { $0.url == url }) {
-                // Start review swaps the page for the diff; back from the diff is the page again.
-                if model.reviewing == url {
-                    ReviewDiffScreen(pr: pr, model: model) { model.reviewing = nil }.id(pr.url)
-                } else {
-                    ReviewPage(pr: pr, model: model, onMe: onMe.contains(pr.url)) { opened = nil }.id(pr.url)
-                }
-            } else {
-                list(rows: rows, onMe: onMe)
-            }
+        NavigationStack(path: $path) {
+            list(rows: rows, onMe: onMe)
+                .navigationDestination(for: Route.self) { RoutePage(route: $0, back: "Reviews", path: $path) }
         }
+        .focusedSceneValue(\.routePath, $path)
         .remembersSort(Self.sort, order: $sortOrder, stored: $storedSort)
         .selectsFirstRow(rows.first?.url, selection: $selection)
         // Search, Up Next and a notification land here with a PR to show: its page, with its row selected behind it.
         // One the filters hide is shown by widening them to the whole queue: a find that opens a screen without its
-        // PR on it would be no find at all.
+        // PR on it would be no find at all. Yours are left to Pull Requests, the way it leaves these to this screen.
         .onChange(of: model.selectPullRequest, initial: true) { _, url in
-            guard let url else { return }
+            guard let url, model.yourPullRequest(url) == nil else { return }
             if !self.rows.contains(where: { $0.url == url }) {
                 scope = .all
                 filters.needsApproval = false
@@ -70,7 +62,7 @@ struct ReviewsTab: View {
                 }
             }
             selection = url
-            opened = url
+            path = [.pr(url)]
             model.selectPullRequest = nil
         }
     }
@@ -112,7 +104,7 @@ struct ReviewsTab: View {
                 .deskList()
                 // Focused on arrival and on the way back from a page, so the keys work without a click first.
                 .focused($listFocused)
-                .onAppear { listFocused = true }
+                .task(id: path.isEmpty) { if path.isEmpty { listFocused = true } }
                 .onKeyPress(.rightArrow) {
                     guard let selection else { return .ignored }
                     open(selection)
@@ -136,7 +128,7 @@ struct ReviewsTab: View {
     /// Its page, with its row selected behind it for the way back.
     private func open(_ url: String) {
         selection = url
-        opened = url
+        path.append(.pr(url))
     }
 
     private var emptyText: String {

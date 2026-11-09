@@ -10,8 +10,8 @@ struct UpNextTab: View {
     @Environment(AppModel.self) private var model
     /// A PR's url, or a ticket's key: one to start, or one with a suggested move.
     @State private var selection: String?
-    /// The PR whose page is showing in place of the list; nil shows the list.
-    @State private var opened: String?
+    /// The pages open over the list; empty shows the list.
+    @State private var path: [Route] = []
     @FocusState private var listFocused: Bool
     /// The ticket and repository a plan has been asked for, while the note is still being written.
     @State private var planning: PlanRequest?
@@ -28,17 +28,11 @@ struct UpNextTab: View {
         let early = plan.filter { $0.section != .waiting }.flatMap(\.pullRequests).map(\.url)
         let waiting = plan.filter { $0.section == .waiting }.flatMap(\.pullRequests).map(\.url)
         let rows = early + drifts.map(\.id) + tickets.map(\.key) + waiting
-        Group {
-            if let key = opened, let ticket = model.state.ticket(key) {
-                TicketPage(ticket: ticket, model: model, back: "Up Next", plan: startPlan) { opened = nil }.id(ticket.key)
-            } else if let url = opened, let pr = model.yourPullRequest(url) {
-                PullRequestPage(pr: pr, model: model, back: "Up Next") { opened = nil }.id(pr.url)
-            } else if let url = opened, let pr = model.state.github?.allOpen.first(where: { $0.url == url }) {
-                ReviewPage(pr: pr, model: model, onMe: onMe(pr), back: "Up Next") { opened = nil }.id(pr.url)
-            } else {
-                list(plan: plan, tickets: tickets, drifts: drifts)
-            }
+        NavigationStack(path: $path) {
+            list(plan: plan, tickets: tickets, drifts: drifts)
+                .navigationDestination(for: Route.self) { RoutePage(route: $0, back: "Up Next", path: $path, plan: startPlan) }
         }
+        .focusedSceneValue(\.routePath, $path)
         .selectsFirstRow(rows.first, selection: $selection)
         .sheet(item: $planning) { request in
             PlanSheet(request: request, model: model, note: $planNote) { planning = nil }
@@ -85,7 +79,7 @@ struct UpNextTab: View {
                 .deskList()
                 // Focused on arrival and on the way back from a page, so the keys work without a click first.
                 .focused($listFocused)
-                .onAppear { listFocused = true }
+                .task(id: path.isEmpty) { if path.isEmpty { listFocused = true } }
                 .onKeyPress(.rightArrow) {
                     guard let selection else { return .ignored }
                     open(selection)
@@ -138,7 +132,7 @@ struct UpNextTab: View {
     /// Its page, with its row selected behind it for the way back. A PR's url, or a ticket's key.
     private func open(_ id: String) {
         selection = id
-        opened = id
+        path.append(model.state.ticket(id) == nil ? .pr(id) : .ticket(id))
     }
 
     /// Picking a repository from Start in… opens the sheet that asks what the plan is for.

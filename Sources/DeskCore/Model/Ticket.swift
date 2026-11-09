@@ -72,6 +72,29 @@ public struct Ticket: Codable, Sendable, Hashable, Identifiable {
     }
 }
 
+/// What this app last wrote to a ticket, as it expects Jira to show it; a field left nil was not written.
+public struct TicketEdit: Sendable, Equatable {
+    public var status: String?
+    public var category: TicketStatusCategory?
+    public var summary: String?
+    public var description: String?
+
+    public init(status: String? = nil, category: TicketStatusCategory? = nil, summary: String? = nil, description: String? = nil) {
+        self.status = status
+        self.category = category
+        self.summary = summary
+        self.description = description
+    }
+
+    /// This edit with a later one's fields over it, so a move and then an edit are both kept.
+    public func merging(_ later: TicketEdit) -> TicketEdit {
+        TicketEdit(
+            status: later.status ?? status, category: later.category ?? category, summary: later.summary ?? summary,
+            description: later.description ?? description
+        )
+    }
+}
+
 /// Someone with Jira tickets, as the assignee filter shows them.
 public struct TicketPerson: Hashable, Sendable, Identifiable {
     public var name: String

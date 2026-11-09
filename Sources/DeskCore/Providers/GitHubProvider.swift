@@ -8,10 +8,14 @@ public struct GitHubSnapshot: Codable, Sendable {
     public var openForReview: [PullRequest]
     public var mergedRecent: [PullRequest]
     public var fetchedAt: Date
+    /// Why a search other than your own PRs' failed. Its list kept what the snapshot before had, as every list does
+    /// when the whole refresh fails, and the GitHub source shows this as its error. Your own PRs are never kept: when
+    /// their search fails, the snapshot does.
+    public var error: String?
 
     public init(
         login: String, mine: [PullRequest], reviewRequests: [PullRequest], openForReview: [PullRequest] = [],
-        mergedRecent: [PullRequest], fetchedAt: Date
+        mergedRecent: [PullRequest], fetchedAt: Date, error: String? = nil
     ) {
         self.login = login
         self.mine = mine
@@ -19,6 +23,7 @@ public struct GitHubSnapshot: Codable, Sendable {
         self.openForReview = openForReview
         self.mergedRecent = mergedRecent
         self.fetchedAt = fetchedAt
+        self.error = error
     }
 
     public var allOpen: [PullRequest] {
@@ -59,12 +64,17 @@ public enum GitHubError: Error, CustomStringConvertible, Sendable {
 public actor GitHubProvider {
     /// Not private: the one write path lives in `GitHubWrite.swift`, apart from these reads.
     let ghPath: String
+    /// What runs gh: `Shell.run`, but for a test.
+    let run: ShellRun
     private let org: String
     private var cachedLogin: String?
+    /// The last snapshot, whose lists stand in for a search that fails.
+    private var last: GitHubSnapshot?
 
-    public init(ghPath: String, org: String) {
+    public init(ghPath: String, org: String, run: @escaping ShellRun = Shell.run) {
         self.ghPath = ghPath
         self.org = org
+        self.run = run
     }
 
     public func viewerLogin() async throws -> String {
@@ -104,6 +114,11 @@ public actor GitHubProvider {
         return try GitHubDecoding.checks(from: data)
     }
 
+    /// The PR's diff as GitHub computes it, for the review screen.
+    public func diff(repo: String, number: Int) async throws -> [DiffFile] {
+        DiffParser.parse(try await Shell.output(ghPath, ["pr", "diff", String(number), "--repo", repo, "--color", "never"], timeout: 60, run: run))
+    }
+
     /// Every repository in the org, newest push first, so Settings can offer them.
     public func repositories() async throws -> [GitHubRepo] {
         var repos: [GitHubRepo] = []
@@ -121,7 +136,8 @@ public actor GitHubProvider {
     }
 
     /// Separate requests: one combined query exceeds GitHub's 10 s GraphQL limit. With no repo
-    /// tracked there is nothing to ask about, so it answers empty without spending a call.
+    /// tracked there is nothing to ask about, so it answers empty without spending a call. Only your own PRs' search
+    /// failing fails it: another's keeps its last list, and says why in `error`.
     public func snapshot(repos: [String], since: Date, now: Date = Date()) async throws -> GitHubSnapshot {
         let login = try await viewerLogin()
         guard !repos.isEmpty else {
@@ -129,13 +145,33 @@ public actor GitHubProvider {
         }
         let queries = GitHubQueries.searches(login: login, repos: repos, since: since)
         async let mine = search(queries.mine, first: 50, query: GitHubQueries.mineSearchQuery)
-        async let reviews = search(queries.reviews, first: 50)
-        async let merged = search(queries.merged, first: 100)
-        async let open = search(queries.openForReview, first: 100)
-        return try await GitHubSnapshot(
-            login: login, mine: mine, reviewRequests: reviews, openForReview: open,
-            mergedRecent: merged, fetchedAt: now
+        async let reviews = searchOrError(queries.reviews, first: 50)
+        async let merged = searchOrError(queries.merged, first: 100)
+        async let open = searchOrError(queries.openForReview, first: 100)
+        var errors: [String] = []
+        func kept(_ result: Result<[PullRequest], any Error>, _ previous: [PullRequest]?) -> [PullRequest] {
+            switch result {
+            case .success(let prs): return prs
+            case .failure(let error):
+                if !errors.contains("\(error)") { errors.append("\(error)") }
+                return previous ?? []
+            }
+        }
+        let snapshot = try await GitHubSnapshot(
+            login: login, mine: mine, reviewRequests: kept(reviews, last?.reviewRequests),
+            openForReview: kept(open, last?.openForReview), mergedRecent: kept(merged, last?.mergedRecent), fetchedAt: now,
+            error: errors.isEmpty ? nil : errors.joined(separator: "\n")
         )
+        last = snapshot
+        return snapshot
+    }
+
+    private func searchOrError(_ search: String, first: Int) async -> Result<[PullRequest], any Error> {
+        do {
+            return .success(try await self.search(search, first: first))
+        } catch {
+            return .failure(error)
+        }
     }
 
     /// A page of 100 with this fragment takes about 11 s and GitHub cuts GraphQL off at 10 s with a 502;
@@ -171,7 +207,7 @@ public actor GitHubProvider {
         let body = try JSONSerialization.data(withJSONObject: ["query": query, "variables": variables])
         var attempt = 0
         while true {
-            let result = try await Shell.run(ghPath, ["api", "graphql", "--input", "-"], stdin: body)
+            let result = try await run(ghPath, ["api", "graphql", "--input", "-"], nil, body, [:], Shell.defaultTimeout)
             if result.status == 0 || GitHubDecoding.hasErrors(result.stdout) { return result.stdout }
             attempt += 1
             guard retrying, attempt < Self.attempts, GitHubError.isTransient(stderr: result.stderr) else {
@@ -364,8 +400,8 @@ public enum GitHubDecoding {
         // A review that only carries line comments says nothing of its own: they are in its threads. A pending one is
         // your draft, not yet said.
         let reviews = pr.reviews.nodes.compactMap { node -> ConversationEntry? in
-            guard let submittedAt = node.submittedAt, node.state != "PENDING" else { return nil }
-            if node.state == "COMMENTED", node.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return nil }
+            guard let submittedAt = node.submittedAt, node.state != .pending else { return nil }
+            if node.state == .commented, node.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return nil }
             let comment = ConversationComment(
                 id: node.id, author: node.author?.name ?? "ghost", avatar: node.author?.avatarUrl, body: node.body,
                 createdAt: submittedAt, url: node.url
@@ -517,13 +553,13 @@ public enum GitHubDecoding {
     /// still gets null, approved or not. Read it off the reviews then, as GitHub's own badge does: each reviewer's
     /// latest approval or change request stands, and a later plain comment doesn't undo it.
     private static func decision(from reviews: [Review], required: Int) -> ReviewDecision {
-        var latest: [String: String] = [:]
+        var latest: [String: ReviewState] = [:]
         for review in reviews.sorted(by: { $0.submittedAt < $1.submittedAt })
-        where ["APPROVED", "CHANGES_REQUESTED", "DISMISSED"].contains(review.state) {
+        where [.approved, .changesRequested, .dismissed].contains(review.state) {
             latest[review.author] = review.state
         }
-        if latest.values.contains("CHANGES_REQUESTED") { return .changesRequested }
-        let approvals = latest.values.count { $0 == "APPROVED" }
+        if latest.values.contains(.changesRequested) { return .changesRequested }
+        let approvals = latest.values.count { $0 == .approved }
         if approvals > 0 && approvals >= required { return .approved }
         return required > 0 ? .reviewRequired : .none
     }
@@ -586,7 +622,7 @@ public enum GitHubDecoding {
     }
     private struct ConversationReviewNode: Decodable {
         var id: String
-        var state: String
+        var state: ReviewState
         var body: String
         var submittedAt: Date?
         var url: String
@@ -768,7 +804,7 @@ public enum GitHubDecoding {
     private struct Count: Decodable { var totalCount: Int }
     private struct Reviews: Decodable { var nodes: [ReviewNode] }
     private struct ReviewNode: Decodable {
-        var state: String
+        var state: ReviewState
         var submittedAt: Date?
         var author: Login?
     }

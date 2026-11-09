@@ -148,6 +148,40 @@ public struct DeskState: Sendable {
 
     public func ticket(_ key: String) -> Ticket? { tickets.first { $0.key == key } }
 
+    /// Lays what this app merged, closed or marked ready over GitHub's answer: a merged or closed PR leaves the open lists
+    /// and a merge joins the merged one, at the top, and a draft marked ready shows ready. GitHub's search lags a write by
+    /// up to a minute or so, and until it agrees a refresh would undo what the page just showed.
+    public mutating func apply(landed: [PullRequest], readied: Set<String>) {
+        guard var github, !landed.isEmpty || !readied.isEmpty else { return }
+        for index in github.mine.indices where readied.contains(github.mine[index].url) { github.mine[index].isDraft = false }
+        for pr in landed {
+            github.mine.removeAll { $0.url == pr.url }
+            github.reviewRequests.removeAll { $0.url == pr.url }
+            github.openForReview.removeAll { $0.url == pr.url }
+            if pr.state == .merged, !github.mergedRecent.contains(where: { $0.url == pr.url }) {
+                github.mergedRecent.insert(pr, at: 0)
+            }
+        }
+        self.github = github
+    }
+
+    /// Lays this app's own writes, by ticket key, over the tickets Jira returned, and returns the keys whose ticket shows
+    /// its write already. Jira's search lags a write, so until it agrees a refresh brings back what was there before.
+    @discardableResult
+    public mutating func apply(ticketEdits edits: [String: TicketEdit]) -> Set<String> {
+        var agreed = Set<String>()
+        for index in tickets.indices {
+            guard let edit = edits[tickets[index].key] else { continue }
+            let before = tickets[index]
+            if let status = edit.status { tickets[index].status = status }
+            if let category = edit.category { tickets[index].category = category }
+            if let summary = edit.summary { tickets[index].summary = summary }
+            if let description = edit.description { tickets[index].description = description }
+            if tickets[index] == before { agreed.insert(before.key) }
+        }
+        return agreed
+    }
+
     /// Everyone but you with an unfinished ticket in the sprint or the backlog, by name: the assignee filter's list.
     public var ticketAssignees: [TicketPerson] {
         let open = tickets.filter { !$0.assignedToMe && $0.placement != .unknown && $0.category != .done }
@@ -308,6 +342,14 @@ public struct UpNextGroup: Sendable, Identifiable {
 }
 
 extension DeskState {
+    /// What Up Next has waiting on you, for its badge: every section but Waiting, and the Jira moves it suggests. The
+    /// filters are the Reviews screen's, as `upNext` takes them.
+    public func upNextCount(reviewDays: Int?, hiding: Set<String> = [], needingApproval: Bool = false, now: Date = Date()) -> Int {
+        upNext(reviewDays: reviewDays, hiding: hiding, needingApproval: needingApproval, now: now)
+            .filter { $0.section != .waiting }.reduce(0) { $0 + $1.pullRequests.count }
+            + ticketDrifts.count
+    }
+
     /// Up Next: every PR of yours under one section — your move when it is red, conflicts, has changes requested,
     /// needs a rebase or a flow or session waits on you; ready to merge when its nudge says so; otherwise waiting on
     /// others — most recently updated first; then the reviews you have a draft on that is not submitted yet, whatever

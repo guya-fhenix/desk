@@ -17,7 +17,7 @@ struct FlowSection: View {
             LabeledContent("Stage") { StageChip(stage: stage, sessionBusy: session?.isBusy ?? false) }
             if let key = session?.ticketKey { LabeledContent("Started from", value: key) }
             // The session itself, its state and Attach, is the page's header button; here only what it means for the flow.
-            if session?.state == "blocked" {
+            if session?.isAsking == true {
                 Text("The session is asking you something: attach to it at the top to answer.").scaled(.caption).foregroundStyle(.orange)
             } else if session?.isRunning == true {
                 HStack(spacing: 6) {
@@ -196,7 +196,7 @@ struct FlowStageCell: View {
                 StageChip(stage: FlowStage.of(pr), sessionBusy: session.isBusy).fixedSize()
                 if session.isRunning {
                     ProgressView().controlSize(.mini).help("The session is working")
-                } else if session.state == "blocked" {
+                } else if session.isAsking {
                     Image(systemName: "exclamationmark.bubble.fill").foregroundStyle(.orange)
                         .help("The session is asking you something")
                 } else if let error = model.flowErrors[pr.url] {

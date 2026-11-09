@@ -57,6 +57,10 @@ final class AppModel {
     /// Your drafts this app marked ready, by url, and when: corrected the same way, or a lagging search would put the PR
     /// back at Fixes to check and offer Mark ready again.
     private var readied: [String: Date] = [:]
+    /// Tickets this app moved or edited, by key, as it expects Jira to show them, and when. Jira's search lags a write as
+    /// GitHub's does, and until it agrees, for five minutes at most, each Jira refresh is corrected by these: a lagging
+    /// one would otherwise put the move back on offer.
+    private var ticketEdits: [String: (edit: TicketEdit, at: Date)] = [:]
     /// Your PRs with a flow instruction going out or a GitHub write in flight, by url.
     var busyFlows: Set<String> = []
     /// Why the last press on a PR's flow failed, by url, until the next press. Like the stage, nothing of it is saved.
@@ -109,12 +113,9 @@ final class AppModel {
         set { state.config = newValue }
     }
 
-    /// What Up Next has waiting on you: every section but Waiting, and the Jira moves it suggests. The filters are the
-    /// Reviews screen's, which Up Next's reviews follow.
+    /// What Up Next has waiting on you, inside the Reviews screen's filters, which Up Next's reviews follow.
     func upNextCount(_ filters: ReviewFilters) -> Int {
-        state.upNext(reviewDays: filters.window, hiding: filters.hidden, needingApproval: filters.needsApproval)
-            .filter { $0.section != .waiting }.reduce(0) { $0 + $1.pullRequests.count }
-            + state.ticketDrifts.count
+        state.upNextCount(reviewDays: filters.window, hiding: filters.hidden, needingApproval: filters.needsApproval)
     }
 
     /// The polls start first: reading the Jira account can wait out acli's whole timeout offline, and the window would
@@ -164,6 +165,9 @@ final class AppModel {
                 let snapshot = try await service.refreshGitHub()
                 state.github = snapshot
                 applyLanded()
+                // Your own PRs came back; a search of the others that failed kept its last list, and says why here.
+                state.errors[.github] = snapshot.error
+                if let error = snapshot.error { Self.log.error("GitHub: \(error, privacy: .public)") }
             case .git:
                 let scan = await service.refreshGit()
                 state.gitScan = scan
@@ -182,8 +186,9 @@ final class AppModel {
                 }
                 guard await service.jiraReady else { throw DeskError.jiraSignedOut }
                 state.tickets = try await service.refreshJira(referencedKeys: state.referencedTicketKeys)
+                applyTicketEdits()
             }
-            if source != .git { state.errors[source] = nil }
+            if source == .jira { state.errors[source] = nil }
             state.lastRefresh[source] = Date()
         } catch {
             state.errors[source] = "\(error)"
@@ -255,27 +260,12 @@ final class AppModel {
         }
     }
 
-    /// Why nothing can be sent to this PR's session now, in the words beside the button that would; nil when it can.
-    /// An instruction never cuts in: the session must be done with its turn.
-    func sendBlocker(_ pr: PullRequest) -> String? {
-        guard let session = state.session(for: pr) else { return "No session" }
-        if busyFlows.contains(pr.url) { return "Sending…" }
-        if session.state == "blocked" { return "The session is asking you something" }
-        if !session.isIdle || session.sessionId == nil { return "The session is busy" }
-        return nil
-    }
+    /// Why nothing can be sent to this PR's session now; nil when it can.
+    func sendBlocker(_ pr: PullRequest) -> String? { state.sendBlocker(pr, sending: busyFlows.contains(pr.url)) }
 
-    /// Why Run /pre-pr is dead on a draft; nil when it may be pressed. Without a session it starts one, which needs a
-    /// clone of the repo.
+    /// Why Run /pre-pr is dead on a draft; nil when it may be pressed.
     func prePRBlocker(_ pr: PullRequest) -> String? {
-        if state.session(for: pr) == nil {
-            if startingSessions.contains(pr.url) { return "Starting a session…" }
-            if state.localRepo(for: pr) == nil { return "No clone of \(pr.repoName) here" }
-        } else if let blocker = sendBlocker(pr) {
-            return blocker
-        }
-        guard let skill = state.reviewSkill(for: pr), skill.has(skill.selfReview) else { return "Self-review skill missing" }
-        return nil
+        state.prePRBlocker(pr, sending: busyFlows.contains(pr.url), startingSession: startingSessions.contains(pr.url))
     }
 
     /// The PR's Files tab, where a pending review's comments are read, edited and submitted.
@@ -290,21 +280,32 @@ final class AppModel {
         guard movingTickets.insert(key).inserted else { return }
         Task {
             defer { movingTickets.remove(key) }
-            do {
+            ticketMoveErrors[key] = await perform(.jira) {
                 try await service.transitionTicket(key: key, to: drift.target)
-                ticketMoveErrors[key] = nil
-                if let index = state.tickets.firstIndex(where: { $0.key == key }) {
-                    state.tickets[index].status = drift.target
-                    if drift.stage == .done { state.tickets[index].category = .done }
-                }
-                state.recompute()
-                Self.log.info("jira \(key, privacy: .public) moved to \(drift.target, privacy: .public)")
-            } catch {
-                ticketMoveErrors[key] = "\(error)"
-                Self.log.error("jira \(key, privacy: .public): \(String(describing: error), privacy: .public)")
+            } patch: {
+                expect(TicketEdit(status: drift.target, category: drift.stage == .done ? .done : nil), on: key)
             }
-            await refresh(.jira)
+            if let error = ticketMoveErrors[key] {
+                Self.log.error("jira \(key, privacy: .public): \(error, privacy: .public)")
+            } else {
+                Self.log.info("jira \(key, privacy: .public) moved to \(drift.target, privacy: .public)")
+            }
         }
+    }
+
+    /// Shows a write to a ticket at once, and keeps it shown until Jira agrees.
+    private func expect(_ edit: TicketEdit, on key: String) {
+        let merged = ticketEdits[key].map { $0.edit.merging(edit) } ?? edit
+        ticketEdits[key] = (merged, Date())
+        state.apply(ticketEdits: [key: merged])
+    }
+
+    /// Lays the ticket writes over a fresh Jira answer, less those it agrees with and those five minutes old. Only on a
+    /// fresh answer: over the tickets as already corrected, every write would look agreed with.
+    private func applyTicketEdits() {
+        let now = Date()
+        ticketEdits = ticketEdits.filter { now.timeIntervalSince($0.value.at) < 300 }
+        for key in state.apply(ticketEdits: ticketEdits.mapValues(\.edit)) { ticketEdits[key] = nil }
     }
 
     /// Hides a suggested move for good, or until the ticket's pull requests point it somewhere else.
@@ -351,13 +352,15 @@ final class AppModel {
     private func startProgress(on ticket: Ticket) async {
         let target = config.jiraInProgressStatus
         guard !target.isEmpty, ticket.status != target, ticket.category != .done else { return }
-        do {
+        let error = await perform(.jira) {
             try await service.transitionTicket(key: ticket.key, to: target)
-        } catch {
-            sessionErrors[ticket.key] = "Session started, but Jira refused the move to \(target): \(error)"
-            Self.log.error("plan \(ticket.key, privacy: .public): \(String(describing: error), privacy: .public)")
+        } patch: {
+            expect(TicketEdit(status: target), on: ticket.key)
         }
-        await refresh(.jira)
+        if let error {
+            sessionErrors[ticket.key] = "Session started, but Jira refused the move to \(target): \(error)"
+            Self.log.error("plan \(ticket.key, privacy: .public): \(error, privacy: .public)")
+        }
     }
 
     func open(_ url: String?) {
@@ -365,30 +368,37 @@ final class AppModel {
         NSWorkspace.shared.open(parsed)
     }
 
+    /// One write of yours: the write, then `patch` to show what it did at once, then, whether it worked or not, a refresh of
+    /// `source` to confirm it. The refresh is queued behind one already running, and corrected by `applyLanded` or
+    /// `applyTicketEdits` until the source agrees; it runs on a failure too, which can come after the write landed. Why the
+    /// write failed, or nil: each caller words that and keeps it where its view looks.
+    private func perform(_ source: Source, write: () async throws -> Void, patch: () -> Void = {}) async -> String? {
+        var failure: String?
+        do {
+            try await write()
+            patch()
+        } catch {
+            failure = "\(error)"
+        }
+        state.recompute()
+        Task { await refresh(source) }
+        return failure
+    }
+
     /// Renames your PR on GitHub and shows the new title at once rather than on the next poll. Why it failed, or nil.
     func retitle(_ pr: PullRequest, to title: String) async -> String? {
-        do {
-            try await service.retitle(pr, to: title)
-        } catch {
-            return "Couldn't rename it: \(error)"
+        let error = await perform(.github) { try await service.retitle(pr, to: title) } patch: {
+            if let index = state.github?.mine.firstIndex(where: { $0.url == pr.url }) { state.github?.mine[index].title = title }
         }
-        if let index = state.github?.mine.firstIndex(where: { $0.url == pr.url }) { state.github?.mine[index].title = title }
-        state.recompute()
-        Task { await refresh(.github) }
-        return nil
+        return error.map { "Couldn't rename it: \($0)" }
     }
 
     /// Rewrites your PR's description on GitHub and shows it at once, the next poll confirming it. Why it failed, or nil.
     func editDescription(_ pr: PullRequest, body: String) async -> String? {
-        do {
-            try await service.editDescription(pr, body: body)
-        } catch {
-            return "Couldn't save it: \(error)"
+        let error = await perform(.github) { try await service.editDescription(pr, body: body) } patch: {
+            if let index = state.github?.mine.firstIndex(where: { $0.url == pr.url }) { state.github?.mine[index].body = body }
         }
-        if let index = state.github?.mine.firstIndex(where: { $0.url == pr.url }) { state.github?.mine[index].body = body }
-        state.recompute()
-        Task { await refresh(.github) }
-        return nil
+        return error.map { "Couldn't save it: \($0)" }
     }
 
     /// Squash-merges a PR from its page, and shows it merged at once. Why it failed, or nil. A press while another write
@@ -397,31 +407,17 @@ final class AppModel {
     func squashMerge(_ pr: PullRequest) async -> String? {
         guard busyFlows.insert(pr.url).inserted else { return nil }
         defer { busyFlows.remove(pr.url) }
-        do {
-            try await service.squashMerge(pr)
-        } catch {
-            return "Couldn't merge it: \(error)"
-        }
-        land(pr, as: .merged)
-        Task { await refresh(.github) }
-        return nil
+        let error = await perform(.github) { try await service.squashMerge(pr) } patch: { land(pr, as: .merged) }
+        return error.map { "Couldn't merge it: \($0)" }
     }
 
-    /// Saves an edit to a ticket's summary or description and shows it at once, the next Jira poll confirming it. Why it
-    /// failed, or nil.
+    /// Saves an edit to a ticket's summary or description and shows it at once, until Jira agrees. Why it failed, or nil.
     func editTicket(_ ticket: Ticket, summary: String? = nil, description: String? = nil) async -> String? {
-        do {
+        await perform(.jira) {
             try await service.editTicket(key: ticket.key, summary: summary, description: description)
-        } catch {
-            return "\(error)"
+        } patch: {
+            expect(TicketEdit(summary: summary, description: description), on: ticket.key)
         }
-        if let index = state.tickets.firstIndex(where: { $0.key == ticket.key }) {
-            if let summary { state.tickets[index].summary = summary }
-            if let description { state.tickets[index].description = description }
-        }
-        state.recompute()
-        Task { await refresh(.jira) }
-        return nil
     }
 
     /// One of your PRs by url: open, merged this month, or closed from here a moment ago.
@@ -436,38 +432,21 @@ final class AppModel {
         if outcome == .merged { ended.mergedAt = Date() }
         landed[pr.url] = (ended, Date())
         applyLanded()
-        state.recompute()
     }
 
-    /// Takes what this app merged or closed out of the open lists, puts a merge into the merged one, and shows a draft it
-    /// marked ready as ready, until GitHub's search says the same; after ten minutes it long has.
+    /// Lays what this app merged, closed or marked ready over GitHub's answer until its search says the same; after ten
+    /// minutes it long has.
     private func applyLanded() {
         let now = Date()
         landed = landed.filter { now.timeIntervalSince($0.value.at) < 600 }
         readied = readied.filter { now.timeIntervalSince($0.value) < 600 }
-        guard var github = state.github, !landed.isEmpty || !readied.isEmpty else { return }
-        for index in github.mine.indices where readied[github.mine[index].url] != nil { github.mine[index].isDraft = false }
-        for (url, entry) in landed {
-            github.mine.removeAll { $0.url == url }
-            github.reviewRequests.removeAll { $0.url == url }
-            github.openForReview.removeAll { $0.url == url }
-            if entry.pr.state == .merged, !github.mergedRecent.contains(where: { $0.url == url }) {
-                github.mergedRecent.insert(entry.pr, at: 0)
-            }
-        }
-        state.github = github
+        state.apply(landed: landed.values.map(\.pr), readied: Set(readied.keys))
     }
 
     /// Closes a PR from its page without merging it. Why it failed, or nil.
     func close(_ pr: PullRequest) async -> String? {
-        do {
-            try await service.close(pr)
-        } catch {
-            return "Couldn't close it: \(error)"
-        }
-        land(pr, as: .closed)
-        Task { await refresh(.github) }
-        return nil
+        let error = await perform(.github) { try await service.close(pr) } patch: { land(pr, as: .closed) }
+        return error.map { "Couldn't close it: \($0)" }
     }
 
     /// A PR's checks in full, for its page. Not kept: the page asks again each time it shows the PR.
@@ -500,13 +479,8 @@ final class AppModel {
 
     /// A write to the conversation, then the conversation again so it shows, and the search for the open-thread count.
     private func write(_ pr: PullRequest, _ failure: String, _ action: () async throws -> Void) async -> String? {
-        do {
-            try await action()
-        } catch {
-            return "\(failure): \(error)"
-        }
+        if let error = await perform(.github, write: action) { return "\(failure): \(error)" }
         await loadConversation(pr)
-        Task { await refresh(.github) }
         return nil
     }
 
@@ -633,8 +607,7 @@ final class AppModel {
     /// any app can open the link, so it only ever moves the diff. Whether it was a PR Desk knows.
     func open(_ url: URL) -> Bool {
         guard let link = DeskLink(url) else { return false }
-        let known = state.reviewRequests + state.openForReview + (state.github?.allOpen ?? [])
-        guard let pr = known.first(where: { ClaudeJobs.prKey($0.url) == link.prKey }) else {
+        guard let pr = state.pullRequest(for: link) else {
             Self.log.info("link for an unknown PR: \(url.absoluteString, privacy: .public)")
             return false
         }
@@ -666,16 +639,13 @@ final class AppModel {
         flowErrors[pr.url] = nil
         Task {
             defer { busyFlows.remove(pr.url) }
-            do {
+            flowErrors[pr.url] = await perform(.github) {
                 try await service.markReady(pr)
+                // Ready from here on, even if asking the team below fails.
                 readied[pr.url] = Date()
                 applyLanded()
                 try await service.requestTeamReview(pr)
-            } catch {
-                flowErrors[pr.url] = "\(error)"
             }
-            state.recompute()
-            await refresh(.github)
         }
     }
 
@@ -686,7 +656,8 @@ final class AppModel {
         send(prompt, for: pr)
     }
 
-    /// Sends the PR's session one flow instruction; the session going to work is what moves the stage.
+    /// Sends the PR's session one flow instruction; the session going to work is what moves the stage. Not `perform`: the
+    /// press stays busy until the git scan has read the session at work, or a second press could stop it mid-turn.
     private func send(_ prompt: PromptID, for pr: PullRequest) {
         guard let session = state.session(for: pr), busyFlows.insert(pr.url).inserted else { return }
         flowErrors[pr.url] = nil
@@ -696,7 +667,7 @@ final class AppModel {
             ? state.worktrees.first { $0.path == BranchWorktrees.worktreePath(for: pr, repoRoot: root) }?.path
             : state.worktrees.first { $0.repoRoot == root && $0.branch == pr.headRef }?.path
         // Numbered by when it went out, so an earlier instruction's file is never this one's.
-        let resultFile = DeskService.resultFile(jobId: session.id, step: Int(Date().timeIntervalSince1970))
+        let resultFile = ClaudeJobs.resultFile(jobId: session.id, step: Int(Date().timeIntervalSince1970))
         let text = DeskService.flowPrompt(
             prompt, pr: pr, worktree: worktree, resultFile: resultFile, config: config
         )
@@ -719,7 +690,7 @@ final class AppModel {
     private func resumeDirectory(_ session: ClaudeJob, for pr: PullRequest) -> String {
         let root = state.localRepo(for: pr)?.root ?? session.cwd
         let candidates = state.worktrees.filter { $0.repoRoot == root }.map(\.path) + [session.cwd, root].filter { !$0.isEmpty }
-        return session.sessionId.flatMap { DeskService.resumeDirectory(sessionId: $0, candidates: candidates) } ?? root
+        return session.sessionId.flatMap { ClaudeJobs.resumeDirectory(sessionId: $0, candidates: candidates) } ?? root
     }
 
 }

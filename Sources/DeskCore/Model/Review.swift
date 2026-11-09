@@ -5,7 +5,7 @@ public enum DraftStatus: Sendable, Hashable {
     /// Your pending review, with how many comments it holds.
     case pending(comments: Int)
     /// Your latest submitted review, by its GitHub state.
-    case submitted(state: String)
+    case submitted(state: ReviewState)
 }
 
 /// A PR's review, read off the PR the last poll brought back. Nothing here is stored.

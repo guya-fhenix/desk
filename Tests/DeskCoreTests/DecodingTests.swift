@@ -107,6 +107,8 @@ import Testing
         #expect(try decision([review("APPROVED", "10", "a"), review("CHANGES_REQUESTED", "11", "b")].joined(separator: ",")) == .changesRequested)
         #expect(try decision([review("CHANGES_REQUESTED", "10", "a"), review("APPROVED", "11", "a")].joined(separator: ",")) == .approved)
         #expect(try decision([review("APPROVED", "10", "a"), review("DISMISSED", "11", "a")].joined(separator: ",")) == .none)
+        // A state GitHub adds later neither fails the search nor counts.
+        #expect(try decision([review("APPROVED", "10", "a"), review("SOMETHING_NEW", "11", "a")].joined(separator: ",")) == .approved)
         // A ruleset asking for a code owner's review, as cofhe's master does, with no approving count.
         let codeOwners = #"{"type":"PULL_REQUEST","parameters":{"requiredApprovingReviewCount":0,"requireCodeOwnerReview":true}},{"type":"DELETION","parameters":null}"#
         #expect(try decision("", rules: codeOwners) == .reviewRequired)
@@ -130,28 +132,61 @@ import Testing
         #expect(!GitHubError.isTransient(stderr: ""))
     }
 
-    /// A fake gh that fails as the real one does: a body on stdout, its reason on stderr, exit 1.
+    /// gh failing as the real one does: a body on stdout, its reason on stderr, exit 1. Each call gets the next answer.
     @Test func failedGhCallsRetryOrThrowGhsReasonUnlessGraphQLAnswered() async throws {
-        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("desk-gh-\(UUID().uuidString)").path
-        try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(atPath: dir) }
-        func login(_ script: String) async throws -> String {
-            let gh = dir + "/gh-\(UUID().uuidString)"
-            try ("#!/bin/sh\ncat >/dev/null\n" + script).write(toFile: gh, atomically: true, encoding: .utf8)
-            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: gh)
-            return try await GitHubProvider(ghPath: gh, org: "o").viewerLogin()
+        func login(_ answers: ShellResult...) async -> (login: Result<String, any Error>, calls: Int) {
+            let calls = Calls()
+            let gh = GitHubProvider(ghPath: "/gh", org: "o") { _, arguments, _, _, _, _ in
+                answers[min(await calls.add(arguments.joined(separator: " ")), answers.count) - 1]
+            }
+            let login: Result<String, any Error>
+            do { login = .success(try await gh.viewerLogin()) } catch { login = .failure(error) }
+            return (login, await calls.list.count)
         }
-        let expired = #"echo '{"message":"Bad credentials"}'; echo 'gh: Bad credentials (HTTP 401)' >&2; exit 1"#
-        let unauthorized = await #expect(throws: ShellError.self) { try await login(expired) }
-        #expect(unauthorized.map { "\($0)".contains("Bad credentials (HTTP 401)") } == true)
-        let invalid = #"echo '{"errors":[{"message":"no field x"}]}'; echo 'gh: no field x' >&2; exit 1"#
-        let answered = await #expect(throws: GitHubError.self) { try await login(invalid) }
-        #expect(answered.map { "\($0)" } == "GitHub: no field x")
-        let flaky = #"""
-            if [ -e "$0.failed" ]; then echo '{"data":{"viewer":{"login":"me"}}}'; exit 0; fi
-            touch "$0.failed"; echo '{"message":"Server Error"}'; echo 'gh: Server Error (HTTP 502)' >&2; exit 1
-            """#
-        #expect(try await login(flaky) == "me")
+        let expired = await login(.failed("gh: Bad credentials (HTTP 401)", stdout: #"{"message":"Bad credentials"}"#))
+        #expect(throws: ShellError.self) { try expired.login.get() }
+        #expect("\(expired.login)".contains("Bad credentials (HTTP 401)"))
+        #expect(expired.calls == 1)
+        let answered = await login(.failed("gh: no field x", stdout: #"{"errors":[{"message":"no field x"}]}"#))
+        #expect(throws: GitHubError.self) { try answered.login.get() }
+        #expect("\(answered.login)".contains("GitHub: no field x") && answered.calls == 1)
+        let flaky = await login(
+            .failed("gh: Server Error (HTTP 502)", stdout: #"{"message":"Server Error"}"#), .ok(#"{"data":{"viewer":{"login":"me"}}}"#)
+        )
+        #expect(try flaky.login.get() == "me")
+        #expect(flaky.calls == 2)
+    }
+
+    /// Your own PRs' search decides the snapshot; another search that fails keeps its last list, and the snapshot says why.
+    @Test func aFailedSearchKeepsItsLastListAndYoursAlone() async throws {
+        @Sendable func search(_ number: Int) -> ShellResult {
+            .ok(#"""
+            {"data":{"search":{"nodes":[{"number":\#(number),"title":"t","url":"https://github.com/o/r/pull/\#(number)","isDraft":false,
+              "createdAt":"2026-08-27T11:12:21Z","updatedAt":"2026-08-27T12:26:33Z","mergedAt":null,"state":"OPEN","baseRefName":"main",
+              "headRefName":"h","additions":0,"deletions":0,"author":{"login":"me"},"repository":{"nameWithOwner":"o/r"},"reviewDecision":null,
+              "mergeStateStatus":null,"commits":{"nodes":[]},"reviews":{"nodes":[]},"reviewRequests":{"nodes":[]},"timelineItems":{"nodes":[]}}]}}}
+            """#)
+        }
+        let calls = Calls()
+        let gh = GitHubProvider(ghPath: "/gh", org: "o") { _, _, _, stdin, _, _ in
+            let body = String(decoding: stdin ?? Data(), as: UTF8.self)
+            if body.contains("viewer { login }") { return .ok(#"{"data":{"viewer":{"login":"me"}}}"#) }
+            if body.contains("is:open author:me") {
+                let round = await calls.add("mine")
+                return round < 3 ? search(round) : .failed("gh: Bad credentials (HTTP 401)")
+            }
+            if body.contains("review-requested:me") {
+                return await calls.add("reviews") == 1 ? search(7) : .failed("gh: Bad credentials (HTTP 401)")
+            }
+            return .ok(#"{"data":{"search":{"nodes":[]}}}"#)
+        }
+        let first = try await gh.snapshot(repos: ["o/r"], since: Fixtures.t0)
+        #expect(first.mine.map(\.number) == [1] && first.reviewRequests.map(\.number) == [7] && first.error == nil)
+        let second = try await gh.snapshot(repos: ["o/r"], since: Fixtures.t0)
+        #expect(second.mine.map(\.number) == [2])
+        #expect(second.reviewRequests.map(\.number) == [7])
+        #expect(second.error?.contains("Bad credentials (HTTP 401)") == true)
+        await #expect(throws: ShellError.self) { try await gh.snapshot(repos: ["o/r"], since: Fixtures.t0) }
     }
 
     @Test func decodesAcliWorkItemSearch() throws {

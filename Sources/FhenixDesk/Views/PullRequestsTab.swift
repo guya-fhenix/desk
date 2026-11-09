@@ -10,8 +10,8 @@ struct PullRequestsTab: View {
     @State private var sortOrder: [KeyPathComparator<StackedPullRequest>] = []
     @AppStorage("sort.pullRequests") private var storedSort = ""
     @State private var selection: String?
-    /// The PR whose page is showing in place of the list; nil shows the list.
-    @State private var opened: String?
+    /// The pages open over the list; empty shows the list.
+    @State private var path: [Route] = []
     @FocusState private var listFocused: Bool
     @State private var search = ""
     /// With Reduce Motion on, the list jumps to the selected row instead of sliding there.
@@ -36,13 +36,11 @@ struct PullRequestsTab: View {
         let rows = self.rows
         let merged = self.merged
         let shown = scope == .open ? rows.map(\.pullRequest.url) : merged.map(\.url)
-        Group {
-            if let pr = opened.flatMap(pullRequest) {
-                PullRequestPage(pr: pr, model: model) { opened = nil }.id(pr.url)
-            } else {
-                list(rows: rows, merged: merged, shown: shown)
-            }
+        NavigationStack(path: $path) {
+            list(rows: rows, merged: merged, shown: shown)
+                .navigationDestination(for: Route.self) { RoutePage(route: $0, back: "Pull Requests", path: $path) }
         }
+        .focusedSceneValue(\.routePath, $path)
         .remembersSort(Self.sort, order: $sortOrder, stored: $storedSort)
         .selectsFirstRow(shown.first, selection: $selection)
         // A tab opens on its first row, unless the selection is already in it: search may have switched the tab to
@@ -51,11 +49,13 @@ struct PullRequestsTab: View {
             if !shown.contains(where: { $0 == selection }) { selection = shown.first }
         }
         // Search, Up Next and a notification land here with a PR to show: its page, with its row selected behind it.
+        // Only yours: one on its way to Reviews passes through while this screen is still on show, and is Reviews' to
+        // take.
         .onChange(of: model.selectPullRequest, initial: true) { _, url in
-            guard let url else { return }
+            guard let url, model.yourPullRequest(url) != nil else { return }
             scope = model.state.recentlyMerged().contains { $0.url == url } ? .merged : .open
             selection = url
-            opened = url
+            path = [.pr(url)]
             model.selectPullRequest = nil
         }
     }
@@ -118,7 +118,7 @@ struct PullRequestsTab: View {
                 .deskList()
                 // Focused on arrival and on the way back from a page, so the keys work without a click first.
                 .focused($listFocused)
-                .onAppear { listFocused = true }
+                .task(id: path.isEmpty) { if path.isEmpty { listFocused = true } }
                 .onKeyPress(.rightArrow) {
                     guard let selection else { return .ignored }
                     open(selection)
@@ -159,7 +159,7 @@ struct PullRequestsTab: View {
     /// Its page, with its row selected behind it for the way back.
     private func open(_ url: String) {
         selection = url
-        opened = url
+        path.append(.pr(url))
     }
 
     private func pullRequest(_ url: String) -> PullRequest? { model.yourPullRequest(url) }

@@ -22,11 +22,11 @@ import Testing
 
     @Test func withoutADraftYourLatestReviewIsTheState() {
         let reviews = [
-            Fixtures.review("COMMENTED", at: Fixtures.hours(1)),
-            Fixtures.review("APPROVED", at: Fixtures.hours(2)),
-            Fixtures.review("CHANGES_REQUESTED", at: Fixtures.hours(3), by: "bob"),
+            Fixtures.review(.commented, at: Fixtures.hours(1)),
+            Fixtures.review(.approved, at: Fixtures.hours(2)),
+            Fixtures.review(.changesRequested, at: Fixtures.hours(3), by: "bob"),
         ]
-        #expect(status(reviews: reviews).draft == .submitted(state: "APPROVED"))
+        #expect(status(reviews: reviews).draft == .submitted(state: .approved))
         #expect(status().draft == nil)
     }
 

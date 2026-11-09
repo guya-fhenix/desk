@@ -109,9 +109,9 @@ import Testing
     @Test func aReRequestIsANewNudge() {
         let asked = Fixtures.pr(number: 5, head: "e", author: "alice")
         var answered = asked
-        answered.reviews = [Review(state: "CHANGES_REQUESTED", submittedAt: Fixtures.hours(1), author: "me")]
+        answered.reviews = [Review(state: .changesRequested, submittedAt: Fixtures.hours(1), author: "me")]
         var othersOnly = asked
-        othersOnly.reviews = [Review(state: "APPROVED", submittedAt: Fixtures.hours(1), author: "bob")]
+        othersOnly.reviews = [Review(state: .approved, submittedAt: Fixtures.hours(1), author: "bob")]
         let id = { (pr: PullRequest) in NudgeEngine.nudges(input(reviews: [pr])).first { $0.kind == .reviewRequested }?.id }
         #expect(id(asked) != id(answered))
         #expect(id(asked) == id(othersOnly))

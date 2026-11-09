@@ -369,11 +369,11 @@ struct ReviewStatusChip: View {
         }
     }
 
-    private static func submittedTitle(_ state: String) -> String {
+    private static func submittedTitle(_ state: ReviewState) -> String {
         switch state {
-        case "APPROVED": return "Approved"
-        case "CHANGES_REQUESTED": return "Changes requested"
-        case "DISMISSED": return "Dismissed"
+        case .approved: return "Approved"
+        case .changesRequested: return "Changes requested"
+        case .dismissed: return "Dismissed"
         default: return "Commented"
         }
     }

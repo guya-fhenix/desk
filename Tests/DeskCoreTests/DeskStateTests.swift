@@ -20,6 +20,48 @@ import Testing
         }
     }
 
+    /// A merge or close this app made takes the PR out of the open lists, a merge into the merged one once, and a draft it
+    /// marked ready shows ready, while GitHub's search still says otherwise.
+    @Test func landedAndReadiedCorrectALaggingGitHub() {
+        var state = state
+        let merged = Fixtures.pr(number: 1, head: "a"), closed = Fixtures.pr(number: 2, head: "b"), draft = Fixtures.pr(number: 3, head: "c", draft: true)
+        state.github?.mine = [merged, closed, draft]
+        state.github?.reviewRequests = [closed]
+        var ended = merged
+        ended.state = .merged
+        var shut = closed
+        shut.state = .closed
+        state.apply(landed: [ended, shut], readied: [draft.url])
+        state.apply(landed: [ended, shut], readied: [draft.url])
+        #expect(state.mine.map(\.number) == [3] && state.mine.first?.isDraft == false)
+        #expect(state.github?.reviewRequests.isEmpty == true)
+        #expect(state.github?.mergedRecent.map(\.number) == [1])
+    }
+
+    /// Up Next's badge: your PRs in every section but Waiting, and the suggested Jira moves.
+    @Test func upNextCountsAllButWaitingAndTheMoves() {
+        var state = state
+        state.github?.mine = [Fixtures.pr(number: 1, head: "feat/pro-391-gauge", checks: .failure), Fixtures.pr(number: 2, head: "b")]
+        state.tickets = [Fixtures.ticket("PRO-391")]
+        state.recompute()
+        #expect(state.ticketDrifts.count == 1)
+        #expect(state.upNext(reviewDays: nil).map(\.section) == [.yourMove, .waiting])
+        #expect(state.upNextCount(reviewDays: nil) == 2)
+    }
+
+    /// A move or edit of this app's is laid over a Jira answer that does not show it yet, and dropped once one does.
+    @Test func ticketEditsCorrectALaggingJira() {
+        var state = state
+        state.tickets = [Fixtures.ticket("PRO-1", status: "In Progress"), Fixtures.ticket("PRO-2")]
+        let moved = TicketEdit(status: "Done", category: .done).merging(TicketEdit(summary: "Renamed"))
+        #expect(state.apply(ticketEdits: ["PRO-1": moved, "PRO-9": moved]).isEmpty)
+        #expect(state.ticket("PRO-1")?.status == "Done" && state.ticket("PRO-1")?.category == .done)
+        #expect(state.ticket("PRO-1")?.summary == "Renamed" && state.ticket("PRO-1")?.description == "")
+        #expect(state.ticket("PRO-2") == Fixtures.ticket("PRO-2"))
+        // Jira caught up: the edit changes nothing, so it can go.
+        #expect(state.apply(ticketEdits: ["PRO-1": moved]) == ["PRO-1"])
+    }
+
     /// A dismissed move stays hidden; the same ticket's next one, once its PR merges, is suggested again.
     @Test func aDismissedMoveStaysHiddenUntilItsTargetChanges() {
         var state = state
@@ -49,12 +91,12 @@ import Testing
     /// replies are no review, and anyone asked who has not answered is pending.
     @Test func reviewersStandWhereTheirLastDecisionLeftThem() {
         var pr = Fixtures.pr(number: 5, head: "x", author: "me", reviews: [
-            Review(state: "COMMENTED", submittedAt: Fixtures.t0, author: "ann"),
-            Review(state: "APPROVED", submittedAt: Fixtures.t0 + 60, author: "ann"),
-            Review(state: "COMMENTED", submittedAt: Fixtures.t0 + 120, author: "ann"),
-            Review(state: "CHANGES_REQUESTED", submittedAt: Fixtures.t0 + 30, author: "bob"),
-            Review(state: "COMMENTED", submittedAt: Fixtures.t0 + 40, author: "cy"),
-            Review(state: "COMMENTED", submittedAt: Fixtures.t0 + 50, author: "me"),
+            Review(state: .commented, submittedAt: Fixtures.t0, author: "ann"),
+            Review(state: .approved, submittedAt: Fixtures.t0 + 60, author: "ann"),
+            Review(state: .commented, submittedAt: Fixtures.t0 + 120, author: "ann"),
+            Review(state: .changesRequested, submittedAt: Fixtures.t0 + 30, author: "bob"),
+            Review(state: .commented, submittedAt: Fixtures.t0 + 40, author: "cy"),
+            Review(state: .commented, submittedAt: Fixtures.t0 + 50, author: "me"),
         ])
         pr.requestedReviewers = ["bob", "Protocol Team"]
         #expect(pr.reviewerStatuses == [
@@ -174,7 +216,7 @@ import Testing
         let fresh = Fixtures.pr(number: 2, head: "b", author: "alice")
         let mineAlready = Fixtures.pr(
             number: 3, head: "c", author: "alice",
-            reviews: [Review(state: "APPROVED", submittedAt: Fixtures.t0, author: "me")]
+            reviews: [Review(state: .approved, submittedAt: Fixtures.t0, author: "me")]
         )
         let draft = Fixtures.pr(number: 4, head: "d", author: "alice", draft: true)
         let bot = Fixtures.pr(number: 5, head: "e", author: "dependabot")

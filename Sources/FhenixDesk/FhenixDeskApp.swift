@@ -26,10 +26,9 @@ struct FhenixDeskApp: App {
         // and `openDesk`, and without them this Dock-less app has no way back in.
         .defaultLaunchBehavior(.presented)
         .windowResizability(.contentMinSize)
-        // The window's buttons sit on the sidebar and its title bar is gone; the background drags the window.
-        .windowStyle(.hiddenTitleBar)
-        .windowBackgroundDragBehavior(.enabled)
         .commands {
+            // View → Show/Hide Sidebar, ⌃⌘S.
+            SidebarCommands()
             // Settings live in the Desk window now, so ⌘, opens them there.
             CommandGroup(replacing: .appSettings) {
                 Button("Settings…") {
@@ -48,6 +47,7 @@ struct FhenixDeskApp: App {
                     AppDelegate.openDesk?()
                 }
                 .keyboardShortcut("k", modifiers: .command)
+                BackCommand()
             }
             // In the system View menu, so every screen and the presses that work on it have a key, listed in one place.
             CommandGroup(before: .toolbar) {
@@ -73,6 +73,17 @@ struct FhenixDeskApp: App {
                 Divider()
             }
         }
+    }
+}
+
+/// Go → Back, ⌘[: the tab on show from its page back to its list, as the page's back link and ← do.
+private struct BackCommand: View {
+    @FocusedBinding(\.routePath) private var path
+
+    var body: some View {
+        Button("Back") { path?.removeLast() }
+            .keyboardShortcut("[", modifiers: .command)
+            .disabled(path?.isEmpty != false)
     }
 }
 

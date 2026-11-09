@@ -39,18 +39,25 @@ struct DeskWindow: View {
         }
     }
 
+    /// What the sidebar has chosen: a tab, or Settings beside the sidebar.
+    private enum Choice: Hashable {
+        case tab(Tab)
+        case settings
+    }
+
     @Environment(AppModel.self) private var model
     @State private var tab: Tab = Tab(rawValue: ProcessInfo.processInfo.environment["FHENIX_DESK_OPEN_WINDOW"] ?? "") ?? .upNext
+    /// Whether the sidebar shows, as its toggle and ⌃⌘S leave it; setup hides it without changing this.
+    @State private var columns = NavigationSplitViewVisibility.all
     private var filters = ReviewFilters()
 
     var body: some View {
         // The sidebar stays while Settings is open, with Settings chosen in it, so you never lose your place.
-        // Setup takes the sidebar's place too, but keeps the terminal panel, where its installs and sign-ins run.
-        HStack(spacing: 0) {
-            if !model.showingSetup {
-                sidebar
-                Rectangle().fill(Theme.line).frame(width: 1).ignoresSafeArea()
-            }
+        // Setup takes the sidebar's place, its toggle gone with it, but keeps the terminal panel, where its installs and
+        // sign-ins run.
+        NavigationSplitView(columnVisibility: model.showingSetup ? .constant(.detailOnly) : $columns) {
+            sidebar
+        } detail: {
             // The terminal panel on the right, when it has a tab and is not hidden; the divider between drags.
             HSplitView {
                 Group { if model.showingSetup { SetupView() } else if model.showingSettings { SettingsView() } else { screen } }
@@ -60,20 +67,14 @@ struct DeskWindow: View {
                         .frame(minWidth: 360, idealWidth: 560, maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
+            .background(Theme.background.ignoresSafeArea())
         }
-        .overlay(alignment: .top) {
-            // Only the strip takes clicks; the spacer under it is not hit-testable, so the rest passes through.
-            VStack(spacing: 0) {
-                TitleBarArea().frame(height: 40)
-                Spacer(minLength: 0)
-            }
-            .ignoresSafeArea()
-        }
+        // Each screen's header says where you are.
+        .toolbar(removing: .title)
         // Dimmed, not blurred: a blur filter on the window — even at radius 0 — draws it through an offscreen
         // image, and its text comes out soft.
         .overlay { if model.showingFinder { FinderView() } }
         .appFont()
-        .background(Theme.background.ignoresSafeArea())
         // A regular app while the window shows, so ⌘-Tab and the Dock can bring it back.
         .onAppear { NSApp.setActivationPolicy(.regular) }
         // The menu bar and the nudges ask for a tab by setting this; clearing it keeps it a one-shot.
@@ -92,29 +93,49 @@ struct DeskWindow: View {
         }
     }
 
+    /// Search, which opens over the window rather than being chosen, the tabs with their counts, and Settings; the sync
+    /// status pinned under them.
     private var sidebar: some View {
-        SidebarColumn {
-            SidebarItem(title: "Search", icon: "magnifyingglass", action: { model.showingFinder = true }) {
-                HStack(spacing: 3) {
-                    KeyCap(key: "⌘")
-                    KeyCap(key: "K")
-                }
-            }
-            ForEach(Tab.allCases) { item in
-                SidebarItem(title: item.title, icon: item.icon, selected: !model.showingSettings && tab == item, action: {
-                    tab = item
-                    model.showingSettings = false
-                }) {
-                    let count = badge(for: item)
-                    if count > 0 {
-                        Text("\(count)")
-                            .scaled(.caption).monospacedDigit().foregroundStyle(.secondary)
-                            .padding(.horizontal, 6).padding(.vertical, 1)
-                            .background(Theme.raised, in: RoundedRectangle(cornerRadius: 4))
+        List(selection: choice) {
+            Button { model.showingFinder = true } label: {
+                HStack(spacing: Theme.Space.s) {
+                    Label("Search", systemImage: "magnifyingglass")
+                    Spacer(minLength: Theme.Space.xs)
+                    HStack(spacing: 3) {
+                        KeyCap(key: "⌘")
+                        KeyCap(key: "K")
                     }
                 }
+                .contentShape(Rectangle())
             }
-            SidebarItem(title: "Settings", icon: "gearshape", selected: model.showingSettings, action: { model.showingSettings = true })
+            .buttonStyle(.plain)
+            ForEach(Tab.allCases) { item in
+                Label { Text(item.title) } icon: { SidebarIcon(name: item.icon) }
+                    .badge(badge(for: item))
+                    .tag(Choice.tab(item))
+            }
+            Label("Settings", systemImage: "gearshape").tag(Choice.settings)
+        }
+        .listStyle(.sidebar)
+        .safeAreaInset(edge: .bottom) {
+            SidebarStatus().padding(.horizontal, Theme.Space.s).padding(.bottom, Theme.Space.m)
+        }
+        .toolbar(removing: model.showingSetup ? .sidebarToggle : nil)
+        // Outermost, or the split view does not see it.
+        .navigationSplitViewColumnWidth(min: 200, ideal: Theme.sidebarWidth, max: 320)
+    }
+
+    private var choice: Binding<Choice?> {
+        Binding {
+            model.showingSettings ? .settings : .tab(tab)
+        } set: { choice in
+            switch choice {
+            case .tab(let item):
+                tab = item
+                model.showingSettings = false
+            case .settings: model.showingSettings = true
+            case nil: break
+            }
         }
     }
 
@@ -140,29 +161,64 @@ struct DeskWindow: View {
     }
 }
 
-/// The strip along the top of the window where its title bar would be. With the title bar hidden, SwiftUI takes the
-/// clicks there, so the window neither zoomed on a double-click nor dragged; this hands both back to the window. A
-/// double-click does what System Settings → Desktop & Dock says it should. The window buttons sit above it and keep
-/// their own clicks.
-private struct TitleBarArea: NSViewRepresentable {
-    func makeNSView(context: Context) -> NSView { StripView() }
-    func updateNSView(_ nsView: NSView, context: Context) {}
+/// A page a tab opens over its list: a PR's, by url, or a ticket's, by key. Each tab keeps a path of these, so Back,
+/// ⌘[ and ← return to the list with its row still selected.
+enum Route: Hashable {
+    case pr(String)
+    case ticket(String)
+}
 
-    final class StripView: NSView {
-        override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+extension FocusedValues {
+    /// The path of the tab on show, for Go → Back.
+    @Entry var routePath: Binding<[Route]>?
+}
 
-        override func mouseDown(with event: NSEvent) {
-            guard let window else { return }
-            guard event.clickCount == 2 else {
-                window.performDrag(with: event)
-                return
-            }
-            switch UserDefaults.standard.string(forKey: "AppleActionOnDoubleClick") {
-            case "Minimize": window.miniaturize(nil)
-            case "None": break
-            default: window.zoom(nil)
+/// The page a route opens: your PR's own page, someone else's PR as the review queue shows it — its diff while you
+/// review it — or a ticket's. The PR is looked up among every open one, not only the screen's rows: one you just
+/// reviewed may leave a filtered list. Keyed by the route, so nothing typed on one page carries over to the next.
+struct RoutePage: View {
+    var route: Route
+    /// The tab it opened on, which the back link names.
+    var back: String
+    @Binding var path: [Route]
+    /// Start in… on a ticket's page, which asks the tab for the plan's note.
+    var plan: (Ticket, RepoRef) -> Void = { _, _ in }
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        Group {
+            switch route {
+            case .ticket(let key):
+                if let ticket = model.state.ticket(key) {
+                    TicketPage(ticket: ticket, model: model, back: back, plan: plan, onBack: pop)
+                } else {
+                    gone
+                }
+            case .pr(let url):
+                if let pr = model.yourPullRequest(url) {
+                    PullRequestPage(pr: pr, model: model, back: back, onBack: pop)
+                } else if let pr = model.state.github?.allOpen.first(where: { $0.url == url }) {
+                    // Start review swaps the page for the diff; back from the diff is the page again.
+                    if model.reviewing == url {
+                        ReviewDiffScreen(pr: pr, model: model) { model.reviewing = nil }
+                    } else {
+                        let onMe = model.state.reviewRequests.contains { $0.url == url }
+                        ReviewPage(pr: pr, model: model, onMe: onMe, back: back, onBack: pop)
+                    }
+                } else {
+                    gone
+                }
             }
         }
+        .id(route)
+    }
+
+    /// Gone from every list since it opened, merged or closed by someone else: there is nothing to show, so back to the
+    /// list.
+    private var gone: some View { Color.clear.onAppear(perform: pop) }
+
+    private func pop() {
+        if !path.isEmpty { path.removeLast() }
     }
 }
 
@@ -190,6 +246,9 @@ private struct DeskInspector<Inspector: View>: ViewModifier {
 
     func body(content: Content) -> some View {
         content
+            // A screen wider than the room beside the panel spills into its own margins rather than pushing the panel
+            // past the window's edge.
+            .frame(minWidth: 0)
             .inspector(isPresented: $shown) {
                 VStack(alignment: .leading, spacing: 0) { inspector() }
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
