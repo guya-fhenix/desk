@@ -212,6 +212,9 @@ struct RoutePage: View {
             }
         }
         .id(route)
+        // The page's own back link, which names the screen it returns to, is the one way back on it; the toolbar's
+        // chevron would be a second.
+        .navigationBarBackButtonHidden(true)
     }
 
     /// Gone from every list since it opened, merged or closed by someone else: there is nothing to show, so back to the

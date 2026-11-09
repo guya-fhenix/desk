@@ -2,26 +2,52 @@ import DeskCore
 import SwiftUI
 
 /// Jira tickets as a list: the running sprint or the backlog, one group per status in workflow order, yours unless
-/// the assignee filter picks others. Done is left out: the list is about what is still open. Selecting a row opens it in the details panel, which is
-/// where its description is read. Above the groups, the moves the app suggests for your tickets, each waiting for
-/// your Move or Dismiss.
+/// the assignee filter picks others. Done is left out: the list is about what is still open. Selecting a row previews it
+/// in the details panel; Return, a double-click or → opens its page, as Up Next does, and ⌘↩ opens it in Jira, as Search
+/// does. Above the groups, the moves the app suggests for your tickets, each waiting for your Move or Dismiss.
 struct TicketsTab: View {
     @Environment(AppModel.self) private var model
     private var filters = TicketFilters()
     /// By key, so a poll that replaces every ticket keeps the selection.
     @State private var selection: String?
+    /// The pages open over the list; empty shows the list.
+    @State private var path: [Route] = []
+    @FocusState private var listFocused: Bool
     @State private var search = ""
     /// The ticket and repository a plan has been asked for, while the note is still being written.
     @State private var planning: PlanRequest?
     @State private var planNote = ""
-    /// The details panel's flag, which `deskInspector` reads too: a ticket picked in Search opens it.
-    @AppStorage("inspector.tickets") private var inspectorShown = true
     /// A row to bring into view: the ticket Search picked, which may sit far down the list.
     @State private var scrollTarget: String?
 
     var body: some View {
         let groups = filtered(model.state.ticketGroups(filters.placement, assignees: assignees))
         let moves = suggestedMoves
+        NavigationStack(path: $path) {
+            list(groups: groups, moves: moves)
+                .navigationDestination(for: Route.self) { RoutePage(route: $0, back: "Jira", path: $path, plan: plan) }
+        }
+        .focusedSceneValue(\.routePath, $path)
+        // Search lands here with a ticket: its page, with its row behind it wherever it is — its sprint or backlog, your
+        // tickets in the filter, the search box cleared — selected for the way back.
+        .onChange(of: model.selectTicket, initial: true) { _, key in
+            guard let key, let ticket = model.state.ticket(key) else { return }
+            // One Jira places in neither has no row, but its page still shows it.
+            if ticket.placement != .unknown { filters.placement = ticket.placement }
+            if !assignees.isEmpty, !assignees.contains(.me) { filters.assignees = assignees.union([.me]) }
+            search = ""
+            selection = key
+            scrollTarget = key
+            path = [.ticket(key)]
+            model.selectTicket = nil
+        }
+        .selectsFirstRow(moves.first?.moveKey ?? groups.first?.tickets.first?.key, selection: $selection)
+        .sheet(item: $planning) { request in
+            PlanSheet(request: request, model: model, note: $planNote) { planning = nil }
+        }
+    }
+
+    @ViewBuilder private func list(groups: [TicketGroup], moves: [TicketDrift]) -> some View {
         Screen {
             PageHeader(title: "Jira") { HeaderControls(inspector: "tickets") }
             header
@@ -32,7 +58,7 @@ struct TicketsTab: View {
                 Spacer()
             } else {
                 StaleBanner(source: .jira)
-                // Arrow keys move the selection; Return or a double-click opens the ticket in Jira.
+                // Arrow keys move the selection; a double-click, Return or → opens the ticket's page.
                 ScrollViewReader { proxy in
                 List(selection: $selection) {
                     if !moves.isEmpty {
@@ -57,6 +83,20 @@ struct TicketsTab: View {
                     }
                 }
                 .deskList()
+                // Focused on arrival and on the way back from a page, so the keys work without a click first.
+                .focused($listFocused)
+                .task(id: path.isEmpty) { if path.isEmpty { listFocused = true } }
+                .onKeyPress(.rightArrow) {
+                    guard let selection else { return .ignored }
+                    open(selection)
+                    return .handled
+                }
+                // ⌘↩ goes out to Jira, as it does in Search; the list's primary action never sees it.
+                .onKeyPress(.return, phases: .down) { press in
+                    guard press.modifiers.contains(.command), let ticket = selection.flatMap(ticket(for:)) else { return .ignored }
+                    model.open(ticket.url)
+                    return .handled
+                }
                 .contextMenu(forSelectionType: String.self) { keys in
                     if let ticket = keys.first.flatMap(ticket(for:)) {
                         Button("Open in Jira") { model.open(ticket.url) }
@@ -64,7 +104,7 @@ struct TicketsTab: View {
                         Button("Copy Key") { Clipboard.copy(ticket.key) }
                     }
                 } primaryAction: { keys in
-                    model.open(keys.first.flatMap(ticket(for:))?.url)
+                    if let key = keys.first { open(key) }
                 }
                 .onChange(of: scrollTarget, initial: true) { _, key in
                     guard let key else { return }
@@ -74,21 +114,8 @@ struct TicketsTab: View {
                 }
             }
         }
-        // Search lands here with a ticket: shown wherever it is — its sprint or backlog, your tickets in the filter, the
-        // search box cleared — selected, and in the details panel.
-        .onChange(of: model.selectTicket, initial: true) { _, key in
-            guard let key, let ticket = model.state.ticket(key) else { return }
-            // One Jira places in neither has no row, but the details panel still shows it.
-            if ticket.placement != .unknown { filters.placement = ticket.placement }
-            if !assignees.isEmpty, !assignees.contains(.me) { filters.assignees = assignees.union([.me]) }
-            search = ""
-            selection = key
-            inspectorShown = true
-            scrollTarget = key
-            model.selectTicket = nil
-        }
-        .selectsFirstRow(moves.first?.moveKey ?? groups.first?.tickets.first?.key, selection: $selection)
-        // Wider than the others: this one is for reading a description, tables and all.
+        // Wider than the others: this one is for reading a description, tables and all. The list's preview only: a
+        // ticket's page shows all of it.
         .deskInspector("tickets", width: 420) {
             if let ticket = selection.flatMap(ticket(for:)) {
                 TicketInspector(ticket: ticket, model: model, plan: plan).id(ticket.key)
@@ -97,9 +124,13 @@ struct TicketsTab: View {
                 Spacer()
             }
         }
-        .sheet(item: $planning) { request in
-            PlanSheet(request: request, model: model, note: $planNote) { planning = nil }
-        }
+    }
+
+    /// Its page, with its row selected behind it for the way back: a ticket's row, or a suggested move's.
+    private func open(_ id: String) {
+        guard let ticket = ticket(for: id) else { return }
+        selection = id
+        path.append(.ticket(ticket.key))
     }
 
     /// A row's ticket, from its key or, on a suggested move's row, its move.
@@ -402,7 +433,7 @@ struct StartInMenu: View {
     }
 }
 
-/// A ticket's own page, opened from Up Next and laid out as a PR's: its key set apart from its summary with Jira's
+/// A ticket's own page, opened from Up Next or the Jira screen and laid out as a PR's: its key set apart from its summary with Jira's
 /// mark to open it there, a status line of where it stands with Start in… on the right; the description in the wide
 /// column; its pull requests, sessions and how Jira has fallen behind beside it.
 struct TicketPage: View {
