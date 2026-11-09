@@ -28,9 +28,8 @@ struct UpNextTab: View {
         let early = plan.filter { $0.section != .waiting }.flatMap(\.pullRequests).map(\.url)
         let waiting = plan.filter { $0.section == .waiting }.flatMap(\.pullRequests).map(\.url)
         let rows = early + drifts.map(\.id) + tickets.map(\.key) + waiting
-        NavigationStack(path: $path) {
+        RouteStack(path: $path, back: "Up Next", plan: startPlan) {
             list(plan: plan, tickets: tickets, drifts: drifts)
-                .navigationDestination(for: Route.self) { RoutePage(route: $0, back: "Up Next", path: $path, plan: startPlan) }
         }
         .focusedSceneValue(\.routePath, $path)
         .selectsFirstRow(rows.first, selection: $selection)

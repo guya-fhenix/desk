@@ -59,12 +59,13 @@ enum Snapshot {
         await capture(view, size: NSSize(width: 1180, height: height), to: out)
     }
 
-    /// The whole window, sidebar and screen, on a tab or Settings, once every source has answered. The terminal panel
-    /// is left out: it only shows with a session in it.
+    /// The whole window, sidebar and screen, on a tab or Settings, once every source has answered. `open=<pr url>` shows
+    /// that PR's page, as Search would; `terminal` puts a tab in the terminal panel, which otherwise only shows with a
+    /// session in it.
     private static func window(_ arguments: [String]) async {
         let screen = arguments.first ?? ""
         guard arguments.count >= 2, screen == "settings" || DeskWindow.Tab(rawValue: screen) != nil else {
-            print("usage: --snapshot window <upNext|pullRequests|reviews|tickets|settings> <out.png> [height] [dark]")
+            print("usage: --snapshot window <upNext|pullRequests|reviews|tickets|settings> <out.png> [height] [dark] [open=<pr url>] [terminal]")
             return
         }
         let height = arguments.count > 2 ? CGFloat(Double(arguments[2]) ?? 720) : 720
@@ -75,6 +76,10 @@ enum Snapshot {
         model.pendingTab = DeskWindow.Tab(rawValue: screen)
         for _ in 0..<120 where Set(model.state.lastRefresh.keys).union(model.state.errors.keys).count < Source.allCases.count {
             try? await Task.sleep(for: .milliseconds(500))
+        }
+        if let open = arguments.first(where: { $0.hasPrefix("open=") }) { model.selectPullRequest = String(open.dropFirst(5)) }
+        if arguments.contains("terminal") {
+            model.terminals.open(id: "snapshot", title: "Session", executable: "/bin/sh", arguments: ["-c", "echo a session; sleep 30"])
         }
         let size = NSSize(width: 1180, height: height)
         await capture(DeskWindow().environment(model), size: size, to: arguments[1], titled: true)
@@ -88,7 +93,11 @@ enum Snapshot {
     /// `titled` draws it in a window like the app's, title bar and all, as the window server composites it: drawing the
     /// views themselves leaves out the system's materials, such as the inspector's. Otherwise the view alone.
     private static func capture(_ view: some View, size: NSSize, to out: String, titled: Bool = false) async {
-        let host = NSHostingView(rootView: view.frame(width: size.width, height: size.height))
+        // A titled window sizes its content the way the app's does, from the window, with the app's minimum; a fixed frame
+        // on the root misleads a split view about the room it has.
+        let host = titled
+            ? NSHostingView(rootView: AnyView(view.frame(minWidth: 960, minHeight: 560)))
+            : NSHostingView(rootView: AnyView(view.frame(width: size.width, height: size.height)))
         let window = OffscreenWindow(
             contentRect: NSRect(origin: NSPoint(x: -30000, y: -30000), size: size),
             styleMask: titled ? [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView] : [.borderless],

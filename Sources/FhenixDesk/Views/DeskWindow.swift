@@ -53,6 +53,13 @@ struct DeskWindow: View {
     /// the first folded it away, put back when the last goes.
     @State private var reviewDiffs = 0
     @State private var columnsBeforeReview = NavigationSplitViewVisibility.all
+    /// The terminal panel's width as last dragged; 400 to start, which beside the sidebar and a screen at its floor is all
+    /// the default window has.
+    @AppStorage("terminal.width") private var terminalWidth: Double = 400
+    /// The detail column's width, which bounds how wide the panel can be dragged.
+    @State private var detailWidth: CGFloat = 0
+    private static let screenMinimum: CGFloat = 480
+    private static let terminalMinimum: CGFloat = 360
     private var filters = ReviewFilters()
     private var tickets = TicketFilters()
 
@@ -63,18 +70,24 @@ struct DeskWindow: View {
         NavigationSplitView(columnVisibility: model.showingSetup ? .constant(.detailOnly) : $columns) {
             sidebar
         } detail: {
-            // The terminal panel on the right, when it has a tab and is not hidden; the divider between drags.
-            HSplitView {
+            // The terminal panel on the right, when it has a tab and is not hidden; the divider between drags. A tab's
+            // pages show inside the detail too, in place of its list, so the panel stays beside them. An HStack, not an
+            // HSplitView: inside the split view's detail an HSplitView took its width from the sidebar, squeezing it
+            // below its own minimum and cutting its labels.
+            HStack(spacing: 0) {
                 Group { if model.showingSetup { SetupView() } else if model.showingSettings { SettingsView() } else { screen } }
-                    .frame(minWidth: 480, maxWidth: .infinity, maxHeight: .infinity)
+                    .frame(minWidth: Self.screenMinimum, maxWidth: .infinity, maxHeight: .infinity)
                 if model.terminals.visible, !model.terminals.tabs.isEmpty {
+                    let width = min(max(terminalWidth, Self.terminalMinimum), max(detailWidth - Self.screenMinimum - 1, Self.terminalMinimum))
+                    PanelDivider(width: $terminalWidth, shown: width, range: Self.terminalMinimum...max(detailWidth - Self.screenMinimum - 1, Self.terminalMinimum))
                     TerminalPanelView(panel: model.terminals)
-                        .frame(minWidth: 360, idealWidth: 560, maxWidth: .infinity, maxHeight: .infinity)
+                        .frame(width: width)
+                        .frame(maxHeight: .infinity)
                 }
             }
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { detailWidth = $0 }
             .background(Theme.background.ignoresSafeArea())
         }
-        // On the split view itself: a tab's pages are pushed onto it, out from under anything set inside its detail.
         .environment(\.reviewRoom, reviewRoom)
         // Each screen's header says where you are.
         .toolbar(removing: .title)
@@ -203,6 +216,55 @@ extension EnvironmentValues {
 /// The page a route opens: your PR's own page, someone else's PR as the review queue shows it — its diff while you
 /// review it — or a ticket's. The PR is looked up among every open one, not only the screen's rows: one you just
 /// reviewed may leave a filtered list. Keyed by the route, so nothing typed on one page carries over to the next.
+/// The line between a screen and the terminal panel, which drags to set the panel's width: a hairline drawn, a wider strip
+/// to grab, and the column-resize pointer over it.
+private struct PanelDivider: View {
+    @Binding var width: Double
+    /// The width the panel shows at, after the window's bounds: where a drag starts from.
+    var shown: CGFloat
+    var range: ClosedRange<CGFloat>
+    @State private var start: CGFloat?
+
+    var body: some View {
+        Rectangle().fill(Theme.line).frame(width: 1)
+            .frame(maxHeight: .infinity)
+            .overlay {
+                Color.clear.frame(width: 9).contentShape(Rectangle())
+                    .pointerStyle(.columnResize)
+                    .gesture(
+                        DragGesture(minimumDistance: 1, coordinateSpace: .global)
+                            .onChanged { drag in
+                                let from = start ?? shown
+                                start = from
+                                // Dragged left, the panel grows.
+                                width = Double(min(max(from - drag.translation.width, range.lowerBound), range.upperBound))
+                            }
+                            .onEnded { _ in start = nil }
+                    )
+            }
+            .accessibilityHidden(true)
+    }
+}
+
+/// A tab's list, or the page on top of its path in place of it. Not a `NavigationStack`: inside the split view's detail,
+/// a stack's pages are pushed onto the detail column whole, out from under the terminal panel beside the list, so a
+/// session opened from a PR's page showed only once you went back to the list.
+struct RouteStack<Root: View>: View {
+    @Binding var path: [Route]
+    /// The tab, which a page's back link names.
+    var back: String
+    var plan: (Ticket, RepoRef) -> Void = { _, _ in }
+    @ViewBuilder var root: Root
+
+    var body: some View {
+        if let route = path.last {
+            RoutePage(route: route, back: back, path: $path, plan: plan)
+        } else {
+            root
+        }
+    }
+}
+
 struct RoutePage: View {
     var route: Route
     /// The tab it opened on, which the back link names.
@@ -238,9 +300,6 @@ struct RoutePage: View {
             }
         }
         .id(route)
-        // The page's own back link, which names the screen it returns to, is the one way back on it; the toolbar's
-        // chevron would be a second.
-        .navigationBarBackButtonHidden(true)
     }
 
     /// Gone from every list since it opened, merged or closed by someone else: there is nothing to show, so back to the

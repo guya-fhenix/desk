@@ -36,9 +36,8 @@ struct PullRequestsTab: View {
         let rows = self.rows
         let merged = self.merged
         let shown = scope == .open ? rows.map(\.pullRequest.url) : merged.map(\.url)
-        NavigationStack(path: $path) {
+        RouteStack(path: $path, back: "Pull Requests") {
             list(rows: rows, merged: merged, shown: shown)
-                .navigationDestination(for: Route.self) { RoutePage(route: $0, back: "Pull Requests", path: $path) }
         }
         .focusedSceneValue(\.routePath, $path)
         .remembersSort(Self.sort, order: $sortOrder, stored: $storedSort)
@@ -321,7 +320,7 @@ struct PullRequestPage: View {
     var body: some View {
         DetailPage(back: back, onBack: onBack) {
             PageHeadline(pr: pr, model: model, gitHub: pr.url, editable: pr.state == .open)
-            HStack(spacing: 8) {
+            StatusLine {
                 // How it ended, first and in GitHub's colours: a merge or close from this page shows here the moment it lands.
                 EndedPill(pr: pr)
                 // An ended PR has no state left to show and no branch left to work on; its ticket is what is left.
@@ -332,8 +331,8 @@ struct PullRequestPage: View {
                     MergeBadge(pr: pr)
                 }
                 JiraStatus(pr: pr, model: model)
+            } actions: {
                 // The page's action on the right, where a status line's presses go.
-                Spacer(minLength: 8)
                 if pr.state == .open { SessionStatus(pr: pr, model: model) }
                 MoreMenu(pr: pr, model: model)
             }

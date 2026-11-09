@@ -23,9 +23,8 @@ struct TicketsTab: View {
     var body: some View {
         let groups = filtered(model.state.ticketGroups(filters.placement, assignees: assignees))
         let moves = suggestedMoves
-        NavigationStack(path: $path) {
+        RouteStack(path: $path, back: "Jira", plan: plan) {
             list(groups: groups, moves: moves)
-                .navigationDestination(for: Route.self) { RoutePage(route: $0, back: "Jira", path: $path, plan: plan) }
         }
         .focusedSceneValue(\.routePath, $path)
         // Search lands here with a ticket: its page, with its row behind it wherever it is — its sprint or backlog, your
