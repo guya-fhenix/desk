@@ -149,6 +149,7 @@ public enum Setup {
     }
 
     /// Desk runs as gh's active account, which needs `repo` and `read:org`: the org's repos and teams are behind the second.
+    /// GitHub drops a scope another one implies, so a `write:org` or `admin:org` token lists no `read:org` but has it.
     public static func github(_ accounts: [GitHubAccount]) -> SetupCheck {
         guard let active = accounts.first(where: \.active) else {
             return SetupCheck(.github, ok: false, detail: "Not signed in.", fixes: [githubLogin])
@@ -158,7 +159,8 @@ public enum Setup {
                               fixes: [SetupFix("Sign in again", githubLogin.command)])
         }
         let scopes = Set((active.scopes ?? "").split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) })
-        let missing = ["repo", "read:org"].filter { !scopes.contains($0) }
+        let missing = [("repo", ["repo"]), ("read:org", ["read:org", "write:org", "admin:org"])]
+            .filter { _, any in any.allSatisfy { !scopes.contains($0) } }.map(\.0)
         if active.scopes != nil, !missing.isEmpty {
             return SetupCheck(.github, ok: false, detail: "Signed in as \(active.login), without the \(missing.joined(separator: " and ")) scope.",
                               fixes: [SetupFix("Add scopes", "gh auth refresh --hostname github.com --scopes repo,read:org")])
