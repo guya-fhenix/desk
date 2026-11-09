@@ -164,12 +164,15 @@ public actor GitHubProvider {
     ///
     /// `retrying: false` is for writes, which must run exactly once: a 502 returned after the mutation
     /// landed would otherwise post it twice.
+    ///
+    /// `gh` prints a failed call's body to stdout too. Only one holding GraphQL's `errors` is an answer, which the
+    /// decoders turn into its messages; any other failure is HTTP's, and gh's stderr is what says why.
     func graphQL(query: String, variables: [String: any Sendable], retrying: Bool = true) async throws -> Data {
         let body = try JSONSerialization.data(withJSONObject: ["query": query, "variables": variables])
         var attempt = 0
         while true {
             let result = try await Shell.run(ghPath, ["api", "graphql", "--input", "-"], stdin: body)
-            if result.stdout.first == UInt8(ascii: "{") { return result.stdout }
+            if result.status == 0 || GitHubDecoding.hasErrors(result.stdout) { return result.stdout }
             attempt += 1
             guard retrying, attempt < Self.attempts, GitHubError.isTransient(stderr: result.stderr) else {
                 throw ShellError.failed(command: "gh api graphql", status: result.status, stderr: result.stderr)
@@ -377,6 +380,12 @@ public enum GitHubDecoding {
             id: node.id, author: node.author?.name ?? "ghost", avatar: node.author?.avatarUrl, body: node.body,
             createdAt: node.createdAt, url: node.url
         )
+    }
+
+    /// Whether the body is GraphQL's own answer naming what went wrong, rather than a failed HTTP call's.
+    static func hasErrors(_ data: Data) -> Bool {
+        struct Answer: Decodable { var errors: [GraphQLError]? }
+        return (try? JSONDecoder().decode(Answer.self, from: data))?.errors?.isEmpty == false
     }
 
     /// A write's answer: only its errors matter.

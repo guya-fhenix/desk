@@ -124,6 +124,30 @@ import Testing
         #expect(!GitHubError.isTransient(stderr: ""))
     }
 
+    /// A fake gh that fails as the real one does: a body on stdout, its reason on stderr, exit 1.
+    @Test func failedGhCallsRetryOrThrowGhsReasonUnlessGraphQLAnswered() async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("desk-gh-\(UUID().uuidString)").path
+        try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+        func login(_ script: String) async throws -> String {
+            let gh = dir + "/gh-\(UUID().uuidString)"
+            try ("#!/bin/sh\ncat >/dev/null\n" + script).write(toFile: gh, atomically: true, encoding: .utf8)
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: gh)
+            return try await GitHubProvider(ghPath: gh, org: "o").viewerLogin()
+        }
+        let expired = #"echo '{"message":"Bad credentials"}'; echo 'gh: Bad credentials (HTTP 401)' >&2; exit 1"#
+        let unauthorized = await #expect(throws: ShellError.self) { try await login(expired) }
+        #expect(unauthorized.map { "\($0)".contains("Bad credentials (HTTP 401)") } == true)
+        let invalid = #"echo '{"errors":[{"message":"no field x"}]}'; echo 'gh: no field x' >&2; exit 1"#
+        let answered = await #expect(throws: GitHubError.self) { try await login(invalid) }
+        #expect(answered.map { "\($0)" } == "GitHub: no field x")
+        let flaky = #"""
+            if [ -e "$0.failed" ]; then echo '{"data":{"viewer":{"login":"me"}}}'; exit 0; fi
+            touch "$0.failed"; echo '{"message":"Server Error"}'; echo 'gh: Server Error (HTTP 502)' >&2; exit 1
+            """#
+        #expect(try await login(flaky) == "me")
+    }
+
     @Test func decodesAcliWorkItemSearch() throws {
         let json = """
         [{"id":"20322","key":"PRO-484","self":"https://jira-prod-eu-47-2.prod.atl-paas.net/rest/api/3/issue/20322",
