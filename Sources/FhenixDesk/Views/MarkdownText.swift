@@ -12,7 +12,15 @@ struct MarkdownText: View {
     private static let lineSpacing: CGFloat = 3.5
 
     var body: some View {
-        let blocks = Markdown.blocks(text)
+        stack(Markdown.blocks(text))
+            // Never `fixedSize` on the whole stack: it asks for an ideal height at whatever width is proposed,
+            // and a near-zero proposal makes this thousands of points tall.
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .textSelection(.enabled)
+    }
+
+    /// Blocks one under another, the text's and a quote's own.
+    private func stack(_ blocks: [MarkdownBlock]) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             // By position: two identical paragraphs are legitimate, and an id built from text would collide.
             ForEach(Array(blocks.enumerated()), id: \.offset) { index, block in
@@ -20,10 +28,6 @@ struct MarkdownText: View {
                     .padding(.top, index == 0 ? 0 : gap(after: blocks[index - 1], before: block) * scale)
             }
         }
-        // Never `fixedSize` on the whole stack: it asks for an ideal height at whatever width is proposed,
-        // and a near-zero proposal makes this thousands of points tall.
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .textSelection(.enabled)
     }
 
     @ViewBuilder private func view(for block: MarkdownBlock) -> some View {
@@ -55,10 +59,11 @@ struct MarkdownText: View {
             .contentMargins(.bottom, 6, for: .scrollContent)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(.quaternary.opacity(0.45), in: RoundedRectangle(cornerRadius: 6))
-        case .quote(let text):
+        case .quote(let blocks):
             HStack(spacing: 10) {
                 Rectangle().fill(.tertiary).frame(width: 3)
-                prose(text).foregroundStyle(.secondary)
+                // Type-erased: a quote's blocks may hold a quote, and an opaque type can't hold itself.
+                AnyView(stack(blocks)).foregroundStyle(.secondary)
             }
             .fixedSize(horizontal: false, vertical: true)
         case .table(let header, let rows):

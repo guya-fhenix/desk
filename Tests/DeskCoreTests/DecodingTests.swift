@@ -313,7 +313,7 @@ import Testing
         #expect(blocks.contains(.numbered(indent: 0, number: "2", text: "step two")))
         // A `#` inside a fence is code, not a heading.
         #expect(blocks.contains(.code(language: "swift", text: "let x = 1\n# not a heading")))
-        #expect(blocks.contains(.quote("a note")))
+        #expect(blocks.contains(.quote([.paragraph("a note")])))
         #expect(blocks.contains(.rule))
         #expect(!blocks.contains(.heading(level: 1, text: "not a heading")))
     }
@@ -322,8 +322,32 @@ import Testing
     @Test func aQuoteIsOneBlockAndCommentsAreHidden() {
         let text = "Intro.\n<!-- CURSOR_SUMMARY -->\n> [!NOTE]\n> **Medium Risk**\n>\n> Details here.\n>\n\n<!-- multi\nline -->After.\n\n<sup>Reviewed by Bugbot.</sup>"
         #expect(Markdown.blocks(text) == [
-            .paragraph("Intro."), .quote("**Note**\n**Medium Risk**\n\nDetails here."), .paragraph("After."),
-            .paragraph("Reviewed by Bugbot."),
+            .paragraph("Intro."), .quote([.paragraph("**Note**"), .paragraph("**Medium Risk**"), .paragraph("Details here.")]),
+            .paragraph("After."), .paragraph("Reviewed by Bugbot."),
+        ])
+    }
+
+    /// A GitHub alert holds Markdown of its own: CodeRabbit's draft notice is a heading and a checklist inside `>`.
+    @Test func aQuoteHoldsBlocksOfItsOwn() {
+        #expect(Markdown.blocks("> [!IMPORTANT]\n> ## Title\n> - [ ] item") == [
+            .quote([.paragraph("**Important**"), .heading(level: 2, text: "Title"), .task(indent: 0, done: false, text: "item")]),
+        ])
+        #expect(Markdown.blocks("> outer\n> > inner") == [.quote([.paragraph("outer"), .quote([.paragraph("inner")])])])
+    }
+
+    /// CodeRabbit's walkthrough table breaks lines in a cell with `<br>`: the row stays one row, the break a space.
+    @Test func aBreakInATableRowKeepsTheRow() {
+        let text = "| File | Change |\n|---|---|\n| `a.rs` | One.<br>Two.<br/> |\nNext<br>line"
+        #expect(Markdown.blocks(text) == [
+            .table(header: ["File", "Change"], rows: [["`a.rs`", "One. Two."]]), .paragraph("Next line"),
+        ])
+    }
+
+    /// The HTML rewrite is for prose: a fenced HTML block keeps its tags, comments and breaks.
+    @Test func aFencedHTMLBlockKeepsItsTags() {
+        let text = "<b>Bold</b>\n```html\n<div><br>\n<!-- note --><b>x</b></div>\n```\n<br>after"
+        #expect(Markdown.blocks(text) == [
+            .paragraph("**Bold**"), .code(language: "html", text: "<div><br>\n<!-- note --><b>x</b></div>"), .paragraph("after"),
         ])
     }
 
