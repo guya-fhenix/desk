@@ -62,14 +62,18 @@ public struct SetupCheck: Identifiable, Sendable, Equatable {
     public var detail: String
     /// What to run about it. An ok check can still have one, such as switching the GitHub account.
     public var fixes: [SetupFix]
+    /// Whether to offer a token sign-in here: the tool is there but signed out or broken, or Jira signed in through the
+    /// browser, which Jira caps by the hour.
+    public var asksForToken: Bool
 
     public var id: Kind { kind }
 
-    public init(_ kind: Kind, ok: Bool, detail: String, fixes: [SetupFix] = []) {
+    public init(_ kind: Kind, ok: Bool, detail: String, fixes: [SetupFix] = [], asksForToken: Bool = false) {
         self.kind = kind
         self.ok = ok
         self.detail = detail
         self.fixes = fixes
+        self.asksForToken = asksForToken
     }
 }
 
@@ -97,9 +101,30 @@ public enum Setup {
     static let githubScopesNote = "GitHub CLI asks for its own permissions too, Workflow among them: it signs git in over HTTPS, "
         + "and pushing changes to workflow files needs it. Desk itself needs only repo and read:org."
     static let githubLogin = SetupFix(
-        "Sign in", "gh auth login --hostname github.com --web --git-protocol https --scopes read:org", note: githubScopesNote
+        "Use the browser", "gh auth login --hostname github.com --web --git-protocol https --scopes read:org", note: githubScopesNote
     )
     static let marketplace = "FhenixProtocol/claude-marketplace"
+
+    /// A classic token with the scopes `gh auth login --with-token` insists on ticked: repo and read:org for Desk, gist for gh.
+    public static let githubTokenPage = URL(string: "https://github.com/settings/tokens/new?scopes=repo,read:org,gist&description=Fhenix%20Desk")!
+    public static let jiraTokenPage = URL(string: "https://id.atlassian.com/manage-profile/security/api-tokens")!
+
+    /// Signs gh in with a token. It goes on stdin, never in the arguments, and gh keeps it, as a browser sign-in's would be;
+    /// then gh signs git in over HTTPS with it, which the browser flow does by itself.
+    public static func signInGitHub(gh: String, token: String, run: ShellRun = Shell.run) async throws {
+        try await Shell.output(gh, ["auth", "login", "--hostname", "github.com", "--git-protocol", "https", "--with-token"],
+                               stdin: Data((token.trimmingCharacters(in: .whitespacesAndNewlines) + "\n").utf8), run: run)
+        try await Shell.output(gh, ["auth", "setup-git", "--hostname", "github.com"], run: run)
+    }
+
+    /// Signs acli in to Jira with an API token, on stdin. acli keeps one sign-in per account, so this one replaces a
+    /// browser sign-in to the same account rather than sitting beside it.
+    public static func signInJira(acli: String, site: String, email: String, token: String, run: ShellRun = Shell.run) async throws {
+        let site = site.trimmingCharacters(in: .whitespaces)
+        let email = email.trimmingCharacters(in: .whitespaces)
+        try await Shell.output(acli, ["jira", "auth", "login", "--site", site, "--email", email, "--token"],
+                               stdin: Data((token.trimmingCharacters(in: .whitespacesAndNewlines) + "\n").utf8), run: run)
+    }
 
     public static func check(_ kind: SetupCheck.Kind, config: DeskConfig, home: String = ClaudeJobs.home) async -> SetupCheck {
         switch kind {
@@ -130,10 +155,7 @@ public enum Setup {
             return github(statusOutput: result.stdout, stderr: result.stderr)
         case .jira:
             guard let acli = config.resolvedAcliPath else { return SetupCheck(kind, ok: false, detail: "Install the Atlassian CLI first.") }
-            guard let status = try? await Shell.output(acli, ["jira", "auth", "status"]), let account = JiraDecoding.account(fromStatus: status) else {
-                return SetupCheck(kind, ok: false, detail: "Not signed in.", fixes: [SetupFix("Sign in", "acli jira auth login --web")])
-            }
-            return SetupCheck(kind, ok: true, detail: "Signed in to \(account.site)\(account.email.map { " as \($0)" } ?? "")")
+            return jira((try? await Shell.output(acli, ["jira", "auth", "status"])).flatMap(JiraDecoding.account(fromStatus:)))
         case .claudeAccount:
             guard let claude = config.resolvedClaudePath else { return SetupCheck(kind, ok: false, detail: "Install Claude Code first.") }
             let result = try? await Shell.run(claude, ["auth", "status", "--json"])
@@ -189,23 +211,36 @@ public enum Setup {
     /// GitHub drops a scope another one implies, so a `write:org` or `admin:org` token lists no `read:org` but has it.
     public static func github(_ accounts: [GitHubAccount]) -> SetupCheck {
         guard let active = accounts.first(where: \.active) else {
-            return SetupCheck(.github, ok: false, detail: "Not signed in.", fixes: [githubLogin])
+            return SetupCheck(.github, ok: false, detail: "Not signed in.", fixes: [githubLogin], asksForToken: true)
         }
         guard active.state == "success" else {
             return SetupCheck(.github, ok: false, detail: "Signed in as \(active.login), but the token no longer works.",
-                              fixes: [SetupFix("Sign in again", githubLogin.command, note: githubScopesNote)])
+                              fixes: [githubLogin], asksForToken: true)
         }
         let scopes = Set((active.scopes ?? "").split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) })
         let missing = [("repo", ["repo"]), ("read:org", ["read:org", "write:org", "admin:org"])]
             .filter { _, any in any.allSatisfy { !scopes.contains($0) } }.map(\.0)
         if active.scopes != nil, !missing.isEmpty {
             return SetupCheck(.github, ok: false, detail: "Signed in as \(active.login), without the \(missing.joined(separator: " and ")) scope.",
-                              fixes: [SetupFix("Add scopes", "gh auth refresh --hostname github.com --scopes repo,read:org", note: githubScopesNote)])
+                              fixes: [SetupFix("Add scopes", "gh auth refresh --hostname github.com --scopes repo,read:org", note: githubScopesNote)],
+                              asksForToken: true)
         }
         let others = accounts.filter { !$0.active }.map(\.login)
         guard !others.isEmpty else { return SetupCheck(.github, ok: true, detail: "Signed in as \(active.login)") }
         return SetupCheck(.github, ok: true, detail: "Signed in as \(active.login). Also signed in: \(others.joined(separator: ", ")); Desk uses \(active.login).",
                           fixes: [SetupFix("Switch account", "gh auth switch --hostname github.com")])
+    }
+
+    /// The Jira check from acli's sign-in, nil when it has none. A browser sign-in works, so it is ok, but it still asks
+    /// for a token: Jira caps it by the hour, which once stopped the ticket sync for hours at a time.
+    public static func jira(_ account: JiraAccount?) -> SetupCheck {
+        guard let account else {
+            return SetupCheck(.jira, ok: false, detail: "Not signed in.", fixes: [SetupFix("Use the browser", "acli jira auth login --web")],
+                              asksForToken: true)
+        }
+        let how = account.signedInWithBrowser ? "through the browser" : "with an API token"
+        return SetupCheck(.jira, ok: true, detail: "Signed in to \(account.site)\(account.email.map { " as \($0)" } ?? "") \(how)",
+                          asksForToken: account.signedInWithBrowser)
     }
 
     /// The signed-in email off `claude auth status --json`, empty when it names none; nil when nobody is signed in.

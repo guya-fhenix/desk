@@ -37,9 +37,12 @@ enum SetupStep: String, CaseIterable, Identifiable {
 /// and the checks run again when it ends.
 struct SetupView: View {
     @Environment(AppModel.self) private var model
-    @State private var step: SetupStep = .tools
+    @State private var step: SetupStep
     @State private var checks: [SetupCheck.Kind: SetupCheck] = [:]
     @State private var checking = false
+
+    /// A step other than the first is for the debug snapshot.
+    init(step: SetupStep = .tools) { _step = State(initialValue: step) }
 
     var body: some View {
         HStack(spacing: 0) {
@@ -70,7 +73,8 @@ struct SetupView: View {
             ChecksPage(title: "Tools", note: "Desk drives these command-line tools and keeps no token of its own.", kinds: SetupCheck.Kind.tools,
                        checks: checks, checking: checking, run: run, recheck: { Task { await recheck() } })
         case .accounts:
-            ChecksPage(title: "Sign in", note: "Each tool holds its own sign-in. Signing in opens your browser.", kinds: SetupCheck.Kind.accounts,
+            ChecksPage(title: "Sign in", note: "Each tool holds its own sign-in. GitHub and Jira ask for a token, which Desk hands to the tool and keeps none of.",
+                       kinds: SetupCheck.Kind.accounts,
                        checks: checks, checking: checking, run: run, recheck: { Task { await recheck() } })
         case .github: FormPage(title: "GitHub") { GitHubSettings() }
         case .repos: ReposSettings()
@@ -161,6 +165,9 @@ private struct ChecksPage: View {
             ForEach(kinds, id: \.self) { kind in
                 Hairline()
                 CheckRow(kind: kind, check: checks[kind]) { run($0, kind) }
+                if checks[kind]?.asksForToken == true, let service = TokenSignIn.Service(kind) {
+                    TokenSignIn(service, signedIn: recheck).padding(.leading, 26).padding(.bottom, 14)
+                }
             }
         }
     }

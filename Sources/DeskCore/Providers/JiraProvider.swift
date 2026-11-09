@@ -27,11 +27,17 @@ public enum JiraError: Error, CustomStringConvertible, Sendable {
 public struct JiraAccount: Sendable, Equatable {
     public var site: String
     public var email: String?
+    /// How acli signed in: "oauth" through the browser, anything else a token.
+    public var authType: String?
 
-    public init(site: String, email: String? = nil) {
+    public init(site: String, email: String? = nil, authType: String? = nil) {
         self.site = site
         self.email = email
+        self.authType = authType
     }
+
+    /// Jira caps how much an OAuth app may ask each hour, then refuses it until the hour turns; API tokens have no such cap.
+    public var signedInWithBrowser: Bool { authType == "oauth" }
 }
 
 /// Reads Jira through the Atlassian CLI, the way `GitHubProvider` reads GitHub through `gh`: the CLI
@@ -164,13 +170,15 @@ public enum JiraDecoding {
         guard text.contains("Authenticated") else { return nil }
         var site: String?
         var email: String?
+        var authType: String?
         for line in text.split(separator: "\n") {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
             if let value = trimmed.dropPrefix("Site:") { site = value }
             if let value = trimmed.dropPrefix("Email:") { email = value }
+            if let value = trimmed.dropPrefix("Authentication Type:") { authType = value }
         }
         guard let site, !site.isEmpty else { return nil }
-        return JiraAccount(site: site, email: email)
+        return JiraAccount(site: site, email: email, authType: authType)
     }
 
     public static func tickets(from data: Data, site: String, assignedToMe: Bool, placement: TicketPlacement = .unknown) throws -> [Ticket] {

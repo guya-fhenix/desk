@@ -1,3 +1,4 @@
+import AppKit
 import DeskCore
 import ServiceManagement
 import SwiftUI
@@ -444,12 +445,33 @@ private struct OpenAtLogin: View {
 
 struct GitHubSettings: View {
     @Environment(AppModel.self) private var model
+    /// gh's sign-in, read off gh when the page opens; nil until it answers.
+    @State private var signIn: SetupCheck?
+    @State private var newToken = false
 
     var body: some View {
         @Bindable var draft = model.settings
         FieldGroup(title: "Account") {
             Field(label: "GitHub org") { BoxedText(placeholder: "FhenixProtocol", text: $draft.config.githubOrg) }
             Field(label: "gh path", hint: "Leave empty to find gh on your PATH.") { BoxedText(placeholder: "Automatic", text: $draft.config.ghPath) }
+            VStack(alignment: .leading, spacing: 8) {
+                Text(signIn?.detail ?? "Checking…").scaled(.caption)
+                    .foregroundStyle(signIn.map { $0.ok ? Color.green : .red } ?? .secondary)
+                    .fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
+                HStack {
+                    Button("Recheck") { Task { await readSignIn() } }
+                    if signIn?.ok == true, !newToken { Button("Sign in with a token") { newToken = true } }
+                }
+                .controlSize(.small)
+            }
+        }
+        if signIn?.asksForToken == true || newToken {
+            TokenSignIn(.github) {
+                newToken = false
+                model.loadRepositories(force: true)
+                Task { await readSignIn() }
+            }
+            .padding(.top, 14)
         }
         FieldGroup(
             title: "Flow",
@@ -470,17 +492,21 @@ struct GitHubSettings: View {
                 TokenField(placeholder: "Add a login", text: $draft.botLoginsText)
             }
         }
+        .task { await readSignIn() }
     }
+
+    private func readSignIn() async { signIn = await Setup.check(.github, config: model.config) }
 }
 
 struct JiraSettings: View {
     @Environment(AppModel.self) private var model
+    @State private var newToken = false
 
     var body: some View {
         @Bindable var draft = model.settings
         FieldGroup(
             title: "Account",
-            note: "Signing in is a browser flow owned by acli. It grants the CLI access to your Atlassian products; this app only ever runs `acli jira`."
+            note: "acli holds the sign-in: Desk hands it your token and keeps none, and only ever runs `acli jira`."
         ) {
             // Plain text, not input boxes: nothing here can be typed into.
             if let account = model.jiraAccount {
@@ -491,14 +517,23 @@ struct JiraSettings: View {
             }
             VStack(alignment: .leading, spacing: 8) {
                 // Green only on the one word that is good news; the note itself is just a note.
-                if model.jiraAccount != nil {
-                    Label("Signed in", systemImage: "checkmark.circle.fill").scaled(.caption)
-                        .foregroundStyle(.green)
+                if let account = model.jiraAccount {
+                    Label(account.signedInWithBrowser ? "Signed in through the browser" : "Signed in with an API token",
+                          systemImage: "checkmark.circle.fill")
+                        .scaled(.caption).foregroundStyle(.green)
+                } else {
+                    Text(signedOutText).scaled(.caption).foregroundStyle(.red).fixedSize(horizontal: false, vertical: true)
                 }
-                Text(accountText).scaled(.caption).foregroundStyle(model.jiraAccount == nil ? .red : .secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                Button("Recheck") { model.refreshJiraAccount() }.controlSize(.small)
+                HStack {
+                    Button("Recheck") { model.refreshJiraAccount() }
+                    // A token runs out after at most a year; a new one replaces it here.
+                    if model.jiraAccount?.signedInWithBrowser == false, !newToken { Button("Use a new token") { newToken = true } }
+                }
+                .controlSize(.small)
             }
+        }
+        if model.settings.config.resolvedAcliPath != nil, model.jiraAccount?.signedInWithBrowser != false || newToken {
+            TokenSignIn(.jira) { newToken = false }.padding(.top, 14)
         }
         FieldGroup(
             title: "Tickets",
@@ -527,11 +562,118 @@ struct JiraSettings: View {
     /// Every status your tickets are in, as acli reported them.
     private var knownStatuses: [String] { Set(model.state.tickets.map(\.status)).sorted() }
 
-    private var accountText: String {
-        if model.jiraAccount != nil { return "The Atlassian CLI holds the credentials. Fhenix Desk stores no Jira token." }
-        return model.settings.config.resolvedAcliPath == nil
+    private var signedOutText: String {
+        model.settings.config.resolvedAcliPath == nil
             ? "acli not found. Install it with `brew install acli`, or set the path below."
-            : "Not signed in. Run `acli jira auth login --web` in a terminal, then press Recheck."
+            : "Not signed in. Sign in with an API token below."
+    }
+}
+
+/// Signs gh or acli in with a token pasted here: Desk hands it to the tool on stdin, the tool keeps it as its own
+/// sign-in, and the field empties once it is sent, so Desk keeps none of it. Setup's Sign in step and Settings both ask
+/// for one: Jira caps browser sign-ins by the hour, and tokens are not capped that way.
+struct TokenSignIn: View {
+    enum Service {
+        case github, jira
+
+        init?(_ kind: SetupCheck.Kind) {
+            switch kind {
+            case .github: self = .github
+            case .jira: self = .jira
+            default: return nil
+            }
+        }
+    }
+
+    @Environment(AppModel.self) private var model
+    var service: Service
+    /// After the tool took the token.
+    var signedIn: () -> Void = {}
+    @State private var site = ""
+    @State private var email = ""
+    @State private var token = ""
+    @State private var sending = false
+    @State private var failure: String?
+
+    init(_ service: Service, signedIn: @escaping () -> Void = {}) {
+        self.service = service
+        self.signedIn = signedIn
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(why).scaled(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            if service == .jira {
+                HStack(alignment: .top, spacing: 16) {
+                    Field(label: "Site") { BoxedText(placeholder: "fhenix.atlassian.net", text: $site) }
+                    Field(label: "Email") { BoxedText(placeholder: "you@fhenix.io", text: $email) }
+                }
+            }
+            Field(label: service == .jira ? "API token" : "Token") {
+                SecureField("Paste it here", text: $token)
+                    .textFieldStyle(.plain).scaled(.secondary.monospaced()).modifier(InputBox())
+                    .onSubmit(send)
+            }
+            HStack(spacing: 8) {
+                Button("Create a token…") { NSWorkspace.shared.open(service == .jira ? Setup.jiraTokenPage : Setup.githubTokenPage) }
+                Button("Sign in with the token", action: send).disabled(!ready)
+                if sending { ProgressView().controlSize(.small) }
+            }
+            .controlSize(.small)
+            if let failure { Text(failure).scaled(.caption).foregroundStyle(.red).textSelection(.enabled) }
+        }
+        .onAppear {
+            // The account acli has now, if any: the token replaces its browser sign-in.
+            if site.isEmpty { site = model.jiraAccount?.site ?? "fhenix.atlassian.net" }
+            if email.isEmpty { email = model.jiraAccount?.email ?? "" }
+        }
+    }
+
+    private var why: String {
+        switch service {
+        case .github:
+            return "Sign in with a classic token. Create a token opens GitHub with the scopes gh needs ticked: repo, read:org and gist. "
+                + "gh keeps it and signs git in with it; tick workflow too if you push changes to GitHub Actions files."
+        case .jira:
+            let browser = model.jiraAccount?.signedInWithBrowser == true
+            return (browser ? "Jira limits how much a browser sign-in can ask for each hour, and once that is spent the ticket sync fails until the hour turns. "
+                            : "Sign in with an API token: Jira limits browser sign-ins by the hour, and tokens have no such limit. ")
+                + "Create a token opens Atlassian: choose Create API token, not the one with scopes. It lasts up to a year; then sign in here with a new one."
+        }
+    }
+
+    private var ready: Bool {
+        !sending && !token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && (service == .github || !(site.trimmingCharacters(in: .whitespaces).isEmpty || email.trimmingCharacters(in: .whitespaces).isEmpty))
+    }
+
+    private func send() {
+        guard ready else { return }
+        let config = model.config
+        let token = token
+        self.token = ""
+        sending = true
+        failure = nil
+        Task {
+            defer { sending = false }
+            do {
+                switch service {
+                case .github:
+                    guard let gh = config.resolvedGhPath else { failure = "Install the GitHub CLI first."; return }
+                    try await Setup.signInGitHub(gh: gh, token: token)
+                case .jira:
+                    guard let acli = config.resolvedAcliPath else { failure = "Install the Atlassian CLI first."; return }
+                    try await Setup.signInJira(acli: acli, site: site, email: email, token: token)
+                }
+                // New providers read the new sign-in, and every source refreshes on it.
+                model.saveConfig()
+                signedIn()
+            } catch ShellError.failed(_, _, let stderr) {
+                failure = stderr.split(whereSeparator: \.isNewline).first.map(String.init) ?? "The token was refused."
+            } catch {
+                failure = "\(error)"
+            }
+        }
     }
 }
 
