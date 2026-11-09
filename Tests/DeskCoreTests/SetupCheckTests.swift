@@ -3,13 +3,33 @@ import Foundation
 import Testing
 
 @Suite struct SetupCheckTests {
-    @Test func readsGitHubAccountsOffGhJSON() {
+    /// gh 2.69.0 has no `--json` on `gh auth status`: Setup read its error as nobody signed in, and a sign-in that
+    /// succeeded ("You were already logged in to this account") never satisfied it. The gh row now asks for 2.81.0,
+    /// and the GitHub row says what gh said.
+    @Test func anOldGhIsUpgradedNotSignedInAgain() {
+        #expect(Setup.ghVersion(in: "gh version 2.69.0 (2025-03-19) · /opt/homebrew/bin/gh") == [2, 69, 0])
+        #expect(Setup.ghVersion(in: "gh version 2.103.3 (2026-10-26)") == [2, 103, 3])
+        #expect(Setup.ghVersion(in: "/opt/homebrew/bin/gh") == nil)
+        #expect([2, 69, 0].lexicographicallyPrecedes(Setup.minimumGh))
+        #expect(![2, 81, 0].lexicographicallyPrecedes(Setup.minimumGh))
+        #expect(![2, 103, 3].lexicographicallyPrecedes(Setup.minimumGh))
+
+        let old = Setup.github(statusOutput: Data(), stderr: "unknown flag: --json\n\nUsage:  gh auth status [flags]\n")
+        #expect(!old.ok)
+        #expect(old.detail == "gh couldn't say who is signed in: unknown flag: --json")
+        #expect(old.fixes.isEmpty, "signing in again cannot fix it")
+        // Nobody signed in is still that: gh's JSON with no account.
+        let nobody = Setup.github(statusOutput: Data(#"{"hosts":{}}"#.utf8), stderr: "")
+        #expect(nobody.detail == "Not signed in." && nobody.fixes.map(\.label) == ["Sign in"])
+    }
+
+    @Test func readsGitHubAccountsOffGhJSON() throws {
         let json = #"""
         {"hosts":{"github.com":[
           {"active":true,"gitProtocol":"https","login":"guya-fhenix","scopes":"gist, read:org, repo","state":"success"},
           {"active":false,"gitProtocol":"https","login":"guyaluk","scopes":"repo","state":"success"}]}}
         """#
-        let accounts = Setup.githubAccounts(from: Data(json.utf8))
+        let accounts = try #require(Setup.githubAccounts(from: Data(json.utf8)))
         #expect(accounts.map(\.login) == ["guya-fhenix", "guyaluk"])
         let check = Setup.github(accounts)
         #expect(check.ok)
