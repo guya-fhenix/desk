@@ -104,6 +104,11 @@ public actor GitHubProvider {
         return try GitHubDecoding.checks(from: data)
     }
 
+    /// The PR's diff as GitHub computes it, for the review screen.
+    public func diff(repo: String, number: Int) async throws -> [DiffFile] {
+        DiffParser.parse(try await Shell.output(ghPath, ["pr", "diff", String(number), "--repo", repo, "--color", "never"], timeout: 60))
+    }
+
     /// Every repository in the org, newest push first, so Settings can offer them.
     public func repositories() async throws -> [GitHubRepo] {
         var repos: [GitHubRepo] = []

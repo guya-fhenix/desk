@@ -102,6 +102,22 @@ public enum ClaudeJobs {
         return line.matches(of: /\b[0-9a-f]{8}\b/).first.map { String($0.output) }
     }
 
+    /// Where the session writes the result of instruction `step`: its own scratch folder, which it may always
+    /// write to, and which goes when the session is deleted. The app reads nothing from it — the stage follows the
+    /// session and the PR — and writing it is the instruction's last step.
+    public static func resultFile(jobId: String, step: Int, home: String = ClaudeJobs.home) -> String {
+        "\(home)/jobs/\(jobId)/tmp/desk-step-\(step).json"
+    }
+
+    /// The directory to resume a session from: the one whose Claude Code project folder holds its transcript. A
+    /// session that entered a worktree keeps its conversation under that worktree, not where it started.
+    public static func resumeDirectory(sessionId: String, candidates: [String], home: String = ClaudeJobs.home) -> String? {
+        candidates.first { dir in
+            let folder = dir.replacing(/[^A-Za-z0-9-]/, with: "-")
+            return FileManager.default.fileExists(atPath: "\(home)/projects/\(folder)/\(sessionId).jsonl")
+        }
+    }
+
     /// Every PR url in a piece of text, for the prompt a session was started from.
     public static func prKeys(in text: String) -> Set<String> {
         Set(text.matches(of: /https:\/\/github\.com\/[^\/\s]+\/[^\/\s]+\/pull\/\d+/).compactMap { prKey(String($0.output)) })
@@ -147,6 +163,61 @@ public enum ClaudeJobs {
             let text = candidates.compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }.first { !$0.isEmpty }
             return text ?? fallback
         }
+    }
+}
+
+/// Runs the claude CLI for the app: starts background sessions, and sends one its next instruction. What the CLI prints
+/// and writes is read by `ClaudeJobs`.
+public struct ClaudeCLI: Sendable {
+    let path: String
+
+    public init(path: String) {
+        self.path = path
+    }
+
+    /// Starts a background session on `prompt` in `cwd`, and returns its short id.
+    public func startBackground(_ prompt: String, cwd: String) async throws -> String {
+        let output = try await Shell.output(path, ["--bg", prompt], cwd: cwd, timeout: 120)
+        guard let id = ClaudeJobs.startedID(in: output) else { throw DeskError.sessionNotStarted(output) }
+        return id
+    }
+
+    /// Sends an idle background session its next instruction, keeping its id and its conversation. A session that
+    /// has finished its turn is still alive, and resuming a live one starts a copy instead, so it is stopped first
+    /// and resumed only once `claude agents` no longer lists it running. Callers send only to a session that is
+    /// `done`: stopping one that is working or asking something would cut it off.
+    public func send(_ prompt: String, to job: ClaudeJob, cwd: String) async throws {
+        guard let sessionId = job.sessionId else { throw DeskError.sessionNotResumed("no session id recorded for \(job.id) yet") }
+        // Its exit status is not the test: a session that is not running may refuse the stop. Not running is the test.
+        let pid = await agents()?.first { $0["id"] as? String == job.id }?["pid"] as? Int32
+        _ = try await Shell.run(path, ["stop", job.id], timeout: 30)
+        guard await waitUntilStopped(job.id, pid: pid) else { throw DeskError.sessionStillRunning(job.id) }
+        let output = try await Shell.output(path, ["--bg", "--resume", sessionId, prompt], cwd: cwd, timeout: 120)
+        guard let id = ClaudeJobs.startedID(in: output), id == job.id else {
+            // A copy would run the instruction beside the real session; it goes before anything else happens.
+            if let copy = ClaudeJobs.startedID(in: output) {
+                _ = try? await Shell.run(path, ["stop", copy], timeout: 30)
+                _ = try? await Shell.run(path, ["rm", copy], timeout: 30)
+            }
+            throw DeskError.sessionNotResumed(output)
+        }
+    }
+
+    /// `claude agents` drops a stopped session a second or two before its process exits, and a resume in that gap
+    /// starts a copy: so the process `pid` going is the test too.
+    private func waitUntilStopped(_ id: String, pid: Int32?) async -> Bool {
+        for _ in 0..<30 {
+            guard let list = await agents() else { return false }
+            let listed = list.contains { $0["id"] as? String == id && $0["pid"] != nil }
+            if !listed, pid.map({ kill($0, 0) != 0 }) ?? true { return true }
+            try? await Task.sleep(for: .milliseconds(500))
+        }
+        return false
+    }
+
+    private func agents() async -> [[String: Any]]? {
+        guard let output = try? await Shell.output(path, ["agents", "--json"], timeout: 30) else { return nil }
+        return (try? JSONSerialization.jsonObject(with: Data(output.utf8))) as? [[String: Any]] ?? []
     }
 }
 

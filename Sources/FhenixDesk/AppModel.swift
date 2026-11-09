@@ -696,7 +696,7 @@ final class AppModel {
             ? state.worktrees.first { $0.path == BranchWorktrees.worktreePath(for: pr, repoRoot: root) }?.path
             : state.worktrees.first { $0.repoRoot == root && $0.branch == pr.headRef }?.path
         // Numbered by when it went out, so an earlier instruction's file is never this one's.
-        let resultFile = DeskService.resultFile(jobId: session.id, step: Int(Date().timeIntervalSince1970))
+        let resultFile = ClaudeJobs.resultFile(jobId: session.id, step: Int(Date().timeIntervalSince1970))
         let text = DeskService.flowPrompt(
             prompt, pr: pr, worktree: worktree, resultFile: resultFile, config: config
         )
@@ -719,7 +719,7 @@ final class AppModel {
     private func resumeDirectory(_ session: ClaudeJob, for pr: PullRequest) -> String {
         let root = state.localRepo(for: pr)?.root ?? session.cwd
         let candidates = state.worktrees.filter { $0.repoRoot == root }.map(\.path) + [session.cwd, root].filter { !$0.isEmpty }
-        return session.sessionId.flatMap { DeskService.resumeDirectory(sessionId: $0, candidates: candidates) } ?? root
+        return session.sessionId.flatMap { ClaudeJobs.resumeDirectory(sessionId: $0, candidates: candidates) } ?? root
     }
 
 }

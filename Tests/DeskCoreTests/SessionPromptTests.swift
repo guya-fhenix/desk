@@ -134,7 +134,7 @@ import Testing
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         try Data().write(to: folder.appendingPathComponent("abc.jsonl"))
         let candidates = ["/r/cofhe/.claude/worktrees/other", "/r/cofhe/.claude/worktrees/pro-1", "/r/cofhe"]
-        #expect(DeskService.resumeDirectory(sessionId: "abc", candidates: candidates, home: home.path) == "/r/cofhe/.claude/worktrees/pro-1")
-        #expect(DeskService.resumeDirectory(sessionId: "zzz", candidates: candidates, home: home.path) == nil)
+        #expect(ClaudeJobs.resumeDirectory(sessionId: "abc", candidates: candidates, home: home.path) == "/r/cofhe/.claude/worktrees/pro-1")
+        #expect(ClaudeJobs.resumeDirectory(sessionId: "zzz", candidates: candidates, home: home.path) == nil)
     }
 }
