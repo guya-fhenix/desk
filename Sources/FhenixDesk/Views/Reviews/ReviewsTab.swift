@@ -41,9 +41,8 @@ struct ReviewsTab: View {
     var body: some View {
         let rows = self.rows
         let onMe = self.onMe
-        NavigationStack(path: $path) {
+        RouteStack(path: $path, back: "Reviews") {
             list(rows: rows, onMe: onMe)
-                .navigationDestination(for: Route.self) { RoutePage(route: $0, back: "Reviews", path: $path) }
         }
         .focusedSceneValue(\.routePath, $path)
         .remembersSort(Self.sort, order: $sortOrder, stored: $storedSort)
@@ -453,14 +452,14 @@ struct ReviewPage: View {
         DetailPage(back: back, onBack: onBack) {
             // Someone else's PR: its title is theirs to change.
             PageHeadline(pr: pr, model: model, gitHub: pr.url, editable: false)
-            HStack(spacing: 8) {
+            StatusLine {
                 ChecksPill(pr: pr)
                 // Each only when it says something: GitHub asked you, and your review's state, which is blank without one.
                 if onMe { Chip(text: "On you", color: .orange) }
                 RiskChip(pr: pr)
                 if pr.needsHuman { Chip(text: "Needs a person", color: .purple) }
                 ReviewStatusChip(status: model.state.reviewStatus(for: pr))
-                Spacer(minLength: 8)
+            } actions: {
                 Button(model.reviewRunning(pr) ? "Open review" : "Start review") { model.startReview(pr) }
                     .buttonStyle(.borderedProminent)
                     .help("The diff here and a Claude review session beside it: it summarizes the PR, gives its take on each question, and posts the comments and the verdict you decide on")

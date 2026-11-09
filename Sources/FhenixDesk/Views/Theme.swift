@@ -193,6 +193,112 @@ struct FilterBar<Leading: View, Trailing: View>: View {
     }
 }
 
+/// A page's status line: its facts on the left and its presses on the right, on one line where they fit. Where they do
+/// not — the terminal panel open beside the page, a narrow window — the facts wrap and the presses take a line of their
+/// own, rather than the line holding the page wider than its column.
+struct StatusLine<Facts: View, Actions: View>: View {
+    @ViewBuilder var facts: Facts
+    @ViewBuilder var actions: Actions
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: Theme.Space.s) {
+                facts
+                Spacer(minLength: Theme.Space.s)
+                actions
+            }
+            VStack(alignment: .leading, spacing: Theme.Space.s) {
+                Flow(spacing: Theme.Space.s) { facts }
+                HStack(spacing: Theme.Space.s) {
+                    Spacer(minLength: 0)
+                    actions
+                }
+            }
+        }
+    }
+}
+
+/// A page's two columns, the long reads and the facts and presses: side by side where the page is wide enough for both,
+/// the facts above the reads where it is not, as with the terminal panel open beside it. One layout either way, so
+/// nothing in either column starts over when the width crosses the line — a comment half typed included.
+struct PageColumns: Layout {
+    var spacing: CGFloat
+    var side: CGFloat = 300
+    /// The narrowest the reading column goes before the facts move above it.
+    var minMain: CGFloat = 360
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let width = proposal.width ?? minMain + spacing + side
+        let (main, facts) = (subviews[0], subviews[1])
+        if besideFits(width) {
+            let height = max(height(main, width - spacing - side), height(facts, side))
+            return CGSize(width: width, height: height)
+        }
+        return CGSize(width: width, height: height(facts, width) + spacing + height(main, width))
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let (main, facts) = (subviews[0], subviews[1])
+        if besideFits(bounds.width) {
+            main.place(at: bounds.origin, proposal: ProposedViewSize(width: bounds.width - spacing - side, height: nil))
+            facts.place(at: CGPoint(x: bounds.maxX - side, y: bounds.minY), proposal: ProposedViewSize(width: side, height: nil))
+        } else {
+            facts.place(at: bounds.origin, proposal: ProposedViewSize(width: bounds.width, height: nil))
+            let below = bounds.minY + height(facts, bounds.width) + spacing
+            main.place(at: CGPoint(x: bounds.minX, y: below), proposal: ProposedViewSize(width: bounds.width, height: nil))
+        }
+    }
+
+    private func besideFits(_ width: CGFloat) -> Bool { width >= minMain + spacing + side }
+
+    private func height(_ view: LayoutSubview, _ width: CGFloat) -> CGFloat {
+        view.sizeThatFits(ProposedViewSize(width: width, height: nil)).height
+    }
+}
+
+/// Views in a row that carries on onto the next line where the width runs out, as words do. A view wider than the line
+/// gets a line to itself.
+struct Flow: Layout {
+    var spacing: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let rows = rows(subviews, width: proposal.width ?? .infinity)
+        let height = rows.map(\.height).reduce(0, +) + spacing * CGFloat(max(rows.count - 1, 0))
+        return CGSize(width: rows.map(\.width).max() ?? 0, height: height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var y = bounds.minY
+        for row in rows(subviews, width: bounds.width) {
+            var x = bounds.minX
+            for index in row.indices {
+                let size = subviews[index].sizeThatFits(.unspecified)
+                subviews[index].place(at: CGPoint(x: x, y: y + (row.height - size.height) / 2), proposal: ProposedViewSize(size))
+                x += size.width + spacing
+            }
+            y += row.height + spacing
+        }
+    }
+
+    /// Each line's views, width and height. A view that draws nothing, such as a badge with nothing to say, takes no
+    /// place and no spacing.
+    private func rows(_ subviews: Subviews, width: CGFloat) -> [(indices: [Int], width: CGFloat, height: CGFloat)] {
+        var rows: [(indices: [Int], width: CGFloat, height: CGFloat)] = []
+        for index in subviews.indices {
+            let size = subviews[index].sizeThatFits(.unspecified)
+            guard size.width > 0 else { continue }
+            if let last = rows.last, last.width + spacing + size.width <= width {
+                rows[rows.count - 1].indices.append(index)
+                rows[rows.count - 1].width += spacing + size.width
+                rows[rows.count - 1].height = max(last.height, size.height)
+            } else {
+                rows.append(([index], size.width, size.height))
+            }
+        }
+        return rows
+    }
+}
+
 /// A group's name and count over its rows, such as "Ready to merge".
 struct GroupHeader<Trailing: View>: View {
     var title: String
@@ -800,11 +906,11 @@ struct DetailPage<Header: View, Main: View, Side: View, Accessory: View>: View {
                 VStack(alignment: .leading, spacing: Theme.Space.l) {
                     header
                     Hairline()
-                    HStack(alignment: .top, spacing: Theme.Space.xl) {
+                    PageColumns(spacing: Theme.Space.xl) {
                         VStack(alignment: .leading, spacing: Theme.Space.xl) { main }
                             .frame(maxWidth: .infinity, alignment: .leading)
                         VStack(alignment: .leading, spacing: Theme.Space.m) { side }
-                            .frame(width: 300, alignment: .leading)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 }
                 .padding(.bottom, Theme.Space.xl)
