@@ -48,7 +48,7 @@ public struct SetupCheck: Identifiable, Sendable, Equatable {
             case .github: return "Required: gh must be signed in, with the read:org scope, to list the org's pull requests."
             case .jira: return "Jira tickets and the ticket sync stay off."
             case .claudeAccount: return "Sessions cannot start."
-            case .workflowPlugin: return "Run /pre-pr and review sessions stay off."
+            case .workflowPlugin: return "Run /pre-pr and Start review need it; Start review needs 0.8.0 or later."
             }
         }
     }
@@ -179,18 +179,27 @@ public enum Setup {
     }
 
     /// Installed anywhere, user-wide or for one repo, is enough here: Fhenix repos turn the plugin on in their own
-    /// settings, and Settings → Repos says per repo whether it is there.
+    /// settings, and Settings → Repos says per repo whether it is there. An install without the review-pr skill, before
+    /// 0.8.0, is flagged: Run /pre-pr works with it, but Start review stays off.
     public static func workflowPlugin(marketplaces: Data?, installed: Data?) -> SetupCheck {
         let known = (marketplaces.flatMap { try? JSONSerialization.jsonObject(with: $0) } as? [String: Any]) ?? [:]
         let name = known.first { _, value in
             ((value as? [String: Any])?["source"] as? [String: Any])?["repo"].map { "\($0)".lowercased() } == marketplace.lowercased()
         }?.key
         let plugins = ((installed.flatMap { try? JSONSerialization.jsonObject(with: $0) } as? [String: Any])?["plugins"] as? [String: Any]) ?? [:]
-        let versions = plugins.filter { $0.key.hasPrefix("\(ClaudePlugins.plugin)@") }.values
-            .flatMap { ($0 as? [[String: Any]]) ?? [] }
-            .compactMap { $0["version"] as? String }
+        let records = plugins.filter { $0.key.hasPrefix("\(ClaudePlugins.plugin)@") }.values.flatMap { ($0 as? [[String: Any]]) ?? [] }
+        let versions = records.compactMap { $0["version"] as? String }
         if !versions.isEmpty {
-            return SetupCheck(.workflowPlugin, ok: true, detail: "\(ClaudePlugins.plugin) \(Array(Set(versions)).sorted().joined(separator: ", "))")
+            let detail = "\(ClaudePlugins.plugin) \(Array(Set(versions)).sorted().joined(separator: ", "))"
+            let reviews = records.contains { record in
+                (record["installPath"] as? String)
+                    .map { FileManager.default.fileExists(atPath: "\($0)/skills/\(ClaudePlugins.reviewPR)/SKILL.md") } ?? false
+            }
+            guard reviews else {
+                return SetupCheck(.workflowPlugin, ok: false,
+                                  detail: "\(detail), without the \(ClaudePlugins.reviewPR) skill: update it to 0.8.0 or later for Start review.")
+            }
+            return SetupCheck(.workflowPlugin, ok: true, detail: detail)
         }
         let install = "claude plugin install \(ClaudePlugins.plugin)@\(name ?? "fhenix")"
         return SetupCheck(.workflowPlugin, ok: false, detail: "Not installed.",

@@ -20,11 +20,13 @@ Needs macOS 15 on Apple Silicon.
 make run      # run from the build tree
 make test
 make doctor   # print every data source, setup checks included, as text
-make install  # build the .app into ~/Applications and open it
+make install  # quit a running Desk, build the .app into ~/Applications and open it
 ```
 
 To check a view without driving the window, a debug build draws a PR's page, or its review diff at its first thread,
 with live data into a PNG: `.build/debug/FhenixDesk --snapshot <pr url> <out.png> [page|diff] [height] [dark|light]`.
+`--snapshot window <tab> <out.png> [height] [dark|light]` draws the whole window, sidebar included, on one screen:
+`upNext`, `pullRequests`, `reviews`, `tickets` or `settings`.
 
 ## Release
 
