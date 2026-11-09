@@ -113,7 +113,10 @@ public enum Setup {
             }
             return SetupCheck(kind, ok: true, detail: result.text.trimmingCharacters(in: .whitespacesAndNewlines))
         case .gh:
-            return await tool(kind, config.resolvedGhPath, install: "brew install gh")
+            let check = await tool(kind, config.resolvedGhPath, install: "brew install gh")
+            guard check.ok, let version = ghVersion(in: check.detail), version.lexicographicallyPrecedes(minimumGh) else { return check }
+            return SetupCheck(kind, ok: false, detail: "\(check.detail). Desk needs 2.81.0 or later: the first gh that reports who is signed in as JSON, which the GitHub check reads.",
+                              fixes: [SetupFix("Upgrade", "brew upgrade gh")])
         case .acli:
             return await tool(kind, config.resolvedAcliPath, install: "brew install atlassian/acli/acli")
         case .claude:
@@ -121,8 +124,10 @@ public enum Setup {
         case .github:
             guard let gh = config.resolvedGhPath else { return SetupCheck(kind, ok: false, detail: "Install the GitHub CLI first.") }
             // Exits 1 when nobody is signed in, with the JSON still on stdout.
-            let result = try? await Shell.run(gh, ["auth", "status", "--hostname", "github.com", "--json", "hosts"])
-            return github(result.map { githubAccounts(from: $0.stdout) } ?? [])
+            guard let result = try? await Shell.run(gh, ["auth", "status", "--hostname", "github.com", "--json", "hosts"]) else {
+                return SetupCheck(kind, ok: false, detail: "gh didn't answer; press Check again.")
+            }
+            return github(statusOutput: result.stdout, stderr: result.stderr)
         case .jira:
             guard let acli = config.resolvedAcliPath else { return SetupCheck(kind, ok: false, detail: "Install the Atlassian CLI first.") }
             guard let status = try? await Shell.output(acli, ["jira", "auth", "status"]), let account = JiraDecoding.account(fromStatus: status) else {
@@ -153,9 +158,31 @@ public enum Setup {
         return SetupCheck(kind, ok: true, detail: [version, path].compactMap { $0 }.joined(separator: " · "))
     }
 
-    public static func githubAccounts(from data: Data) -> [GitHubAccount] {
+    /// The oldest gh Desk works with: 2.81.0 is the first whose `gh auth status` reports sign-ins as JSON. An older one
+    /// rejected `--json`, which read as nobody signed in, so Setup asked for a sign-in that could never satisfy it.
+    public static let minimumGh = [2, 81, 0]
+
+    /// The version in gh's own first line, "gh version 2.69.0 (2025-03-19)", as numbers to compare.
+    public static func ghVersion(in text: String) -> [Int]? {
+        guard let match = text.firstMatch(of: /gh version (\d+)\.(\d+)\.(\d+)/) else { return nil }
+        return [match.1, match.2, match.3].compactMap { Int($0) }
+    }
+
+    /// The accounts `gh auth status --json hosts` listed, none when nobody is signed in; nil when what it printed is
+    /// not that JSON at all.
+    public static func githubAccounts(from data: Data) -> [GitHubAccount]? {
         struct Status: Decodable { var hosts: [String: [GitHubAccount]] }
-        return (try? JSONDecoder().decode(Status.self, from: data))?.hosts["github.com"] ?? []
+        return (try? JSONDecoder().decode(Status.self, from: data)).map { $0.hosts["github.com"] ?? [] }
+    }
+
+    /// The GitHub check from what `gh auth status` printed: the accounts it lists, or, when it printed none of its JSON,
+    /// gh's own complaint — an old gh rejecting `--json`, say — rather than "not signed in", which a sign-in cannot fix.
+    public static func github(statusOutput stdout: Data, stderr: String) -> SetupCheck {
+        guard let accounts = githubAccounts(from: stdout) else {
+            let reason = stderr.split(whereSeparator: \.isNewline).first.map(String.init) ?? "it printed nothing"
+            return SetupCheck(.github, ok: false, detail: "gh couldn't say who is signed in: \(reason)")
+        }
+        return github(accounts)
     }
 
     /// Desk runs as gh's active account, which needs `repo` and `read:org`: the org's repos and teams are behind the second.

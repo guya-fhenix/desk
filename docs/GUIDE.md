@@ -23,7 +23,8 @@ Recheck. Desk stores no Jira token.
 ## Setup
 
 The window opens on Setup until you finish it once; Settings → General → Run setup again, and the app menu's Setup…,
-bring it back. **Tools** checks Homebrew, the Command Line Tools, `gh`, `acli` and Claude Code; **Sign in** checks `gh`
+bring it back. **Tools** checks Homebrew, the Command Line Tools, `gh` (2.81.0 or later, the first that reports its
+sign-ins as JSON; an older one gets an Upgrade press), `acli` and Claude Code; **Sign in** checks `gh`
 (the active account, with the `repo` and `read:org` scopes), `acli jira`, `claude` and the `fhenix-workflow` plugin,
 which needs 0.8.0 or later for Start review. Each check is read off the tool every time. Install, Sign in and the
 other fixes run their command in the terminal panel, in a login shell, so you can follow it and type a password; the
