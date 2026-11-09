@@ -65,11 +65,11 @@ struct PullRequestsTab: View {
             PageHeader(title: "Pull Requests") {}
             FilterBar {
                 // Counted over what the search leaves, like the Reviews and Jira tabs; the key cap marks the tab
-                // that Tab in the list goes to.
+                // that ⌃Tab goes to.
                 PillTabs(
                     options: [
-                        .init(value: .open, title: "Open", count: rows.count, hint: scope == .open ? nil : "tab"),
-                        .init(value: .merged, title: "Recently merged", count: merged.count, hint: scope == .merged ? nil : "tab"),
+                        .init(value: .open, title: "Open", count: rows.count, hint: scope == .open ? nil : "⌃⇥"),
+                        .init(value: .merged, title: "Recently merged", count: merged.count, hint: scope == .merged ? nil : "⌃⇥"),
                     ],
                     selection: $scope
                 )
@@ -124,12 +124,6 @@ struct PullRequestsTab: View {
                     open(selection)
                     return .handled
                 }
-                // Tab flips between the two tabs; Shift-Tab still moves focus out of the list, so it is no trap.
-                .onKeyPress(.tab, phases: .down) { press in
-                    guard press.modifiers.isEmpty else { return .ignored }
-                    scope = scope == .open ? .merged : .open
-                    return .handled
-                }
                 .contextMenu(forSelectionType: String.self) { urls in
                     if let pr = urls.first.flatMap(pullRequest) { PullRequestMenu(pr: pr, model: model) }
                 } primaryAction: { urls in
@@ -140,6 +134,13 @@ struct PullRequestsTab: View {
                     if let url { withAnimation(reduceMotion ? nil : .default) { proxy.scrollTo(url, anchor: .center) } }
                 }
             }
+        }
+        // ⌃Tab and ⌃⇧Tab flip between the two tabs, from the list or the search box, as they flip a browser's tabs;
+        // Tab is left to move focus. With Shift, AppKit reports Tab as backtab.
+        .onKeyPress(keys: [.tab, KeyEquivalent("\u{19}")], phases: .down) { press in
+            guard press.modifiers.contains(.control) else { return .ignored }
+            scope = scope == .open ? .merged : .open
+            return .handled
         }
     }
 
