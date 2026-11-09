@@ -848,31 +848,44 @@ extension DetailPage where Accessory == EmptyView {
     }
 }
 
-/// One card of a PR page's side column, as PR Cockpit's: a title, a count beside it where there is one, the content.
-struct SideCard<Content: View>: View {
+/// One card of a PR page's side column, as PR Cockpit's: a title, a count beside it where there is one, what sits at its
+/// right, the content.
+struct SideCard<Content: View, Trailing: View>: View {
     var title: String
     var count: Int? = nil
+    /// Tinted on the card that leads the column, so it reads as the one to act on.
+    var edge: Color = Theme.line
     @ViewBuilder var content: Content
+    /// A stage, or a summary, at the title's right.
+    @ViewBuilder var trailing: Trailing
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 6) {
                 Text(title).scaled(.body.weight(.medium))
                 if let count { Text("\(count)").scaled(.secondary).monospacedDigit().foregroundStyle(.secondary) }
+                Spacer(minLength: Theme.Space.s)
+                trailing
             }
             content
         }
-        .sideCard()
+        .sideCard(edge: edge)
+    }
+}
+
+extension SideCard where Trailing == EmptyView {
+    init(title: String, count: Int? = nil, edge: Color = Theme.line, @ViewBuilder content: () -> Content) {
+        self.init(title: title, count: count, edge: edge, content: content) { EmptyView() }
     }
 }
 
 extension View {
     /// A side-column card's frame, for a view that brings its own heading.
-    func sideCard() -> some View {
+    func sideCard(edge: Color = Theme.line) -> some View {
         padding(14)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(Theme.raised.opacity(0.5), in: RoundedRectangle(cornerRadius: 10))
-            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Theme.line))
+            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(edge))
     }
 
     /// A status-line pill: a few words on a raised capsule with an edge.

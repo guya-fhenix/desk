@@ -521,28 +521,43 @@ struct PullRequestStatus: View {
     }
 }
 
-/// A PR page's Checks card: every check on its head commit, fetched when the page shows the PR, again when its head or
-/// overall state moves, and every 20 s while a job is still running, since one finishing leaves the overall state
-/// pending until the last.
+/// A PR page's Checks card: one line that sums up every check on its head commit, "✓ 14 passed, 2 skipped", and under it
+/// the press that lists them all. Fetched when the page shows the PR, again when its head or overall state moves, and
+/// every 20 s while a job is still running, since one finishing leaves the overall state pending until the last.
 struct WorkflowsSection: View {
     var pr: PullRequest
     var model: AppModel
     /// The PR these were fetched for: the page keeps this view as it moves to another PR.
     @State private var loaded: (url: String, checks: [PullRequestCheck])?
     @State private var error: String?
+    @State private var expanded = false
 
     var body: some View {
-        SideCard(title: "Checks", count: pr.checkCount > 0 ? pr.checkCount : nil) {
-            if let loaded, loaded.url == pr.url {
-                if loaded.checks.isEmpty {
+        let checks = loaded.flatMap { $0.url == pr.url ? $0.checks : nil }
+        SideCard(title: "Checks") {
+            if let checks {
+                if checks.isEmpty {
                     Text("No checks on the latest commit.").foregroundStyle(.secondary)
                 } else {
-                    Text(CheckList.summary(loaded.checks)).scaled(.secondary).foregroundStyle(.secondary)
-                    CheckList(checks: loaded.checks, model: model)
+                    Button(expanded ? "Hide them" : "Show all \(checks.count)") { expanded.toggle() }
+                        .buttonStyle(.link).handCursor()
+                    if expanded { CheckList(checks: checks, model: model) }
                 }
             } else if let error {
                 Text(error).scaled(.caption).foregroundStyle(.red).textSelection(.enabled)
-            } else {
+            }
+        } trailing: {
+            if let checks {
+                if !checks.isEmpty {
+                    let summary = CheckList.summary(checks)
+                    HStack(spacing: 5) {
+                        ChecksBadge(pr: pr).accessibilityHidden(true)
+                        Text(summary).lineLimit(1)
+                    }
+                    .scaled(.secondary)
+                    .help(summary)
+                }
+            } else if error == nil {
                 ProgressView().controlSize(.small)
             }
         }
@@ -593,10 +608,10 @@ private struct CheckList: View {
         }
     }
 
-    /// "11 successful", or "2 failed, 9 successful".
+    /// "11 passed", or "2 failed, 9 passed".
     static func summary(_ checks: [PullRequestCheck]) -> String {
         Dictionary(grouping: checks, by: \.outcome).sorted { $0.key < $1.key }
-            .map { "\($0.value.count) \(word($0.key))" }.joined(separator: ", ")
+            .map { "\($0.value.count) \($0.key.word)" }.joined(separator: ", ")
     }
 
     static func word(_ outcome: PullRequestCheck.Outcome) -> String {
@@ -1024,19 +1039,6 @@ struct SessionStatus: View {
                 + (jobs.count > 1 ? "; the arrow lists the other sessions on this PR" : ""))
         } else {
             ClaudeSessionButton(pr: pr, model: model, prominent: true).fixedSize()
-        }
-    }
-}
-
-/// A PR page's Details card: how big the change is, and when it was opened and last updated, the exact time on hover.
-struct DetailsCard: View {
-    var pr: PullRequest
-
-    var body: some View {
-        SideCard(title: "Details") {
-            LabeledContent("Size") { DiffStat(pr: pr) }
-            LabeledContent("Opened", value: "\(Format.age(pr.createdAt)) ago").help(Format.date(pr.createdAt))
-            LabeledContent("Updated", value: "\(Format.age(pr.updatedAt)) ago").help(Format.date(pr.updatedAt))
         }
     }
 }

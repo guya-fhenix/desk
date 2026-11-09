@@ -439,7 +439,7 @@ private struct QueueActions: View {
 
 /// A PR in the queue on its own page, laid out as a PR page is: what it is and its status line — checks, whether it is
 /// on you, the risk, where your review stands — with Review on GitHub and the session on the right; the description in
-/// the wide column; the details and the checks beside it. The review itself is yours: read the description, the /pre-pr
+/// the wide column; its checks in a line and its facts beside it. The review itself is yours: read the description, the /pre-pr
 /// evidence and CodeRabbit's walkthrough, then the diff, and write it on GitHub. Under the description, the PR's
 /// conversation, to reply in, resolve and comment on.
 struct ReviewPage: View {
@@ -477,9 +477,8 @@ struct ReviewPage: View {
             PanelSection("Description") { PullRequestDescription(pr: pr) }
             ConversationSection(pr: pr, model: model)
         } side: {
-            LabelsCard(pr: pr)
-            DetailsCard(pr: pr)
             WorkflowsSection(pr: pr, model: model)
+            AboutCard(pr: pr, model: model)
         }
     }
 }
