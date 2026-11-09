@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 
 public struct ShellResult: Sendable {
     public var status: Int32
@@ -207,12 +208,39 @@ public enum Shell {
         return nil
     }
 
-    /// The app's environment with the tool directories in front of PATH: what every command here runs with, and the
-    /// terminal panel's sessions too.
+    /// The login shell's PATH. Opened from the Dock, the app inherits launchd's minimal PATH, and a session it starts
+    /// would not find what one started from a terminal does: nvm's node, cargo, forge. Nil until it has been read, and
+    /// for good when it cannot be.
+    private static let loginPath = Mutex<String?>(nil)
+
+    /// Read once, off the main thread, by the first command that runs. Three seconds is plenty for a sane profile; one
+    /// that takes longer, or fails, leaves the app's own PATH. A profile that prints something leaves the PATH on the
+    /// last line.
+    private static let loginPathRead = Task.detached {
+        let read = ProcessRun(
+            executable: "/bin/zsh", arguments: ["-lc", "print -rn -- $PATH"], cwd: nil, stdin: nil,
+            environment: ProcessInfo.processInfo.environment, timeout: 3
+        )
+        guard let result = try? await read.run(), result.status == 0,
+              let path = result.text.split(separator: "\n").last else { return }
+        loginPath.withLock { $0 = String(path) }
+    }
+
+    /// The app's environment with the login shell's PATH and then the tool directories in front of its own: what every
+    /// command here runs with, and the terminal panel's sessions too.
     public static var toolEnvironment: [String: String] {
         var environment = ProcessInfo.processInfo.environment
-        environment["PATH"] = (toolDirectories + [environment["PATH"] ?? ""]).joined(separator: ":")
+        environment["PATH"] = toolPath(login: loginPath.withLock { $0 }, inherited: environment["PATH"])
         return environment
+    }
+
+    /// The directories of each PATH in turn, each kept where it first appears.
+    public static func toolPath(login: String?, inherited: String?) -> String {
+        var seen = Set<String>()
+        return ([login ?? ""] + toolDirectories + [inherited ?? ""])
+            .flatMap { $0.split(separator: ":").map(String.init) }
+            .filter { seen.insert($0).inserted }
+            .joined(separator: ":")
     }
 
     /// `environment` sets a variable, or unsets one when the value is nil, on top of the inherited environment.
@@ -223,6 +251,7 @@ public enum Shell {
         guard FileManager.default.isExecutableFile(atPath: executable) else {
             throw ShellError.executableNotFound(executable)
         }
+        await loginPathRead.value
         var environment = toolEnvironment
         for (key, value) in overrides {
             if let value { environment[key] = value } else { environment.removeValue(forKey: key) }

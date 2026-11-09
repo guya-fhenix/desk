@@ -26,6 +26,13 @@ import Testing
         #expect(inherited == "unset inherited\n")
     }
 
+    @Test func toolPathPutsTheLoginShellsFirstAndKeepsEachDirectoryOnce() {
+        let path = Shell.toolPath(login: "/Users/me/.nvm/bin:/opt/homebrew/bin", inherited: "/usr/bin:/sbin")
+        let expected = ["/Users/me/.nvm/bin", "/opt/homebrew/bin"] + Shell.toolDirectories.filter { $0 != "/opt/homebrew/bin" } + ["/sbin"]
+        #expect(path == expected.joined(separator: ":"))
+        #expect(Shell.toolPath(login: nil, inherited: nil) == Shell.toolDirectories.joined(separator: ":"))
+    }
+
     @Test func cancelledTaskThrowsInsteadOfCrashing() async {
         let task = Task { try await Shell.run("/bin/sleep", ["5"]) }
         task.cancel()
