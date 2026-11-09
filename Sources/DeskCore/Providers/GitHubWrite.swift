@@ -6,7 +6,7 @@ import Foundation
 /// changes, and no comment starts on a line: those are the review session's, on your word.
 extension GitHubProvider {
     public func markReady(repo: String, number: Int) async throws {
-        try await Shell.output(ghPath, ["pr", "ready", String(number), "--repo", repo])
+        try await Shell.output(ghPath, ["pr", "ready", String(number), "--repo", repo], run: run)
     }
 
     /// Renames one of your PRs, from the title on its page.
@@ -23,18 +23,18 @@ extension GitHubProvider {
     /// edit, and GitHub now refuses that query, so every edit failed.
     private func editPull(repo: String, number: Int, _ fields: [String: String]) async throws {
         let json = try JSONSerialization.data(withJSONObject: fields)
-        try await Shell.output(ghPath, ["api", "-X", "PATCH", "repos/\(repo)/pulls/\(number)", "--input", "-"], stdin: json)
+        try await Shell.output(ghPath, ["api", "-X", "PATCH", "repos/\(repo)/pulls/\(number)", "--input", "-"], stdin: json, run: run)
     }
 
     /// Closes one of your PRs without merging it; it can be reopened on GitHub.
     public func close(repo: String, number: Int) async throws {
-        try await Shell.output(ghPath, ["pr", "close", String(number), "--repo", repo])
+        try await Shell.output(ghPath, ["pr", "close", String(number), "--repo", repo], run: run)
     }
 
     /// Always a squash: one commit per PR on the base branch. Only of `headSha`, the head you saw: a commit pushed
     /// since, by a session or anyone, makes GitHub refuse it rather than squash in what nobody looked at.
     public func squashMerge(repo: String, number: Int, headSha: String) async throws {
-        try await Shell.output(ghPath, ["pr", "merge", String(number), "--repo", repo, "--squash", "--match-head-commit", headSha])
+        try await Shell.output(ghPath, ["pr", "merge", String(number), "--repo", repo, "--squash", "--match-head-commit", headSha], run: run)
     }
 
     /// Replies in a review thread.
@@ -54,7 +54,7 @@ extension GitHubProvider {
     /// A comment on the PR's conversation. The body on stdin, as `editPull` sends one.
     public func comment(repo: String, number: Int, body: String) async throws {
         let json = try JSONSerialization.data(withJSONObject: ["body": body])
-        try await Shell.output(ghPath, ["api", "-X", "POST", "repos/\(repo)/issues/\(number)/comments", "--input", "-"], stdin: json)
+        try await Shell.output(ghPath, ["api", "-X", "POST", "repos/\(repo)/issues/\(number)/comments", "--input", "-"], stdin: json, run: run)
     }
 
     /// Runs once: a retry after a 502 could post it twice. GraphQL's own errors come back as an answer, not a failure.
@@ -65,6 +65,6 @@ extension GitHubProvider {
     /// Asks a team of the org that owns the repo to review. Asking again after a team member has reviewed puts the
     /// team back on the PR. The REST API, for the reason `editPull` gives.
     public func requestTeamReview(repo: String, number: Int, team: String) async throws {
-        try await Shell.output(ghPath, ["api", "-X", "POST", "repos/\(repo)/pulls/\(number)/requested_reviewers", "-f", "team_reviewers[]=\(team)"])
+        try await Shell.output(ghPath, ["api", "-X", "POST", "repos/\(repo)/pulls/\(number)/requested_reviewers", "-f", "team_reviewers[]=\(team)"], run: run)
     }
 }

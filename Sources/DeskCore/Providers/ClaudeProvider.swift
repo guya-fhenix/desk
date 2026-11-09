@@ -170,14 +170,17 @@ public enum ClaudeJobs {
 /// and writes is read by `ClaudeJobs`.
 public struct ClaudeCLI: Sendable {
     let path: String
+    /// What runs claude: `Shell.run`, but for a test.
+    let run: ShellRun
 
-    public init(path: String) {
+    public init(path: String, run: @escaping ShellRun = Shell.run) {
         self.path = path
+        self.run = run
     }
 
     /// Starts a background session on `prompt` in `cwd`, and returns its short id.
     public func startBackground(_ prompt: String, cwd: String) async throws -> String {
-        let output = try await Shell.output(path, ["--bg", prompt], cwd: cwd, timeout: 120)
+        let output = try await Shell.output(path, ["--bg", prompt], cwd: cwd, timeout: 120, run: run)
         guard let id = ClaudeJobs.startedID(in: output) else { throw DeskError.sessionNotStarted(output) }
         return id
     }
@@ -190,14 +193,14 @@ public struct ClaudeCLI: Sendable {
         guard let sessionId = job.sessionId else { throw DeskError.sessionNotResumed("no session id recorded for \(job.id) yet") }
         // Its exit status is not the test: a session that is not running may refuse the stop. Not running is the test.
         let pid = await agents()?.first { $0["id"] as? String == job.id }?["pid"] as? Int32
-        _ = try await Shell.run(path, ["stop", job.id], timeout: 30)
+        _ = try await run(path, ["stop", job.id], nil, nil, [:], 30)
         guard await waitUntilStopped(job.id, pid: pid) else { throw DeskError.sessionStillRunning(job.id) }
-        let output = try await Shell.output(path, ["--bg", "--resume", sessionId, prompt], cwd: cwd, timeout: 120)
+        let output = try await Shell.output(path, ["--bg", "--resume", sessionId, prompt], cwd: cwd, timeout: 120, run: run)
         guard let id = ClaudeJobs.startedID(in: output), id == job.id else {
             // A copy would run the instruction beside the real session; it goes before anything else happens.
             if let copy = ClaudeJobs.startedID(in: output) {
-                _ = try? await Shell.run(path, ["stop", copy], timeout: 30)
-                _ = try? await Shell.run(path, ["rm", copy], timeout: 30)
+                _ = try? await run(path, ["stop", copy], nil, nil, [:], 30)
+                _ = try? await run(path, ["rm", copy], nil, nil, [:], 30)
             }
             throw DeskError.sessionNotResumed(output)
         }
@@ -216,7 +219,7 @@ public struct ClaudeCLI: Sendable {
     }
 
     private func agents() async -> [[String: Any]]? {
-        guard let output = try? await Shell.output(path, ["agents", "--json"], timeout: 30) else { return nil }
+        guard let output = try? await Shell.output(path, ["agents", "--json"], timeout: 30, run: run) else { return nil }
         return (try? JSONSerialization.jsonObject(with: Data(output.utf8))) as? [[String: Any]] ?? []
     }
 }

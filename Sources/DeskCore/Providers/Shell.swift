@@ -6,8 +6,21 @@ public struct ShellResult: Sendable {
     public var stdout: Data
     public var stderr: String
 
+    public init(status: Int32, stdout: Data, stderr: String = "") {
+        self.status = status
+        self.stdout = stdout
+        self.stderr = stderr
+    }
+
     public var text: String { String(decoding: stdout, as: UTF8.self) }
 }
+
+/// Runs one command: `Shell.run`, or in a test a stand-in for the tool. The providers that drive gh, acli and claude
+/// take one, so what they make of those tools' answers can be tested without the tools.
+public typealias ShellRun = @Sendable (
+    _ executable: String, _ arguments: [String], _ cwd: String?, _ stdin: Data?, _ environment: [String: String?],
+    _ timeout: TimeInterval
+) async throws -> ShellResult
 
 public enum ShellError: Error, CustomStringConvertible, Sendable {
     case executableNotFound(String)
@@ -269,13 +282,13 @@ public enum Shell {
         return try await run.run()
     }
 
-    /// Runs a command and returns stdout. Throws when the exit status is not zero.
+    /// Runs a command and returns stdout. Throws when the exit status is not zero. `run` is what runs it.
     @discardableResult
     public static func output(
         _ executable: String, _ arguments: [String], cwd: String? = nil, stdin: Data? = nil,
-        environment overrides: [String: String?] = [:], timeout: TimeInterval = defaultTimeout
+        environment overrides: [String: String?] = [:], timeout: TimeInterval = defaultTimeout, run: ShellRun = Shell.run
     ) async throws -> String {
-        let result = try await run(executable, arguments, cwd: cwd, stdin: stdin, environment: overrides, timeout: timeout)
+        let result = try await run(executable, arguments, cwd, stdin, overrides, timeout)
         guard result.status == 0 else {
             throw ShellError.failed(command: ([executable] + arguments).joined(separator: " "), status: result.status, stderr: result.stderr)
         }

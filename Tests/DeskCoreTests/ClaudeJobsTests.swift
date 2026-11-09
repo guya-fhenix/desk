@@ -136,6 +136,31 @@ import Testing
         #expect(skill() == .notEnabled)
     }
 
+    /// A send stops the session, waits until it is listed no longer and its process is gone, then resumes it under its own
+    /// id. A resume that starts a copy instead stops and deletes the copy, and fails.
+    @Test func sendStopsWaitsThenResumes() async throws {
+        let job = ClaudeJob(id: "1a2b3c4d", name: "s", state: "done", cwd: "/r", prKeys: [], updatedAt: Fixtures.t0, sessionId: "sid")
+        func claude(_ calls: Calls, resumedAs id: String) -> ClaudeCLI {
+            ClaudeCLI(path: "/claude") { _, arguments, _, _, _, _ in
+                let call = arguments.joined(separator: " ")
+                let count = await calls.add(call)
+                switch arguments.first {
+                // Listed with a process no system has before the stop, still listed once after it, then gone.
+                case "agents": return .ok(count < 3 ? #"[{"id":"1a2b3c4d","pid":999999}]"# : "[]")
+                case "--bg": return .ok("backgrounded · \(id)\n")
+                default: return .ok("")
+                }
+            }
+        }
+        let calls = Calls()
+        try await claude(calls, resumedAs: "1a2b3c4d").send("go on", to: job, cwd: "/r")
+        #expect(await calls.list == ["agents --json", "stop 1a2b3c4d", "agents --json", "agents --json", "--bg --resume sid go on"])
+
+        let copied = Calls()
+        await #expect(throws: DeskError.self) { try await claude(copied, resumedAs: "deadbeef").send("go on", to: job, cwd: "/r") }
+        #expect(await copied.list.suffix(3) == ["--bg --resume sid go on", "stop deadbeef", "rm deadbeef"])
+    }
+
     @Test func startedIDIsReadOutOfTheColouredLine() {
         let output = "backgrounded · \u{1B}[36mc020ac7f\u{1B}[39m\n  claude attach c020ac7f    open in this terminal\n"
         #expect(ClaudeJobs.startedID(in: output) == "c020ac7f")

@@ -164,6 +164,9 @@ final class AppModel {
                 let snapshot = try await service.refreshGitHub()
                 state.github = snapshot
                 applyLanded()
+                // Your own PRs came back; a search of the others that failed kept its last list, and says why here.
+                state.errors[.github] = snapshot.error
+                if let error = snapshot.error { Self.log.error("GitHub: \(error, privacy: .public)") }
             case .git:
                 let scan = await service.refreshGit()
                 state.gitScan = scan
@@ -183,7 +186,7 @@ final class AppModel {
                 guard await service.jiraReady else { throw DeskError.jiraSignedOut }
                 state.tickets = try await service.refreshJira(referencedKeys: state.referencedTicketKeys)
             }
-            if source != .git { state.errors[source] = nil }
+            if source == .jira { state.errors[source] = nil }
             state.lastRefresh[source] = Date()
         } catch {
             state.errors[source] = "\(error)"

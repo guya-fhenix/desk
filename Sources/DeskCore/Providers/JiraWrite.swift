@@ -14,18 +14,10 @@ extension JiraProvider {
         do {
             text = try await Shell.output(
                 acliPath, ["jira", "workitem", "transition", "--key", key, "--status", status, "--yes", "--json"],
-                timeout: 60
+                timeout: 60, run: run
             )
-        } catch let error as ShellError {
-            switch error {
-            case .executableNotFound: throw JiraError.acliNotFound
-            case .failed(_, _, let stderr):
-                if stderr.lowercased().contains("unauthorized") { throw JiraError.notAuthenticated }
-                throw JiraError.transitionRefused(
-                    key: key, status: status, detail: stderr.trimmingCharacters(in: .whitespacesAndNewlines)
-                )
-            case .timedOut: throw error
-            }
+        } catch {
+            throw Self.mapAcliError(error) { JiraError.transitionRefused(key: key, status: status, detail: $0) }
         }
         // acli exits 0 whether or not the transition happened — a refused one is reported in the body and
         // nowhere else. Trusting the exit code here is what would make this button lie.
@@ -52,15 +44,9 @@ extension JiraProvider {
         defer { if let file { try? FileManager.default.removeItem(at: file) } }
         let text: String
         do {
-            text = try await Shell.output(acliPath, arguments, timeout: 60)
-        } catch let error as ShellError {
-            switch error {
-            case .executableNotFound: throw JiraError.acliNotFound
-            case .failed(_, _, let stderr):
-                if stderr.lowercased().contains("unauthorized") { throw JiraError.notAuthenticated }
-                throw JiraError.editRefused(key: key, detail: stderr.trimmingCharacters(in: .whitespacesAndNewlines))
-            case .timedOut: throw error
-            }
+            text = try await Shell.output(acliPath, arguments, timeout: 60, run: run)
+        } catch {
+            throw Self.mapAcliError(error) { JiraError.editRefused(key: key, detail: $0) }
         }
         if let detail = JiraDecoding.writeFailure(in: text, unconfirmed: "acli did not confirm the edit") {
             throw JiraError.editRefused(key: key, detail: detail)

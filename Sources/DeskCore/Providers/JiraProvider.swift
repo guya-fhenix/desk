@@ -39,17 +39,20 @@ public struct JiraAccount: Sendable, Equatable {
 public actor JiraProvider {
     /// Not private: the one write path lives in `JiraWrite.swift`, apart from these reads.
     let acliPath: String
+    /// What runs acli: `Shell.run`, but for a test.
+    let run: ShellRun
     /// The signed-in site, only needed to build browse URLs. Read once from the CLI.
     private var account: JiraAccount?
 
-    public init(acliPath: String) {
+    public init(acliPath: String, run: @escaping ShellRun = Shell.run) {
         self.acliPath = acliPath
+        self.run = run
     }
 
     /// Nil when the CLI is there but nobody is signed in.
     public func signedInAccount() async -> JiraAccount? {
         if let account { return account }
-        guard let text = try? await Shell.output(acliPath, ["jira", "auth", "status"]) else { return nil }
+        guard let text = try? await Shell.output(acliPath, ["jira", "auth", "status"], run: run) else { return nil }
         guard let parsed = JiraDecoding.account(fromStatus: text) else { return nil }
         account = parsed
         return parsed
@@ -92,14 +95,14 @@ public actor JiraProvider {
     }
 
     public func projectKeys() async throws -> [String] {
-        let data = try await run(["jira", "project", "list", "--paginate", "--json"])
+        let data = try await acli(["jira", "project", "list", "--paginate", "--json"])
         return try JiraDecoding.projectKeys(from: data)
     }
 
     /// `--paginate` walks every page itself, which is why no cursor is threaded through here.
     private func search(jql: String, assignedToMe: Bool, placement: TicketPlacement) async throws -> [Ticket] {
         guard let account = await signedInAccount() else { throw JiraError.notAuthenticated }
-        let data = try await run([
+        let data = try await acli([
             "jira", "workitem", "search", "--jql", jql,
             // acli allows only this handful; `updated` is not among them, which is why `Ticket` carries no
             // timestamp. The JQL still orders by it.
@@ -109,15 +112,24 @@ public actor JiraProvider {
         return try JiraDecoding.tickets(from: data, site: account.site, assignedToMe: assignedToMe, placement: placement)
     }
 
-    private func run(_ arguments: [String]) async throws -> Data {
+    private func acli(_ arguments: [String]) async throws -> Data {
         do {
-            return Data(try await Shell.output(acliPath, arguments).utf8)
-        } catch let error as ShellError {
-            if case .failed(_, _, let stderr) = error, stderr.lowercased().contains("unauthorized") {
-                throw JiraError.notAuthenticated
-            }
-            if case .executableNotFound = error { throw JiraError.acliNotFound }
-            throw error
+            return Data(try await Shell.output(acliPath, arguments, run: run).utf8)
+        } catch {
+            throw Self.mapAcliError(error)
+        }
+    }
+
+    /// What an acli failure means: acli missing, nobody signed in, or for a write, `refused` with what acli printed.
+    /// Anything else, a timeout say, goes on as it came.
+    static func mapAcliError(_ error: any Error, refused: ((String) -> JiraError)? = nil) -> any Error {
+        guard let error = error as? ShellError else { return error }
+        switch error {
+        case .executableNotFound: return JiraError.acliNotFound
+        case .failed(_, _, let stderr):
+            if stderr.lowercased().contains("unauthorized") { return JiraError.notAuthenticated }
+            return refused?(stderr.trimmingCharacters(in: .whitespacesAndNewlines)) ?? error
+        case .timedOut: return error
         }
     }
 }
