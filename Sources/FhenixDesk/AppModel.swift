@@ -332,15 +332,15 @@ final class AppModel {
     }
 
     /// Moves a ticket to the in-progress status, unless it is already there or already finished. A refusal
-    /// here is worth saying out loud but never undoes the session that has just started.
+    /// here is worth saying out loud but never undoes the session that has just started. It is the ticket's, beside its
+    /// sessions: on the Jira source it would be cleared by the refresh that follows, and say nothing of the ticket.
     private func startProgress(on ticket: Ticket) async {
         let target = config.jiraInProgressStatus
         guard !target.isEmpty, ticket.status != target, ticket.category != .done else { return }
         do {
             try await service.transitionTicket(key: ticket.key, to: target)
-            state.errors[.jira] = nil
         } catch {
-            state.errors[.jira] = "\(error)"
+            sessionErrors[ticket.key] = "Session started, but Jira refused the move to \(target): \(error)"
             Self.log.error("plan \(ticket.key, privacy: .public): \(String(describing: error), privacy: .public)")
         }
         await refresh(.jira)
