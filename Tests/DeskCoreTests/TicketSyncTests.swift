@@ -8,7 +8,7 @@ import Testing
     func drifts(tickets: [Ticket], open: [PullRequest] = [], merged: [PullRequest] = []) -> [TicketDrift] {
         TicketSync.drifts(TicketSyncInput(
             tickets: tickets, open: open, merged: merged, defaultBranches: Self.branches,
-            projectKeys: ["PRO"], reviewStatus: "👀 Review Ready", doneStatus: "Done"
+            projectKeys: ["PRO"], inProgressStatus: "In Progress", reviewStatus: "👀 Review Ready", doneStatus: "Done"
         ))
     }
 
@@ -81,10 +81,25 @@ import Testing
         #expect(drifts(tickets: [ticket], open: [pr]).isEmpty)
     }
 
-    @Test func blockedMovesForwardToReview() {
+    /// Review is forward only from To Do or In Progress; from QA it would point backwards.
+    @Test func reviewIsSuggestedOnlyFromToDoOrInProgress() {
         let pr = Fixtures.pr(number: 13, head: "feat/pro-401-gauge")
-        let ticket = Fixtures.ticket("PRO-401", status: "⛔ Blocked")
-        #expect(drifts(tickets: [ticket], open: [pr]).map(\.stage) == [.inReview])
+        #expect(drifts(tickets: [Fixtures.ticket("PRO-401", category: .todo, status: "To Do")], open: [pr]).map(\.stage) == [.inReview])
+        #expect(drifts(tickets: [Fixtures.ticket("PRO-401", status: "🧪 QA")], open: [pr]).isEmpty)
+        #expect(drifts(tickets: [Fixtures.ticket("PRO-401", status: "⛔ Blocked")], open: [pr]).isEmpty)
+        // Done is forward from anywhere short of it.
+        let landed = Fixtures.pr(number: 16, head: "feat/pro-405-gauge", merged: Fixtures.hours(3))
+        #expect(drifts(tickets: [Fixtures.ticket("PRO-405", status: "🧪 QA")], merged: [landed]).map(\.stage) == [.done])
+    }
+
+    /// A reverted PR has landed nothing, and neither has its revert.
+    @Test func aRevertedPullRequestDoesNotFinishItsTicket() {
+        let landed = Fixtures.pr(number: 17, title: "PRO-406 add the gauge", head: "feat/pro-406-gauge", merged: Fixtures.hours(3))
+        let revert = Fixtures.pr(number: 18, title: #"Revert "PRO-406 add the gauge""#, head: "revert-17-feat/pro-406-gauge", merged: Fixtures.hours(4))
+        #expect(drifts(tickets: [Fixtures.ticket("PRO-406")], merged: [landed, revert]).isEmpty)
+        #expect(drifts(tickets: [Fixtures.ticket("PRO-406")], merged: [revert]).isEmpty)
+        let again = Fixtures.pr(number: 19, title: "PRO-406 add the gauge, fixed", head: "feat/pro-406-again", merged: Fixtures.hours(5))
+        #expect(drifts(tickets: [Fixtures.ticket("PRO-406")], merged: [landed, revert, again]).map(\.stage) == [.done])
     }
 
     @Test func anEmptyStatusTurnsThatHalfOff() {
@@ -92,7 +107,7 @@ import Testing
         let landed = Fixtures.pr(number: 15, head: "feat/pro-403-gauge", merged: Fixtures.hours(3))
         let found = TicketSync.drifts(TicketSyncInput(
             tickets: [Fixtures.ticket("PRO-402"), Fixtures.ticket("PRO-403")], open: [open], merged: [landed],
-            defaultBranches: Self.branches, projectKeys: ["PRO"], reviewStatus: "", doneStatus: "Done"
+            defaultBranches: Self.branches, projectKeys: ["PRO"], inProgressStatus: "In Progress", reviewStatus: "", doneStatus: "Done"
         ))
         #expect(found.map(\.ticket.key) == ["PRO-403"])
     }

@@ -23,10 +23,13 @@ public enum Linker {
         return repos.first { $0.name == pr.repoName }
     }
 
-    /// Maps each PR url to the url of the PR it is stacked on.
-    public static func stackParents(_ pullRequests: [PullRequest]) -> [String: String] {
+    /// Maps each PR url to the url of the PR it is stacked on. A fork's PR, or one from the default branch, is nobody's
+    /// parent: a PR into a branch of that name targets origin's branch, not that PR.
+    public static func stackParents(_ pullRequests: [PullRequest], defaultBranches: [String: String]) -> [String: String] {
         var headsByRepo: [String: [String: String]] = [:]
-        for pr in pullRequests { headsByRepo[pr.repo, default: [:]][pr.headRef] = pr.url }
+        for pr in pullRequests where !pr.isCrossRepository && pr.headRef != defaultBranches[pr.repoName] {
+            headsByRepo[pr.repo, default: [:]][pr.headRef] = pr.url
+        }
         var parents: [String: String] = [:]
         for pr in pullRequests {
             if let parent = headsByRepo[pr.repo]?[pr.baseRef], parent != pr.url { parents[pr.url] = parent }

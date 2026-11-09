@@ -11,7 +11,8 @@ public struct TicketKeyMatcher: @unchecked Sendable {
             .filter { !$0.isEmpty }
             .map { NSRegularExpression.escapedPattern(for: $0) }
             .joined(separator: "|")
-        let pattern = alternatives.isEmpty ? "(?!x)x()()" : "(?i)\\b(\(alternatives))-(\\d{1,6})\\b"
+        // Not `\b`, which counts `_` as part of a word: `PRO-123_add_gauge` is a branch name people write.
+        let pattern = alternatives.isEmpty ? "(?!x)x()()" : "(?i)(?:^|[^A-Za-z0-9])(\(alternatives))-(\\d{1,6})(?![A-Za-z0-9])"
         // Every alternative is regex-escaped, so the pattern always compiles.
         regex = try! Regex(pattern, as: (Substring, Substring, Substring).self)
     }

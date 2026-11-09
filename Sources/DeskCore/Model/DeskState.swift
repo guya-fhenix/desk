@@ -187,16 +187,16 @@ public struct DeskState: Sendable {
 
     public mutating func recompute(now: Date = Date()) {
         let openAll = github?.allOpen ?? []
-        stackParents = Linker.stackParents(openAll)
         let merged = github?.mergedRecent ?? []
         defaultBranches = Linker.defaultBranches(worktrees: worktrees, pullRequests: openAll + merged)
+        stackParents = Linker.stackParents(openAll, defaultBranches: defaultBranches)
         reviewNeeds = ReviewReadiness.needs(login: login, queue: reviewRequests + openForReview)
         let matcher = TicketKeyMatcher(projectKeys: config.jiraProjectKeys)
         // The merged ones too, so their rows name the ticket they closed.
         ticketKeys = Dictionary((mine + merged).map { ($0.url, TicketSync.keys(for: $0, matcher: matcher)) }, uniquingKeysWith: { first, _ in first })
         ticketDrifts = TicketSync.drifts(TicketSyncInput(
-            tickets: tickets, open: mine, merged: merged, defaultBranches: defaultBranches,
-            projectKeys: config.jiraProjectKeys, reviewStatus: config.jiraReviewStatus, doneStatus: config.jiraDoneStatus
+            tickets: tickets, open: mine, merged: merged, defaultBranches: defaultBranches, projectKeys: config.jiraProjectKeys,
+            inProgressStatus: config.jiraInProgressStatus, reviewStatus: config.jiraReviewStatus, doneStatus: config.jiraDoneStatus
         )).filter { !dismissedMoves.contains($0.moveKey) }
         nudges = NudgeEngine.nudges(NudgeInput(
             now: now, login: login, config: config, mine: mine, reviewRequests: reviewRequests,
