@@ -100,6 +100,8 @@ public struct PullRequest: Codable, Sendable, Hashable, Identifiable {
     public var mergedAt: Date?
     public var baseRef: String
     public var headRef: String
+    /// From a fork: `headRef` names the fork's branch, never origin's, even where origin has one of the same name.
+    public var isCrossRepository: Bool
     public var headSha: String
     public var additions: Int
     public var deletions: Int
@@ -144,7 +146,7 @@ public struct PullRequest: Codable, Sendable, Hashable, Identifiable {
     public init(
         number: Int, title: String, body: String = "", url: String, repo: String, isDraft: Bool = false,
         state: PullRequestState = .open, createdAt: Date, updatedAt: Date, mergedAt: Date? = nil,
-        baseRef: String, headRef: String, headSha: String = "", additions: Int = 0, deletions: Int = 0,
+        baseRef: String, headRef: String, isCrossRepository: Bool = false, headSha: String = "", additions: Int = 0, deletions: Int = 0,
         author: String, reviewDecision: ReviewDecision = .none, mergeState: MergeState = .unknown,
         checks: CheckState = .none, checkCount: Int = 0, reviews: [Review] = [],
         requestedReviewers: [String] = [], reviewRequestEvents: [ReviewRequestEvent] = [], unresolvedThreads: Int = 0,
@@ -163,6 +165,7 @@ public struct PullRequest: Codable, Sendable, Hashable, Identifiable {
         self.mergedAt = mergedAt
         self.baseRef = baseRef
         self.headRef = headRef
+        self.isCrossRepository = isCrossRepository
         self.headSha = headSha
         self.additions = additions
         self.deletions = deletions

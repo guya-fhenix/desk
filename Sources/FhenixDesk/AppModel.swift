@@ -520,8 +520,9 @@ final class AppModel {
     func startSession(for pr: PullRequest, flow: PromptID? = nil) {
         guard let repo = state.localRepo(for: pr), !startingSessions.contains(pr.url) else { return }
         startingSessions.insert(pr.url)
-        // A checkout the user already has on that branch is the session's home; nothing else touches git.
-        let existing = state.worktrees.first { $0.repoName == pr.repoName && $0.branch == pr.headRef }?.path
+        // A checkout the user already has on that branch is the session's home; nothing else touches git. A fork's branch
+        // is never one of yours, whatever its name: it gets its PR head, detached.
+        let existing = pr.isCrossRepository ? nil : state.worktrees.first { $0.repoName == pr.repoName && $0.branch == pr.headRef }?.path
         Task {
             defer { startingSessions.remove(pr.url) }
             do {

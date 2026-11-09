@@ -284,7 +284,7 @@ public enum GitHubQueries {
       search(query: $q, type: ISSUE, first: $first, after: $after) { pageInfo { hasNextPage endCursor } nodes { ...PR } }
     }
     fragment PR on PullRequest {
-      number title body url isDraft createdAt updatedAt mergedAt state baseRefName headRefName additions deletions
+      number title body url isDraft createdAt updatedAt mergedAt state baseRefName headRefName isCrossRepository additions deletions
       author { __typename login }
       repository { nameWithOwner }
       reviewDecision
@@ -469,6 +469,7 @@ public enum GitHubDecoding {
             mergedAt: node.mergedAt,
             baseRef: node.baseRefName,
             headRef: node.headRefName,
+            isCrossRepository: node.isCrossRepository ?? false,
             headSha: commit?.oid ?? "",
             additions: node.additions,
             deletions: node.deletions,
@@ -666,6 +667,7 @@ public enum GitHubDecoding {
         var state: String
         var baseRefName: String
         var headRefName: String
+        var isCrossRepository: Bool?
         var additions: Int
         var deletions: Int
         var author: Login?
