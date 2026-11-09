@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 public enum DeskError: Error, CustomStringConvertible, Sendable {
     case ghNotFound
@@ -25,6 +26,7 @@ public enum DeskError: Error, CustomStringConvertible, Sendable {
 /// Owns the providers and the on-disk caches. The app and the doctor share it.
 public actor DeskService {
     public static let configFile = "config.json"
+    private static let log = Logger(subsystem: "io.fhenix.desk", category: "refresh")
 
     private var config: DeskConfig
     private let support: AppSupport
@@ -320,7 +322,15 @@ public actor DeskService {
         async let team = jira.teamOpenIssues(projects: config.jiraProjectKeys)
         let placed = try await mine + team
         let placedKeys = Set(placed.map(\.key))
-        let others = try await jira.issues(keys: referencedKeys.filter { !placedKeys.contains($0) })
+        // acli fails the whole query when every key in it is unknown or hidden, as one typo in a branch name makes it;
+        // that must not throw away the tickets already fetched.
+        let others: [Ticket]
+        do {
+            others = try await jira.issues(keys: referencedKeys.filter { !placedKeys.contains($0) })
+        } catch {
+            Self.log.error("jira referenced tickets: \(String(describing: error), privacy: .public)")
+            others = []
+        }
         return placed + others
     }
 
