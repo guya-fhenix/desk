@@ -96,9 +96,7 @@ enum Snapshot {
         )
         if titled {
             window.title = "Fhenix Desk"
-            // As `.hiddenTitleBar` draws it: the window's buttons over the sidebar, and no title.
-            window.titlebarAppearsTransparent = true
-            window.titleVisibility = .hidden
+            // The view's toolbar and title go to the window, as a scene's do.
             host.sceneBridgingOptions = .all
         }
         window.contentView = host

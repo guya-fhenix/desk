@@ -543,27 +543,6 @@ struct PanelRowStyle: LabeledContentStyle {
     }
 }
 
-/// The sidebar column both the workspace and Settings use: room for the window buttons at the top, the items,
-/// and the sync status pinned at the bottom.
-struct SidebarColumn<Content: View>: View {
-    @ViewBuilder var content: Content
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            content
-            Spacer(minLength: Theme.Space.m)
-            SidebarStatus()
-        }
-        .padding(.horizontal, Theme.Space.s)
-        // Clear of the window's buttons, which sit over the top of the sidebar.
-        .padding(.top, Theme.Space.xxl + Theme.Space.s)
-        .padding(.bottom, Theme.Space.m)
-        .frame(width: Theme.sidebarWidth)
-        .frame(maxHeight: .infinity, alignment: .top)
-        .background(Theme.sidebar.ignoresSafeArea())
-    }
-}
-
 /// A sidebar icon: an SF Symbol by name, or Jira's own mark for `jira`, in the same grey as the rest.
 struct SidebarIcon: View {
     nonisolated static let jira = "jira"
@@ -602,13 +581,12 @@ struct SidebarHeading: View {
     }
 }
 
-/// One sidebar item: icon and title, with a count or a key on the right, and a rounded fill when chosen.
-struct SidebarItem<Trailing: View>: View {
+/// One item of a Settings-like page's column of parts: icon and title, and a rounded fill when chosen.
+struct SidebarItem: View {
     var title: String
     var icon: String
     var selected = false
     var action: () -> Void
-    @ViewBuilder var trailing: Trailing
 
     var body: some View {
         Button(action: action) {
@@ -616,7 +594,6 @@ struct SidebarItem<Trailing: View>: View {
                 SidebarIcon(name: icon).foregroundStyle(.secondary).frame(width: 16)
                 Text(title).foregroundStyle(selected ? .primary : .secondary)
                 Spacer(minLength: Theme.Space.xs)
-                trailing
             }
             .scaled(.body)
             .padding(.horizontal, Theme.Space.m)
@@ -627,12 +604,6 @@ struct SidebarItem<Trailing: View>: View {
         }
         .buttonStyle(.plain).handCursor()
         .accessibilityAddTraits(selected ? .isSelected : [])
-    }
-}
-
-extension SidebarItem where Trailing == EmptyView {
-    init(title: String, icon: String, selected: Bool = false, action: @escaping () -> Void) {
-        self.init(title: title, icon: icon, selected: selected, action: action) { EmptyView() }
     }
 }
 
