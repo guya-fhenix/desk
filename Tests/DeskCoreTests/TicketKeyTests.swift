@@ -16,6 +16,13 @@ import Testing
         #expect(matcher.keys(in: "ABC-12 and AVX-512 and pro_12").isEmpty)
     }
 
+    /// `_` separates words in branch names, so a key next to one still counts.
+    @Test func findsKeysNextToUnderscores() {
+        #expect(matcher.keys(in: "PRO-123_add_gauge") == ["PRO-123"])
+        #expect(matcher.keys(in: "feat_pro-7") == ["PRO-7"])
+        #expect(matcher.keys(in: "xpro-7 pro-7x pro-1234567").isEmpty)
+    }
+
     @Test func mergesAcrossTexts() {
         #expect(matcher.keys(in: ["pro-1", "PRO-1 again", "pro-2"]) == ["PRO-1", "PRO-2"])
     }

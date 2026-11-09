@@ -227,12 +227,28 @@ public enum PromptTemplate {
             }
             out += rest[..<open.lowerBound]
             let body = rest[rest.index(after: name.endIndex)..<close.lowerBound]
-            let split = body.range(of: "{else}")
+            let split = ownElse(in: body)
             let kept = holds ? body[..<(split?.lowerBound ?? body.endIndex)] : split.map { body[$0.upperBound...] } ?? ""
             out += resolveSections(kept, conditions)
             rest = rest[close.upperBound...]
         }
         return out + rest
+    }
+
+    /// The `{else}` of a section's own body: one inside a nested `{#name}…{/name}` is that section's, so the nested
+    /// span is passed over whole.
+    private static func ownElse(in body: Substring) -> Range<Substring.Index>? {
+        var rest = body
+        while let next = rest.range(of: "{else}") {
+            guard let open = rest[..<next.lowerBound].range(of: "{#") else { return next }
+            let name = rest[open.upperBound...].prefix(while: isNameCharacter)
+            if name.endIndex < rest.endIndex, rest[name.endIndex] == "}", let close = rest[name.endIndex...].range(of: "{/\(name)}") {
+                rest = rest[close.upperBound...]
+            } else {
+                rest = rest[open.upperBound...]
+            }
+        }
+        return nil
     }
 
     private static func substitute(_ text: String, _ values: [String: String]) -> String {

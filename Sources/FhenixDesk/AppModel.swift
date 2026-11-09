@@ -9,7 +9,10 @@ import os
 final class AppModel {
     var state: DeskState
     var refreshing: Set<Source> = []
-    /// Why the last settings write failed, in a sentence that says what to do; nil once one succeeds.
+    /// Sources asked to refresh while they already were, each to go once more when that one ends.
+    private var refreshAgain: Set<Source> = []
+    /// Why config.json couldn't be read at launch, or why the last settings write failed, in a sentence that says what to
+    /// do; nil once a write succeeds.
     var configError: String?
     /// The error itself, for the tooltip on that sentence.
     var configErrorDetail: String?
@@ -79,19 +82,26 @@ final class AppModel {
     var conversations: [String: Conversation] = [:]
     var conversationErrors: [String: String] = [:]
     private let support = AppSupport()
+    /// What config.json holds, as far as the app knows: the config it loaded or last wrote. Only a config that differs is
+    /// written, so starting on defaults, after a missing or broken file, writes nothing until you change a setting.
+    private var savedConfig: DeskConfig
     private let service: DeskService
     private let notifier: Notifier
     private var loops: [Source: Task<Void, Never>] = [:]
     private nonisolated static let log = Logger(subsystem: "io.fhenix.desk", category: "refresh")
 
     init() {
-        let config = DeskService.loadConfig(support: support)
+        let (config, configError) = DeskService.loadConfig(support: support)
         state = DeskState(config: config)
+        savedConfig = config
         service = DeskService(config: config, support: support)
         notifier = Notifier(support: support)
         state.dismissedMoves = Set(UserDefaults.standard.stringArray(forKey: Self.dismissedMovesKey) ?? [])
         Task { await self.start() }
         Notifier.onShow = { [weak self] url in self?.show(url) }
+        // Settings is where the sentence shows.
+        self.configError = configError
+        showingSettings = configError != nil
     }
 
     var config: DeskConfig {
@@ -107,8 +117,9 @@ final class AppModel {
             + state.ticketDrifts.count
     }
 
+    /// The polls start first: reading the Jira account can wait out acli's whole timeout offline, and the window would
+    /// stay empty all that time.
     func start() async {
-        jiraAccount = await service.jiraAccount()
         for source in Source.allCases where loops[source] == nil {
             loops[source] = Task { [weak self] in
                 while !Task.isCancelled {
@@ -119,6 +130,7 @@ final class AppModel {
                 }
             }
         }
+        jiraAccount = await service.jiraAccount()
     }
 
     private func interval(for source: Source) -> Int {
@@ -135,10 +147,17 @@ final class AppModel {
         }
     }
 
+    /// A refresh asked for while one of the same source runs goes once more after it: the running fetch began before
+    /// whatever change asked, and would otherwise leave the state from before it.
     func refresh(_ source: Source) async {
-        guard !refreshing.contains(source) else { return }
-        refreshing.insert(source)
-        defer { refreshing.remove(source) }
+        guard refreshing.insert(source).inserted else {
+            refreshAgain.insert(source)
+            return
+        }
+        defer {
+            refreshing.remove(source)
+            if refreshAgain.remove(source) != nil { Task { await refresh(source) } }
+        }
         do {
             switch source {
             case .github:
@@ -192,11 +211,15 @@ final class AppModel {
         }
     }
 
+    /// Writes the config when it changed and hands it to the sources, which a recheck after a sign-in wants either way.
     func saveConfig() {
         do {
-            try support.save(config, to: DeskService.configFile)
-            configError = nil
-            configErrorDetail = nil
+            if config != savedConfig {
+                try support.save(config, to: DeskService.configFile)
+                savedConfig = config
+                configError = nil
+                configErrorDetail = nil
+            }
         } catch {
             configError = "Couldn't save settings: \(error.localizedDescription) Check that ~/Library/Application Support/Fhenix Desk is writable."
             configErrorDetail = "\(error)"
@@ -323,15 +346,15 @@ final class AppModel {
     }
 
     /// Moves a ticket to the in-progress status, unless it is already there or already finished. A refusal
-    /// here is worth saying out loud but never undoes the session that has just started.
+    /// here is worth saying out loud but never undoes the session that has just started. It is the ticket's, beside its
+    /// sessions: on the Jira source it would be cleared by the refresh that follows, and say nothing of the ticket.
     private func startProgress(on ticket: Ticket) async {
         let target = config.jiraInProgressStatus
         guard !target.isEmpty, ticket.status != target, ticket.category != .done else { return }
         do {
             try await service.transitionTicket(key: ticket.key, to: target)
-            state.errors[.jira] = nil
         } catch {
-            state.errors[.jira] = "\(error)"
+            sessionErrors[ticket.key] = "Session started, but Jira refused the move to \(target): \(error)"
             Self.log.error("plan \(ticket.key, privacy: .public): \(String(describing: error), privacy: .public)")
         }
         await refresh(.jira)
@@ -368,8 +391,12 @@ final class AppModel {
         return nil
     }
 
-    /// Squash-merges a PR from its page or its flow, and shows it merged at once. Why it failed, or nil.
+    /// Squash-merges a PR from its page, and shows it merged at once. Why it failed, or nil. A press while another write
+    /// to the PR runs does nothing, so a merge never goes out twice. GitHub refuses it if the head moved past the commit
+    /// the page showed.
     func squashMerge(_ pr: PullRequest) async -> String? {
+        guard busyFlows.insert(pr.url).inserted else { return nil }
+        defer { busyFlows.remove(pr.url) }
         do {
             try await service.squashMerge(pr)
         } catch {
@@ -505,8 +532,9 @@ final class AppModel {
     func startSession(for pr: PullRequest, flow: PromptID? = nil) {
         guard let repo = state.localRepo(for: pr), !startingSessions.contains(pr.url) else { return }
         startingSessions.insert(pr.url)
-        // A checkout the user already has on that branch is the session's home; nothing else touches git.
-        let existing = state.worktrees.first { $0.repoName == pr.repoName && $0.branch == pr.headRef }?.path
+        // A checkout the user already has on that branch is the session's home; nothing else touches git. A fork's branch
+        // is never one of yours, whatever its name: it gets its PR head, detached.
+        let existing = pr.isCrossRepository ? nil : state.worktrees.first { $0.repoName == pr.repoName && $0.branch == pr.headRef }?.path
         Task {
             defer { startingSessions.remove(pr.url) }
             do {
@@ -570,6 +598,12 @@ final class AppModel {
             sessionErrors[pr.url] = "Can't start the review session: \(skill.text)."
             return
         }
+        do {
+            try DeskService.installShowHelper()
+        } catch {
+            sessionErrors[pr.url] = "Can't start the review session: couldn't write \(DeskService.showHelper.path): \(error)"
+            return
+        }
         let ticket = DeskService.reviewTicket(for: pr, tickets: state.tickets, projectKeys: config.jiraProjectKeys)
         terminals.open(
             id: Self.reviewTab(pr), title: "Review \(pr.repoName)#\(pr.number)", executable: claude,
@@ -595,14 +629,14 @@ final class AppModel {
         sessionErrors[pr.url] = terminals.paste(text, into: Self.reviewTab(pr)) ? nil : "No review session is running: press Start review."
     }
 
-    /// A review session's `open fhenixdesk://show/…`: that PR's diff, at that line. A PR Desk does not know is ignored —
-    /// any app can open the link, so it only ever moves the diff.
-    func open(_ url: URL) {
-        guard let link = DeskLink(url) else { return }
+    /// A review session's `fhenixdesk://show/…`: that PR's diff, at that line. A PR Desk does not know is ignored —
+    /// any app can open the link, so it only ever moves the diff. Whether it was a PR Desk knows.
+    func open(_ url: URL) -> Bool {
+        guard let link = DeskLink(url) else { return false }
         let known = state.reviewRequests + state.openForReview + (state.github?.allOpen ?? [])
         guard let pr = known.first(where: { ClaudeJobs.prKey($0.url) == link.prKey }) else {
             Self.log.info("link for an unknown PR: \(url.absoluteString, privacy: .public)")
-            return
+            return false
         }
         reviewing = pr.url
         loadDiff(pr)
@@ -610,6 +644,7 @@ final class AppModel {
         showingSettings = false
         pendingTab = .reviews
         selectPullRequest = pr.url
+        return true
     }
 
     // MARK: Flows
@@ -644,15 +679,6 @@ final class AppModel {
         }
     }
 
-    /// Merge on an approved PR: always a squash.
-    func merge(_ pr: PullRequest) {
-        guard busyFlows.insert(pr.url).inserted else { return }
-        Task {
-            defer { busyFlows.remove(pr.url) }
-            flowErrors[pr.url] = await squashMerge(pr)
-        }
-    }
-
     /// Fix it on a PR that conflicts with its base or whose CI failed: its session gets the fix. Nothing goes out on its
     /// own: a fix that did not take is pressed again or left, as you choose.
     func fix(_ prompt: PromptID, for pr: PullRequest) {
@@ -665,7 +691,10 @@ final class AppModel {
         guard let session = state.session(for: pr), busyFlows.insert(pr.url).inserted else { return }
         flowErrors[pr.url] = nil
         let root = state.localRepo(for: pr)?.root ?? session.cwd
-        let worktree = state.worktrees.first { $0.repoRoot == root && $0.branch == pr.headRef }?.path
+        // A fork's branch name may be one of this clone's own (its `master`), so a fork's worktree is found by its path.
+        let worktree = pr.isCrossRepository
+            ? state.worktrees.first { $0.path == BranchWorktrees.worktreePath(for: pr, repoRoot: root) }?.path
+            : state.worktrees.first { $0.repoRoot == root && $0.branch == pr.headRef }?.path
         // Numbered by when it went out, so an earlier instruction's file is never this one's.
         let resultFile = DeskService.resultFile(jobId: session.id, step: Int(Date().timeIntervalSince1970))
         let text = DeskService.flowPrompt(

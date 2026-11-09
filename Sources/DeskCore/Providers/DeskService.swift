@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 public enum DeskError: Error, CustomStringConvertible, Sendable {
     case ghNotFound
@@ -25,6 +26,7 @@ public enum DeskError: Error, CustomStringConvertible, Sendable {
 /// Owns the providers and the on-disk caches. The app and the doctor share it.
 public actor DeskService {
     public static let configFile = "config.json"
+    private static let log = Logger(subsystem: "io.fhenix.desk", category: "refresh")
 
     private var config: DeskConfig
     private let support: AppSupport
@@ -39,8 +41,22 @@ public actor DeskService {
         (github, jira) = Self.makeProviders(config)
     }
 
-    public static func loadConfig(support: AppSupport) -> DeskConfig {
-        (try? support.load(DeskConfig.self, from: configFile)) ?? DeskConfig()
+    /// The saved config, or the defaults when there is none. A file that can't be read at all is copied to
+    /// `config.json.bad` first, and `error` says so: the defaults then stand in without a word otherwise, and the next
+    /// save would write over the only copy of what the user had.
+    public static func loadConfig(support: AppSupport) -> (config: DeskConfig, error: String?) {
+        do {
+            return (try support.load(DeskConfig.self, from: configFile) ?? DeskConfig(), nil)
+        } catch {
+            let file = support.url(configFile)
+            let bad = support.url(configFile + ".bad")
+            try? FileManager.default.removeItem(at: bad)
+            let kept = (try? FileManager.default.copyItem(at: file, to: bad)) != nil
+            let start = "config.json couldn't be read, so Desk started on its defaults."
+            return (DeskConfig(), kept
+                ? "\(start) The broken file was kept as config.json.bad; config.json is rewritten only when you change a setting."
+                : "\(start) It is rewritten only when you change a setting: fix it by hand before then to keep what it had.")
+        }
     }
 
     public func update(config: DeskConfig) async {
@@ -107,7 +123,7 @@ public actor DeskService {
         if files.allSatisfy({ FileManager.default.fileExists(atPath: "\(repoRoot)/\($0)") }) { return true }
         guard let git = Shell.which("git") else { return false }
         for file in files {
-            let result = try? await Shell.run(git, ["-C", repoRoot, "cat-file", "-e", "origin/HEAD:\(file)"], timeout: 10)
+            let result = try? await Shell.run(git, ["-C", repoRoot, "cat-file", "-e", "origin/HEAD:\(file)"], environment: GitProvider.environment, timeout: 10)
             guard result?.status == 0 else { return false }
         }
         return true
@@ -306,7 +322,7 @@ public actor DeskService {
 
     public func squashMerge(_ pr: PullRequest) async throws {
         guard let github else { throw DeskError.ghNotFound }
-        try await github.squashMerge(repo: pr.repo, number: pr.number)
+        try await github.squashMerge(repo: pr.repo, number: pr.number, headSha: pr.headSha)
     }
 
     public func requestTeamReview(_ pr: PullRequest) async throws {
@@ -320,7 +336,15 @@ public actor DeskService {
         async let team = jira.teamOpenIssues(projects: config.jiraProjectKeys)
         let placed = try await mine + team
         let placedKeys = Set(placed.map(\.key))
-        let others = try await jira.issues(keys: referencedKeys.filter { !placedKeys.contains($0) })
+        // acli fails the whole query when every key in it is unknown or hidden, as one typo in a branch name makes it;
+        // that must not throw away the tickets already fetched.
+        let others: [Ticket]
+        do {
+            others = try await jira.issues(keys: referencedKeys.filter { !placedKeys.contains($0) })
+        } catch {
+            Self.log.error("jira referenced tickets: \(String(describing: error), privacy: .public)")
+            others = []
+        }
         return placed + others
     }
 

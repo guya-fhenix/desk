@@ -32,22 +32,23 @@ public struct TicketSyncInput: Sendable {
     public var open: [PullRequest]
     /// Your recently merged ones.
     public var merged: [PullRequest]
-    public var defaultBranches: [String: String]
     public var projectKeys: [String]
+    /// The status a ticket is in while you work on it. With To Do, it is the only place a move to review is forward from.
+    public var inProgressStatus: String
     /// The status a ticket takes while a pull request of its waits for review, and the one it takes once
     /// they have all landed. Empty turns that half of the sync off.
     public var reviewStatus: String
     public var doneStatus: String
 
     public init(
-        tickets: [Ticket], open: [PullRequest], merged: [PullRequest], defaultBranches: [String: String],
-        projectKeys: [String], reviewStatus: String, doneStatus: String
+        tickets: [Ticket], open: [PullRequest], merged: [PullRequest], projectKeys: [String],
+        inProgressStatus: String, reviewStatus: String, doneStatus: String
     ) {
         self.tickets = tickets
         self.open = open
         self.merged = merged
-        self.defaultBranches = defaultBranches
         self.projectKeys = projectKeys
+        self.inProgressStatus = inProgressStatus
         self.reviewStatus = reviewStatus
         self.doneStatus = doneStatus
     }
@@ -75,7 +76,9 @@ public enum TicketSync {
             // Never someone else's ticket, and never backwards: one Jira already calls done stays done,
             // whatever happens to its pull requests afterwards.
             guard ticket.assignedToMe, ticket.category != .done else { return nil }
-            guard let prs = byKey[ticket.key], let stage = stage(prs, defaultBranches: input.defaultBranches) else { return nil }
+            guard let prs = byKey[ticket.key], let stage = stage(prs) else { return nil }
+            // A ticket past In Progress, in QA say, is further along than review, not behind it.
+            if stage == .inReview, ticket.category != .todo, ticket.status != input.inProgressStatus { return nil }
             let target = stage == .done ? input.doneStatus : input.reviewStatus
             guard !target.isEmpty, ticket.status != target else { return nil }
             return TicketDrift(ticket: ticket, stage: stage, target: target, pullRequests: prs.sorted { $0.number > $1.number })
@@ -85,11 +88,21 @@ public enum TicketSync {
     /// One open pull request marked ready puts the ticket in review. Done wants every one of them merged
     /// and at least one landed on the repository's default branch: a pull request merged into the branch
     /// below it in a stack has finished nothing anybody would call finished. A draft blocks done for the
-    /// same reason and opens no review, so a ticket with only drafts left is neither.
-    private static func stage(_ prs: [PullRequest], defaultBranches: [String: String]) -> TicketStage? {
+    /// same reason and opens no review, so a ticket with only drafts left is neither. A revert lands nothing, and
+    /// the PR it undid no longer counts as landed either.
+    private static func stage(_ prs: [PullRequest]) -> TicketStage? {
         if prs.contains(where: { $0.state == .open && !$0.isDraft }) { return .inReview }
         guard !prs.isEmpty, prs.allSatisfy({ $0.state == .merged }) else { return nil }
-        guard prs.contains(where: { $0.baseRef == defaultBranches[$0.repoName] ?? "main" }) else { return nil }
+        let undone = Set(prs.compactMap(revertedTitle))
+        guard prs.contains(where: { pr in
+            revertedTitle(pr) == nil && !undone.contains(pr.title) && pr.baseRef == pr.defaultBranch
+        }) else { return nil }
         return .done
+    }
+
+    /// The title of the PR a revert undoes: GitHub's Revert button titles it `Revert "<that title>"`. Nil for any other PR.
+    private static func revertedTitle(_ pr: PullRequest) -> String? {
+        guard pr.title.hasPrefix("Revert \""), pr.title.hasSuffix("\""), pr.title.count > 9 else { return nil }
+        return String(pr.title.dropFirst(8).dropLast())
     }
 }

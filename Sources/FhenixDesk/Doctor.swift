@@ -5,12 +5,13 @@ import Foundation
 enum Doctor {
     static func run() async {
         let support = AppSupport()
-        let config = DeskService.loadConfig(support: support)
+        let (config, configError) = DeskService.loadConfig(support: support)
         let service = DeskService(config: config, support: support)
         var state = DeskState(config: config)
         let now = Date()
 
         section("Config")
+        if let configError { print(configError) }
         print("roots: \(config.expandedRepoRoots.joined(separator: ", "))  org: \(config.githubOrg)  gh: \(config.resolvedGhPath ?? "not found")")
         print("tracked repos: \(config.trackedRepos.isEmpty ? "none — nothing is watched until you pick some in Settings" : config.trackedRepos.joined(separator: ", "))")
         let jira = await service.jiraAccount()

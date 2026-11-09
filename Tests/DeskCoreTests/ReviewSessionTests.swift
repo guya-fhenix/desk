@@ -45,11 +45,32 @@ import Testing
     @Test func theSessionIsToldHowToMoveTheDiffAndThePromptGoesLast() {
         let pr = Fixtures.pr(number: 1166, head: "chore/x")
         let arguments = DeskService.reviewArguments(for: pr, ticket: "PRO-1 — Fix it")
-        #expect(Array(arguments.prefix(2)) == ["--allowedTools", "Bash(open fhenixdesk://*)"])
+        let helper = DeskService.showHelper.path
+        // Unquoted in the rule and the command alike, which only a path without spaces allows.
+        #expect(!helper.contains(" "))
+        #expect(Array(arguments.prefix(2)) == ["--allowedTools", "Bash(\(helper) *)"])
         #expect(arguments[2] == "--append-system-prompt")
-        #expect(arguments[3].contains("open fhenixdesk://show/FhenixProtocol/cofhe/1166/<side>/<line>/<path>"))
+        #expect(arguments[3].contains("\(helper) fhenixdesk://show/FhenixProtocol/cofhe/1166/<side>/<line>/<path>"))
         #expect(arguments.last == "/fhenix-workflow:review-pr https://github.com/FhenixProtocol/cofhe/pull/1166\n\nThe ticket it is for:\n\nPRO-1 — Fix it")
         #expect(DeskService.reviewArguments(for: pr, ticket: nil).last == "/fhenix-workflow:review-pr https://github.com/FhenixProtocol/cofhe/pull/1166")
+    }
+
+    /// The allowed helper refuses anything but one show link: an extra argument, a space, or another kind of URL never
+    /// reaches `open`.
+    @Test func theShowHelperOpensOneShowLinkOnly() async throws {
+        try DeskService.installShowHelper()
+        try DeskService.installShowHelper()
+        let helper = DeskService.showHelper.path
+        #expect(FileManager.default.isExecutableFile(atPath: helper))
+        for arguments in [
+            [],
+            ["fhenixdesk://show/o/r/7/new/3/a.rs", "https://example.com"],
+            ["fhenixdesk://show/o/r/7/new/3/a b.rs"],
+            ["https://example.com"],
+            ["/etc/passwd"],
+        ] {
+            #expect(try await Shell.run(helper, arguments).status == 64, "\(arguments)")
+        }
     }
 
     @Test func theTicketGoesAlongWithItsTextWhenDeskHasIt() {

@@ -96,7 +96,7 @@ struct TicketsTab: View {
         // Wider than the others: this one is for reading a description, tables and all.
         .deskInspector("tickets", width: 420) {
             if let ticket = selection.flatMap(ticket(for:)) {
-                TicketInspector(ticket: ticket, model: model, plan: plan)
+                TicketInspector(ticket: ticket, model: model, plan: plan).id(ticket.key)
             } else {
                 EmptyState(text: "Select a ticket to read it.").padding()
                 Spacer()

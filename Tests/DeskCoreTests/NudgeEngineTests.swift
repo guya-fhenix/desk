@@ -5,10 +5,10 @@ import Testing
 @Suite struct NudgeEngineTests {
     var config: DeskConfig { DeskConfig() }
 
-    func input(mine: [PullRequest] = [], reviews: [PullRequest] = []) -> NudgeInput {
+    func input(mine: [PullRequest] = [], reviews: [PullRequest] = [], merged: [PullRequest] = []) -> NudgeInput {
         NudgeInput(
             now: Fixtures.t0, login: "me", config: config, mine: mine, reviewRequests: reviews,
-            openHeadsByRepo: Linker.openHeadsByRepo(mine + reviews), defaultBranches: ["cofhe": "master"]
+            mergedHeadsByRepo: Linker.mergedHeadsByRepo(merged)
         )
     }
 
@@ -25,7 +25,7 @@ import Testing
         var withFlow = input(mine: [pr])
         withFlow.sessions = [session("done")]
         #expect(NudgeEngine.nudges(withFlow).map(\.kind) == [.flowWaiting])
-        #expect(NudgeEngine.nudges(withFlow).first?.title == "cofhe#3 is approved: merge it")
+        #expect(NudgeEngine.nudges(withFlow).first?.title == "cofhe#3 is ready: merge it")
 
         withFlow.sessions = [session("blocked")]
         #expect(Set(NudgeEngine.nudges(withFlow).map(\.kind)) == [.sessionNeedsYou])
@@ -38,11 +38,11 @@ import Testing
         withFlow.sessions = [session("done")]
         #expect(NudgeEngine.nudges(withFlow).first?.title == "cofhe#3 is a draft: run /pre-pr, or mark it ready")
 
-        // Red CI is no flow's to fix on its own any more: it is nudged as on any PR.
+        // Red CI is no flow's to fix on its own any more: it is nudged as on any PR, and a red PR is not ready to merge.
         var red = pr
         red.checks = .failure
         withFlow.mine = [red]
-        #expect(Set(NudgeEngine.nudges(withFlow).map(\.kind)) == [.ciFailed, .flowWaiting])
+        #expect(NudgeEngine.nudges(withFlow).map(\.kind) == [.ciFailed])
 
         // A planning session asking something, before it has a PR.
         withFlow.mine = []
@@ -73,10 +73,48 @@ import Testing
         #expect(nudges.first?.severity == .urgent)
     }
 
+    /// Only a merged parent says a PR needs a rebase; a base Desk knows nothing about, such as a release branch, says nothing.
+    @Test func aRebaseNeedsAMergedBase() {
+        let release = Fixtures.pr(number: 1, head: "fix", base: "release/x")
+        #expect(NudgeEngine.nudges(input(mine: [release])).isEmpty)
+        let stacked = Fixtures.pr(number: 2, head: "part-2", base: "part-1")
+        let parent = Fixtures.pr(number: 3, head: "part-1", merged: Fixtures.hours(1))
+        #expect(NudgeEngine.nudges(input(mine: [stacked], merged: [parent])).map(\.kind) == [.needsRebase])
+        // The default branch is GitHub's, so a repo on `develop` is no PR's merged base.
+        var onDevelop = Fixtures.pr(number: 4, head: "feat", base: "develop")
+        onDevelop.defaultBranch = "develop"
+        #expect(NudgeEngine.nudges(input(mine: [onDevelop], merged: [Fixtures.pr(number: 5, head: "develop", base: "release", merged: Fixtures.hours(1))])).isEmpty)
+    }
+
     @Test func approvedCleanPullRequestIsReadyToMerge() {
         let pr = Fixtures.pr(number: 2, head: "b", review: .approved, merge: .clean)
         let kinds = NudgeEngine.nudges(input(mine: [pr])).map(\.kind)
         #expect(kinds == [.readyToMerge])
+    }
+
+    /// Where a repo has the review gate, it decides ready, not GitHub's review decision: the nudge and the stage agree.
+    @Test func theReviewGateDecidesReadyToMerge() {
+        var short = Fixtures.pr(number: 6, head: "f", review: .approved, merge: .clean)
+        short.approvalStatus = "high risk: 1 of 2 approvals on the latest commit"
+        #expect(FlowStage.of(short) == .inReview)
+        #expect(NudgeEngine.nudges(input(mine: [short])).isEmpty)
+
+        var free = Fixtures.pr(number: 7, head: "g", review: .none, merge: .clean)
+        free.approvalStatus = "low risk: no approval needed"
+        #expect(FlowStage.of(free) == .approved)
+        #expect(NudgeEngine.nudges(input(mine: [free])).map(\.kind) == [.readyToMerge])
+    }
+
+    /// A request that comes back after you reviewed is a new nudge, not one already delivered; someone else's review is not.
+    @Test func aReRequestIsANewNudge() {
+        let asked = Fixtures.pr(number: 5, head: "e", author: "alice")
+        var answered = asked
+        answered.reviews = [Review(state: "CHANGES_REQUESTED", submittedAt: Fixtures.hours(1), author: "me")]
+        var othersOnly = asked
+        othersOnly.reviews = [Review(state: "APPROVED", submittedAt: Fixtures.hours(1), author: "bob")]
+        let id = { (pr: PullRequest) in NudgeEngine.nudges(input(reviews: [pr])).first { $0.kind == .reviewRequested }?.id }
+        #expect(id(asked) != id(answered))
+        #expect(id(asked) == id(othersOnly))
     }
 
     @Test func everyNudgeLandsOnTheScreenThatHandlesIt() {

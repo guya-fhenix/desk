@@ -25,6 +25,15 @@ import Testing
     }
 
     /// A marker that is broken or names nothing is sent as typed, so the text inside it is never lost.
+    /// A nested section's `{else}` is its own: the outer one splits on the `{else}` outside it.
+    @Test func aNestedElseBelongsToTheNestedSection() {
+        let template = "{#a}A{#b}B{else}notB{/b}{else}notA{/a}"
+        #expect(PromptTemplate.fill(template, [:], when: ["a": true, "b": true]) == "AB")
+        #expect(PromptTemplate.fill(template, [:], when: ["a": true, "b": false]) == "AnotB")
+        #expect(PromptTemplate.fill(template, [:], when: ["a": false, "b": true]) == "notA")
+        #expect(PromptTemplate.fill("{#a}A{#b}B{else}notB{/b}{/a}", [:], when: ["a": false, "b": false]) == "")
+    }
+
     @Test func aBrokenOrUnknownSectionStaysAsTyped() {
         #expect(PromptTemplate.fill("{#x}open", [:], when: ["x": false]) == "{#x}open")
         #expect(PromptTemplate.fill("{#y}text{/y}", [:], when: ["x": false]) == "{#y}text{/y}")

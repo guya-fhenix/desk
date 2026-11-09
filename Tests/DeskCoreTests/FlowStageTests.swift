@@ -17,9 +17,9 @@ import Testing
 
     private func pr(
         draft: Bool = false, evidence: String? = nil, threads: Int = 0, review: ReviewDecision = .reviewRequired,
-        gate: String? = nil, merged: Bool = false
+        gate: String? = nil, merged: Bool = false, checks: CheckState = .success, merge: MergeState = .blocked
     ) -> PullRequest {
-        var pr = Fixtures.pr(number: 1, head: "h", merged: merged ? Fixtures.t0 : nil, review: review, draft: draft)
+        var pr = Fixtures.pr(number: 1, head: "h", merged: merged ? Fixtures.t0 : nil, checks: checks, review: review, merge: merge, draft: draft)
         pr.evidence = evidence
         pr.unresolvedThreads = threads
         pr.approvalStatus = gate
@@ -35,6 +35,9 @@ import Testing
             ("ready with open threads", pr(threads: 2), .inReview),
             ("ready, approved by GitHub, no gate", pr(review: .approved), .approved),
             ("approved but a thread still open", pr(threads: 1, review: .approved), .inReview),
+            ("approved but CI failed", pr(review: .approved, checks: .failure), .inReview),
+            ("approved but conflicting", pr(review: .approved, merge: .dirty), .inReview),
+            ("approved, CI still running", pr(review: .approved, checks: .pending), .approved),
             ("the gate wants one more", pr(review: .approved, gate: "medium risk: 0 of 1 approvals on the latest commit"), .inReview),
             ("the gate is met", pr(gate: "medium risk: 1 of 1 approvals on the latest commit"), .approved),
             ("no approval needed", pr(gate: "low risk: no approval needed; CodeRabbit could not review"), .approved),

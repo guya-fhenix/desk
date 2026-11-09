@@ -42,29 +42,29 @@ public struct DeskConfig: Codable, Sendable, Equatable {
         case claudePath, acliPath, prompts
     }
 
-    /// Every key is optional so a config.json written before a field existed still loads. Synthesized
-    /// decoding would fail on the missing key and the app would silently fall back to defaults.
+    /// Every key is optional and read on its own, so a config.json written before a field existed, or edited by hand to
+    /// one value of the wrong type, keeps every other setting. Synthesized decoding would fail the whole file on either.
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         let d = DeskConfig()
-        repoRoots = try c.decodeIfPresent([String].self, forKey: .repoRoots) ?? d.repoRoots
-        githubOrg = try c.decodeIfPresent(String.self, forKey: .githubOrg) ?? d.githubOrg
-        reviewTeam = try c.decodeIfPresent(String.self, forKey: .reviewTeam) ?? d.reviewTeam
-        trackedRepos = try c.decodeIfPresent([String].self, forKey: .trackedRepos) ?? d.trackedRepos
-        ghPath = try c.decodeIfPresent(String.self, forKey: .ghPath) ?? d.ghPath
-        botLogins = try c.decodeIfPresent([String].self, forKey: .botLogins) ?? d.botLogins
-        automatedTitlePrefixes = try c.decodeIfPresent([String].self, forKey: .automatedTitlePrefixes) ?? d.automatedTitlePrefixes
-        jiraProjectKeys = try c.decodeIfPresent([String].self, forKey: .jiraProjectKeys) ?? d.jiraProjectKeys
-        jiraInProgressStatus = try c.decodeIfPresent(String.self, forKey: .jiraInProgressStatus) ?? d.jiraInProgressStatus
-        jiraReviewStatus = try c.decodeIfPresent(String.self, forKey: .jiraReviewStatus) ?? d.jiraReviewStatus
-        jiraDoneStatus = try c.decodeIfPresent(String.self, forKey: .jiraDoneStatus) ?? d.jiraDoneStatus
-        githubPollSeconds = try c.decodeIfPresent(Int.self, forKey: .githubPollSeconds) ?? d.githubPollSeconds
-        gitPollSeconds = try c.decodeIfPresent(Int.self, forKey: .gitPollSeconds) ?? d.gitPollSeconds
-        jiraPollSeconds = try c.decodeIfPresent(Int.self, forKey: .jiraPollSeconds) ?? d.jiraPollSeconds
-        notificationsEnabled = try c.decodeIfPresent(Bool.self, forKey: .notificationsEnabled) ?? d.notificationsEnabled
-        claudePath = try c.decodeIfPresent(String.self, forKey: .claudePath) ?? d.claudePath
-        acliPath = try c.decodeIfPresent(String.self, forKey: .acliPath) ?? d.acliPath
-        prompts = try c.decodeIfPresent([String: String].self, forKey: .prompts) ?? d.prompts
+        repoRoots = (try? c.decodeIfPresent([String].self, forKey: .repoRoots)) ?? d.repoRoots
+        githubOrg = (try? c.decodeIfPresent(String.self, forKey: .githubOrg)) ?? d.githubOrg
+        reviewTeam = (try? c.decodeIfPresent(String.self, forKey: .reviewTeam)) ?? d.reviewTeam
+        trackedRepos = (try? c.decodeIfPresent([String].self, forKey: .trackedRepos)) ?? d.trackedRepos
+        ghPath = (try? c.decodeIfPresent(String.self, forKey: .ghPath)) ?? d.ghPath
+        botLogins = (try? c.decodeIfPresent([String].self, forKey: .botLogins)) ?? d.botLogins
+        automatedTitlePrefixes = (try? c.decodeIfPresent([String].self, forKey: .automatedTitlePrefixes)) ?? d.automatedTitlePrefixes
+        jiraProjectKeys = (try? c.decodeIfPresent([String].self, forKey: .jiraProjectKeys)) ?? d.jiraProjectKeys
+        jiraInProgressStatus = (try? c.decodeIfPresent(String.self, forKey: .jiraInProgressStatus)) ?? d.jiraInProgressStatus
+        jiraReviewStatus = (try? c.decodeIfPresent(String.self, forKey: .jiraReviewStatus)) ?? d.jiraReviewStatus
+        jiraDoneStatus = (try? c.decodeIfPresent(String.self, forKey: .jiraDoneStatus)) ?? d.jiraDoneStatus
+        githubPollSeconds = (try? c.decodeIfPresent(Int.self, forKey: .githubPollSeconds)) ?? d.githubPollSeconds
+        gitPollSeconds = (try? c.decodeIfPresent(Int.self, forKey: .gitPollSeconds)) ?? d.gitPollSeconds
+        jiraPollSeconds = (try? c.decodeIfPresent(Int.self, forKey: .jiraPollSeconds)) ?? d.jiraPollSeconds
+        notificationsEnabled = (try? c.decodeIfPresent(Bool.self, forKey: .notificationsEnabled)) ?? d.notificationsEnabled
+        claudePath = (try? c.decodeIfPresent(String.self, forKey: .claudePath)) ?? d.claudePath
+        acliPath = (try? c.decodeIfPresent(String.self, forKey: .acliPath)) ?? d.acliPath
+        prompts = (try? c.decodeIfPresent([String: String].self, forKey: .prompts)) ?? d.prompts
     }
 
     /// Lowercased `owner/name`, which is how remotes and search qualifiers are compared.

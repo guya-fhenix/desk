@@ -15,18 +15,22 @@ import Testing
           "pending":{"nodes":[{"id":"PRR_1","commit":{"oid":"abc"},"comments":{"totalCount":4}}]},
           "reviewRequests":{"nodes":[{"requestedReviewer":{"__typename":"Team","name":"Protocol Team"}}]},
           "timelineItems":{"nodes":[{"createdAt":"2026-08-27T11:12:22Z","requestedReviewer":{"__typename":"Team","name":"Protocol Team"}},{}]},
-          "reviewThreads":{"nodes":[{"id":"PRRT_1","isResolved":false},{"id":"PRRT_2","isResolved":true},{"isResolved":false}]}}]}}}
+          "reviewThreads":{"totalCount":4,"nodes":[{"id":"PRRT_1","isResolved":false},{"id":"PRRT_2","isResolved":true},{"isResolved":false}]}}]}}}
         """
         let pr = try #require(GitHubDecoding.pullRequests(from: Data(json.utf8)).prs.first)
         #expect(pr.repoName == "cofhe")
         #expect(pr.checks == .success)
         #expect(pr.checkCount == 9)
         #expect(pr.headSha == "abc")
+        // Not asked for, as in an older answer: from origin, default branch unknown.
+        #expect(!pr.isCrossRepository)
+        #expect(pr.defaultBranch == "")
         #expect(pr.mergeState == .blocked)
         #expect(pr.requestedReviewers == ["Protocol Team"])
         #expect(pr.reviewRequestEvents.count == 1)
         #expect(pr.reviewRequestEvents[0].isTeam)
-        #expect(pr.unresolvedThreads == 2)
+        // Two open of the three read, and the one past them that could not be read counts as open too.
+        #expect(pr.unresolvedThreads == 3)
         // Counted only: the other searches do not ask for a thread's place or comment.
         #expect(pr.threads.isEmpty)
         // GraphQL drops a bot's `[bot]`; it is put back, so the bot checks see it.
@@ -41,8 +45,8 @@ import Testing
     @Test func decodesThreadsEvidenceAndTheApprovalsStatus() throws {
         let json = """
         {"data":{"search":{"nodes":[{"number":7,"title":"t","url":"https://github.com/o/r/pull/7","isDraft":true,"createdAt":"2026-08-27T11:12:21Z",
-          "updatedAt":"2026-08-27T12:26:33Z","mergedAt":null,"state":"OPEN","baseRefName":"main","headRefName":"h","additions":0,"deletions":0,
-          "author":{"login":"me"},"repository":{"nameWithOwner":"o/r"},"reviewDecision":null,"mergeStateStatus":null,
+          "updatedAt":"2026-08-27T12:26:33Z","mergedAt":null,"state":"OPEN","baseRefName":"main","headRefName":"h","isCrossRepository":true,"additions":0,"deletions":0,
+          "author":{"login":"me"},"repository":{"nameWithOwner":"o/r","defaultBranchRef":{"name":"develop"}},"reviewDecision":null,"mergeStateStatus":null,
           "commits":{"nodes":[{"commit":{"oid":"abc","statusCheckRollup":null,
             "status":{"context":{"description":"medium risk: 0 of 1 approvals on the latest commit"}}}}]},
           "reviews":{"nodes":[]},"reviewRequests":{"nodes":[]},"timelineItems":{"nodes":[]},
@@ -57,6 +61,8 @@ import Testing
             {"author":{"login":"me"},"body":"thanks"}]}}]}}}
         """
         let pr = try #require(GitHubDecoding.pullRequests(from: Data(json.utf8)).prs.first)
+        #expect(pr.isCrossRepository)
+        #expect(pr.defaultBranch == "develop")
         #expect(pr.unresolvedThreads == 1)
         #expect(pr.threads == [ReviewThread(
             id: "PRRT_1", path: "src/a.rs", line: 12, isOutdated: true, url: "https://github.com/o/r/pull/7#discussion_r1",
@@ -122,6 +128,30 @@ import Testing
         #expect(GitHubError.isTransient(stderr: "gh: HTTP 503 Service Unavailable"))
         #expect(!GitHubError.isTransient(stderr: "gh: HTTP 401: Bad credentials"))
         #expect(!GitHubError.isTransient(stderr: ""))
+    }
+
+    /// A fake gh that fails as the real one does: a body on stdout, its reason on stderr, exit 1.
+    @Test func failedGhCallsRetryOrThrowGhsReasonUnlessGraphQLAnswered() async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("desk-gh-\(UUID().uuidString)").path
+        try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+        func login(_ script: String) async throws -> String {
+            let gh = dir + "/gh-\(UUID().uuidString)"
+            try ("#!/bin/sh\ncat >/dev/null\n" + script).write(toFile: gh, atomically: true, encoding: .utf8)
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: gh)
+            return try await GitHubProvider(ghPath: gh, org: "o").viewerLogin()
+        }
+        let expired = #"echo '{"message":"Bad credentials"}'; echo 'gh: Bad credentials (HTTP 401)' >&2; exit 1"#
+        let unauthorized = await #expect(throws: ShellError.self) { try await login(expired) }
+        #expect(unauthorized.map { "\($0)".contains("Bad credentials (HTTP 401)") } == true)
+        let invalid = #"echo '{"errors":[{"message":"no field x"}]}'; echo 'gh: no field x' >&2; exit 1"#
+        let answered = await #expect(throws: GitHubError.self) { try await login(invalid) }
+        #expect(answered.map { "\($0)" } == "GitHub: no field x")
+        let flaky = #"""
+            if [ -e "$0.failed" ]; then echo '{"data":{"viewer":{"login":"me"}}}'; exit 0; fi
+            touch "$0.failed"; echo '{"message":"Server Error"}'; echo 'gh: Server Error (HTTP 502)' >&2; exit 1
+            """#
+        #expect(try await login(flaky) == "me")
     }
 
     @Test func decodesAcliWorkItemSearch() throws {
@@ -197,9 +227,11 @@ import Testing
         #expect(JiraDecoding.account(fromStatus: "✗ Error: unauthorized: use 'acli jira auth login' to authenticate") == nil)
     }
 
-    @Test func parsesDatesWithAndWithoutFractions() {
-        #expect(JSON.parseISO8601("2026-08-27T11:12:21Z") != nil)
-        #expect(JSON.parseISO8601("2026-08-23T11:54:57.327Z") != nil)
+    @Test func parsesDatesWithAndWithoutFractionsAndKeepsTheOffset() throws {
+        #expect(JSON.parseISO8601("2026-08-27T11:12:21Z") == Date(timeIntervalSince1970: 1_787_829_141))
+        #expect(JSON.parseISO8601("2026-08-27T13:12:21+02:00") == Date(timeIntervalSince1970: 1_787_829_141))
+        let fractional = try #require(JSON.parseISO8601("2026-08-23T13:54:57.327+02:00"))
+        #expect(abs(fractional.timeIntervalSince1970 - 1_787_486_097.327) < 0.001)
         #expect(JSON.parseISO8601("nope") == nil)
     }
 }
@@ -281,7 +313,7 @@ import Testing
         #expect(blocks.contains(.numbered(indent: 0, number: "2", text: "step two")))
         // A `#` inside a fence is code, not a heading.
         #expect(blocks.contains(.code(language: "swift", text: "let x = 1\n# not a heading")))
-        #expect(blocks.contains(.quote("a note")))
+        #expect(blocks.contains(.quote([.paragraph("a note")])))
         #expect(blocks.contains(.rule))
         #expect(!blocks.contains(.heading(level: 1, text: "not a heading")))
     }
@@ -290,8 +322,32 @@ import Testing
     @Test func aQuoteIsOneBlockAndCommentsAreHidden() {
         let text = "Intro.\n<!-- CURSOR_SUMMARY -->\n> [!NOTE]\n> **Medium Risk**\n>\n> Details here.\n>\n\n<!-- multi\nline -->After.\n\n<sup>Reviewed by Bugbot.</sup>"
         #expect(Markdown.blocks(text) == [
-            .paragraph("Intro."), .quote("**Note**\n**Medium Risk**\n\nDetails here."), .paragraph("After."),
-            .paragraph("Reviewed by Bugbot."),
+            .paragraph("Intro."), .quote([.paragraph("**Note**"), .paragraph("**Medium Risk**"), .paragraph("Details here.")]),
+            .paragraph("After."), .paragraph("Reviewed by Bugbot."),
+        ])
+    }
+
+    /// A GitHub alert holds Markdown of its own: CodeRabbit's draft notice is a heading and a checklist inside `>`.
+    @Test func aQuoteHoldsBlocksOfItsOwn() {
+        #expect(Markdown.blocks("> [!IMPORTANT]\n> ## Title\n> - [ ] item") == [
+            .quote([.paragraph("**Important**"), .heading(level: 2, text: "Title"), .task(indent: 0, done: false, text: "item")]),
+        ])
+        #expect(Markdown.blocks("> outer\n> > inner") == [.quote([.paragraph("outer"), .quote([.paragraph("inner")])])])
+    }
+
+    /// CodeRabbit's walkthrough table breaks lines in a cell with `<br>`: the row stays one row, the break a space.
+    @Test func aBreakInATableRowKeepsTheRow() {
+        let text = "| File | Change |\n|---|---|\n| `a.rs` | One.<br>Two.<br/> |\nNext<br>line"
+        #expect(Markdown.blocks(text) == [
+            .table(header: ["File", "Change"], rows: [["`a.rs`", "One. Two."]]), .paragraph("Next line"),
+        ])
+    }
+
+    /// The HTML rewrite is for prose: a fenced HTML block keeps its tags, comments and breaks.
+    @Test func aFencedHTMLBlockKeepsItsTags() {
+        let text = "<b>Bold</b>\n```html\n<div><br>\n<!-- note --><b>x</b></div>\n```\n<br>after"
+        #expect(Markdown.blocks(text) == [
+            .paragraph("**Bold**"), .code(language: "html", text: "<div><br>\n<!-- note --><b>x</b></div>"), .paragraph("after"),
         ])
     }
 

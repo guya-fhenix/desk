@@ -77,17 +77,7 @@ struct FlowSection: View {
         case .inReview:
             Text("Waiting for a review from \(model.config.reviewTeam).").scaled(.caption).foregroundStyle(.secondary)
         case .approved:
-            Text(mergeHint).scaled(.caption).foregroundStyle(pr.mergeState == .dirty || pr.checks.isRed ? .orange : .secondary)
-            HStack {
-                Spacer()
-                if busy { ProgressView().controlSize(.mini) }
-                let blocker = busy ? "Merging…" : pr.mergeBlocker
-                if !busy { DisabledReason(text: blocker) }
-                Button("Merge") { model.merge(pr) }
-                    .buttonStyle(.borderedProminent).handCursor()
-                    .disabled(blocker != nil)
-                    .help(blocker ?? "Squash-merges the PR into \(pr.baseRef)")
-            }
+            Text(mergeHint).scaled(.caption).foregroundStyle(.secondary)
         case .working, .merged, .closed:
             EmptyView()
         }
@@ -107,11 +97,10 @@ struct FlowSection: View {
         }
     }
 
+    /// Ready to merge already rules out red CI and conflicts; CI still running is the one wait left.
     private var mergeHint: String {
-        if pr.mergeState == .dirty { return "Approved, but it conflicts with \(pr.baseRef): resolve that first." }
-        if pr.checks.isRed { return "Approved, but CI failed: GitHub may refuse the merge until it passes." }
-        if pr.checks.isPending { return "Approved. CI is still running, so GitHub may refuse the merge until it passes." }
-        return "Approved. Merge squashes it into \(pr.baseRef)."
+        if pr.checks.isPending { return "CI is still running, so GitHub may refuse the merge until it passes." }
+        return "Merge squashes it into \(pr.baseRef)."
     }
 }
 

@@ -18,18 +18,21 @@ public struct ClaudeJob: Sendable, Hashable, Identifiable {
     /// `owner/name#number` of every PR the session touched, from Claude Code's own scan of the transcript.
     public var prKeys: Set<String>
     public var updatedAt: Date
+    /// When Claude Code started it; nil where its file does not say.
+    public var createdAt: Date?
     /// The full id `claude --resume` takes, which is how the app sends the session its next instruction.
     public var sessionId: String?
     /// The Jira key the prompt it started from names first: a session started on a ticket, before it has a PR.
     public var ticketKey: String?
     /// The PRs the prompt it started from names: a session the app started on a PR.
     public var startedOn: Set<String>
-    /// The PRs it opened, as Claude Code records them: its `children` of kind `pr`. A PR it only read is not one.
-    public var opened: Set<String>
+    /// The PRs Claude Code's link scan found in its output: its `children` of kind `pr`. The PR it opened is one, and so
+    /// is every PR it only mentioned.
+    public var linked: Set<String>
 
     public init(
-        id: String, name: String, state: String, cwd: String, prKeys: Set<String>, updatedAt: Date, sessionId: String? = nil,
-        ticketKey: String? = nil, startedOn: Set<String> = [], opened: Set<String> = []
+        id: String, name: String, state: String, cwd: String, prKeys: Set<String>, updatedAt: Date, createdAt: Date? = nil,
+        sessionId: String? = nil, ticketKey: String? = nil, startedOn: Set<String> = [], linked: Set<String> = []
     ) {
         self.id = id
         self.name = name
@@ -37,16 +40,11 @@ public struct ClaudeJob: Sendable, Hashable, Identifiable {
         self.cwd = cwd
         self.prKeys = prKeys
         self.updatedAt = updatedAt
+        self.createdAt = createdAt
         self.sessionId = sessionId
         self.ticketKey = ticketKey
         self.startedOn = startedOn
-        self.opened = opened
-    }
-
-    /// Whether this session carries the PR through the flow: it opened the PR, or was started on it or on its ticket. A
-    /// session that only read or mentioned the PR on the way, as one long session does with many, does not.
-    public func carries(_ prKey: String, tickets: [String]) -> Bool {
-        opened.contains(prKey) || startedOn.contains(prKey) || ticketKey.map(tickets.contains) == true
+        self.linked = linked
     }
 
     public var isRunning: Bool { state == "working" }
@@ -77,11 +75,20 @@ public enum ClaudeJobs {
             guard !keys.isEmpty || ticketKey != nil else { return nil }
             return ClaudeJob(
                 id: id, name: state.label(fallback: id), state: state.state ?? "unknown", cwd: state.cwd ?? "",
-                prKeys: keys, updatedAt: state.updatedAt ?? .distantPast, sessionId: state.sessionId, ticketKey: ticketKey,
-                startedOn: state.intent.map(ClaudeJobs.prKeys(in:)) ?? [], opened: state.opened
+                prKeys: keys, updatedAt: state.updatedAt ?? .distantPast, createdAt: state.createdAt, sessionId: state.sessionId,
+                ticketKey: ticketKey, startedOn: state.intent.map(ClaudeJobs.prKeys(in:)) ?? [], linked: state.linked
             )
         }
         .sorted { $0.updatedAt > $1.updatedAt }
+    }
+
+    /// The session that carries a PR through the flow, which its presses stop and resume: the newest of those started on
+    /// the PR or on its ticket; else, of those whose link scan found the PR, the earliest started, which is the one that
+    /// opened it. A later session that only mentioned the PR, as one long session does with many, never takes it over.
+    /// `sessions` newest first, as `scan` returns them.
+    public static func carrier(of prKey: String, tickets: [String], in sessions: [ClaudeJob]) -> ClaudeJob? {
+        sessions.first { $0.startedOn.contains(prKey) || $0.ticketKey.map(tickets.contains) == true }
+            ?? sessions.filter { $0.linked.contains(prKey) }.min { ($0.createdAt ?? .distantFuture) < ($1.createdAt ?? .distantFuture) }
     }
 
     /// The short id `claude --bg` prints ("backgrounded · 1a2b3c4d"), out of ANSI-coloured output. Read off the
@@ -119,16 +126,17 @@ public enum ClaudeJobs {
         var sessionId: String?
         var children: [Child]?
         var updatedAt: Date?
+        var createdAt: Date?
 
-        /// The PRs it opened: Claude Code lists each one it created among its `children`, and only those.
-        var opened: Set<String> {
+        /// Every PR link Claude Code's scan found in the session's output, the one it opened among them.
+        var linked: Set<String> {
             Set((children ?? []).filter { $0.kind == "pr" }.compactMap { $0.href.flatMap(ClaudeJobs.prKey) })
         }
 
-        /// The PRs this session is about: the ones it opened, plus any named in the prompt it was started from —
+        /// The PRs this session is about: the ones it linked to, plus any named in the prompt it was started from —
         /// which is the only trace of a session started on a PR that it did not open.
         var prKeys: Set<String> {
-            opened.union(intent.map(ClaudeJobs.prKeys(in:)) ?? [])
+            linked.union(intent.map(ClaudeJobs.prKeys(in:)) ?? [])
         }
 
         func label(fallback: String) -> String {

@@ -22,8 +22,6 @@ final class TerminalTab: Identifiable, LocalProcessTerminalViewDelegate {
         environment["TERM"] = "xterm-256color"
         environment["COLORTERM"] = "truecolor"
         environment["LANG"] = environment["LANG"] ?? "en_US.UTF-8"
-        // Set when Desk itself was started from a Claude session, and then claude refuses to start inside it.
-        environment["CLAUDECODE"] = nil
         view.startProcess(
             executable: executable, args: arguments, environment: environment.map { "\($0.key)=\($0.value)" },
             currentDirectory: directory
@@ -33,6 +31,11 @@ final class TerminalTab: Identifiable, LocalProcessTerminalViewDelegate {
     func processTerminated(source: TerminalView, exitCode: Int32?) {
         running = false
         view.feed(text: "\r\n[ended — close this tab, or start it again from Desk]\r\n")
+    }
+
+    /// The view has printed why. A tab that never started counts as ended, so opening it again starts it afresh.
+    func processFailedToStart(source: TerminalView, error: LocalProcessError) {
+        running = false
     }
 
     func sizeChanged(source: LocalProcessTerminalView, newCols: Int, newRows: Int) {}

@@ -22,7 +22,8 @@ public enum FlowStage: String, Sendable, CaseIterable {
     public var waitsOnYou: Bool { [.draft, .approved].contains(self) }
 
     /// A PR's stage: a draft is a draft, whatever /pre-pr has done on it (`PrePRStatus` says that); a ready PR with the
-    /// approvals it needs and nothing open is ready to merge, and in review until then.
+    /// approvals it needs, nothing open, CI not red and no conflicts is ready to merge, and in review until then. The one
+    /// definition of ready: the stage, the ready-to-merge nudge and Up Next all go by it.
     public static func of(_ pr: PullRequest) -> FlowStage {
         switch pr.state {
         case .merged: return .merged
@@ -30,7 +31,8 @@ public enum FlowStage: String, Sendable, CaseIterable {
         case .open: break
         }
         if pr.isDraft { return .draft }
-        return pr.approvalsMet && pr.unresolvedThreads == 0 ? .approved : .inReview
+        let ready = pr.approvalsMet && pr.unresolvedThreads == 0 && !pr.checks.isRed && pr.mergeState != .dirty
+        return ready ? .approved : .inReview
     }
 }
 

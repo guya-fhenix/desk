@@ -10,7 +10,8 @@ public enum MarkdownBlock: Sendable, Hashable, Identifiable {
     case task(indent: Int, done: Bool, text: String)
     case numbered(indent: Int, number: String, text: String)
     case code(language: String?, text: String)
-    case quote(String)
+    /// What a `>` quote says, as blocks of its own: GitHub's alerts hold headings and checklists.
+    case quote([MarkdownBlock])
     /// A pipe table. `header` is nil when the table has no separator row under its first line.
     case table(header: [String]?, rows: [[String]])
     case rule
@@ -23,7 +24,7 @@ public enum MarkdownBlock: Sendable, Hashable, Identifiable {
         case .task(let indent, let done, let text): return "t\(indent):\(done):\(text)"
         case .numbered(let indent, let number, let text): return "n\(indent):\(number):\(text)"
         case .code(let language, let text): return "c:\(language ?? ""):\(text)"
-        case .quote(let text): return "q:\(text)"
+        case .quote(let blocks): return "q:\(blocks.map(\.id))"
         case .table(let header, let rows): return "tbl:\(header ?? []):\(rows)"
         case .rule: return "hr"
         }
@@ -36,14 +37,61 @@ public enum Markdown {
     /// A line ending in a backslash or two spaces is a hard break (CommonMark's): the next plain line
     /// stays on a line of its own in the same paragraph or list item instead of being run into it. Jira
     /// descriptions are full of them, and joining them turns a list of steps into one long sentence.
+    ///
+    /// The HTML is rewritten outside fences only: an HTML or JSX block keeps its tags.
     public static func blocks(_ text: String) -> [MarkdownBlock] {
+        var visible: [String] = []
+        var run: [String] = []
+        var inFence = false
+        for line in text.replacingOccurrences(of: "\r\n", with: "\n").split(separator: "\n", omittingEmptySubsequences: false) {
+            let isFence = line.trimmingCharacters(in: .whitespaces).hasPrefix("```")
+            if inFence || isFence {
+                if !run.isEmpty { visible.append(markdown(fromHTML: run.joined(separator: "\n"))) }
+                run = []
+                visible.append(String(line))
+                if isFence { inFence.toggle() }
+            } else {
+                run.append(String(line))
+            }
+        }
+        if !run.isEmpty { visible.append(markdown(fromHTML: run.joined(separator: "\n"))) }
+        return parse(visible.joined(separator: "\n"))
+    }
+
+    /// HTML comments are for the author and the bots (a template's hints, a bot's markers), and GitHub hides them.
+    /// The HTML bots write for looks (CodeRabbit's walkthrough, Bugbot's notes, a <sup> footer, a <details> fold)
+    /// becomes the Markdown it means where there is one — a break, a heading, bold, code, a link — and goes where
+    /// there is not, its text kept. Only HTML's own tag names, lower case, so a `Vec<u8>` in prose stays.
+    /// The tags with no Markdown go first, so `<strong><img> Info</strong>` is bold `Info`, not `** Info**`. A break in a
+    /// table row is a space: a line break there would cut the row in two.
+    private static func markdown(fromHTML text: String) -> String {
+        text.replacing(/<!--[\s\S]*?-->/, with: "")
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .map { line in
+                line.trimmingCharacters(in: .whitespaces).hasPrefix("|") ? line.replacing(/<br\s*\/?>/, with: " ") : line
+            }
+            .joined(separator: "\n")
+            .replacing(/<\/?(?:sup|sub|small|span|div|p|details|summary|dl|dt|dd|ul|ol|li|blockquote|center|kbd|img|picture|source|hr|table|thead|tbody|tr|td|th)\b[^>]*>/, with: "")
+            .replacing(/<br\s*\/?>/, with: "\n")
+            .replacing(/<h[1-6][^>]*>([\s\S]*?)<\/h[1-6]>/) { "\n### \($0.1.trimmingCharacters(in: .whitespaces))\n" }
+            .replacing(/<(?:strong|b)>([\s\S]*?)<\/(?:strong|b)>/) { "**\($0.1.trimmingCharacters(in: .whitespaces))**" }
+            .replacing(/<(?:em|i)>([\s\S]*?)<\/(?:em|i)>/) { "_\($0.1.trimmingCharacters(in: .whitespaces))_" }
+            .replacing(/<code>([^<]*)<\/code>/) { "`\($0.1)`" }
+            // A link around a picture alone has nothing left to show once the picture goes.
+            .replacing(/<a\s[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/) { match in
+                let text = match.2.trimmingCharacters(in: .whitespacesAndNewlines)
+                return text.isEmpty ? "" : "[\(text)](\(match.1))"
+            }
+    }
+
+    /// The blocks of text the HTML is already gone from. A quote's own lines come back through here.
+    private static func parse(_ visible: String) -> [MarkdownBlock] {
         var blocks: [MarkdownBlock] = []
         var paragraph = ""
         var fence: (language: String?, lines: [String])?
         var table: [String] = []
+        var quote: [String] = []
         var brokeLine = false
-        /// Whether the line before was a quote's, which this one then carries on.
-        var quoting = false
 
         func flushParagraph() {
             guard !paragraph.isEmpty else { return }
@@ -57,31 +105,20 @@ public enum Markdown {
             table = []
         }
 
-        // HTML comments are for the author and the bots (a template's hints, a bot's markers), and GitHub hides them.
-        // ponytail: one inside a code fence goes too; parse comments per line if a description ever shows one as code.
-        // The HTML bots write for looks (CodeRabbit's walkthrough, Bugbot's notes, a <sup> footer, a <details> fold)
-        // becomes the Markdown it means where there is one — a break, a heading, bold, code, a link — and goes where
-        // there is not, its text kept. Only HTML's own tag names, lower case, so a `Vec<u8>` in prose stays.
-        // The tags with no Markdown go first, so `<strong><img> Info</strong>` is bold `Info`, not `** Info**`.
-        let visible = text.replacingOccurrences(of: "\r\n", with: "\n").replacing(/<!--[\s\S]*?-->/, with: "")
-            .replacing(/<\/?(?:sup|sub|small|span|div|p|details|summary|dl|dt|dd|ul|ol|li|blockquote|center|kbd|img|picture|source|hr|table|thead|tbody|tr|td|th)\b[^>]*>/, with: "")
-            .replacing(/<br\s*\/?>/, with: "\n")
-            .replacing(/<h[1-6][^>]*>([\s\S]*?)<\/h[1-6]>/) { "\n### \($0.1.trimmingCharacters(in: .whitespaces))\n" }
-            .replacing(/<(?:strong|b)>([\s\S]*?)<\/(?:strong|b)>/) { "**\($0.1.trimmingCharacters(in: .whitespaces))**" }
-            .replacing(/<(?:em|i)>([\s\S]*?)<\/(?:em|i)>/) { "_\($0.1.trimmingCharacters(in: .whitespaces))_" }
-            .replacing(/<code>([^<]*)<\/code>/) { "`\($0.1)`" }
-            // A link around a picture alone has nothing left to show once the picture goes.
-            .replacing(/<a\s[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/) { match in
-                let text = match.2.trimmingCharacters(in: .whitespacesAndNewlines)
-                return text.isEmpty ? "" : "[\(text)](\(match.1))"
-            }
+        func flushQuote() {
+            guard !quote.isEmpty else { return }
+            blocks.append(.quote(parse(quote.joined(separator: "\n"))))
+            quote = []
+        }
+
         for rawLine in visible.split(separator: "\n", omittingEmptySubsequences: false) {
             let line = String(rawLine)
             var trimmed = line.trimmingCharacters(in: .whitespaces)
             let continues = brokeLine
             brokeLine = false
-            let quoted = quoting
-            quoting = false
+            let unindented = line.drop { $0 == " " || $0 == "\t" }
+            let isQuote = fence == nil && (unindented.hasPrefix("> ") || trimmed == ">")
+            if !isQuote { flushQuote() }
 
             if fence == nil, trimmed.hasPrefix("|") {
                 flushParagraph()
@@ -89,6 +126,19 @@ public enum Markdown {
                 continue
             }
             flushTable()
+
+            // Consecutive quote lines are one quote, and what they say is parsed as its own text: a heading, a list or a
+            // checklist inside `>` is one. GitHub's alert marker (`[!NOTE]`) heads it in words, a line of its own.
+            if isQuote {
+                flushParagraph()
+                let body = trimmed == ">" ? "" : String(unindented.dropFirst(2))
+                if let match = body.wholeMatch(of: /\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]\s*/) {
+                    quote += ["**\(match.1.capitalized)**", ""]
+                } else {
+                    quote.append(body)
+                }
+                continue
+            }
 
             if trimmed.hasPrefix("```") {
                 if let open = fence {
@@ -129,20 +179,6 @@ public enum Markdown {
                 blocks.append(heading)
                 continue
             }
-            // Consecutive quote lines are one quote, its lines kept and a bare `>` a blank line between paragraphs.
-            // GitHub's alert marker (`[!NOTE]`) heads it in words.
-            if trimmed.hasPrefix("> ") || trimmed == ">" {
-                flushParagraph()
-                var body = String(trimmed.dropFirst(trimmed == ">" ? 1 : 2))
-                if let match = body.wholeMatch(of: /\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]/) { body = "**\(match.1.capitalized)**" }
-                if quoted, case .quote(let previous)? = blocks.last {
-                    blocks[blocks.count - 1] = .quote(previous + "\n" + body)
-                } else {
-                    blocks.append(.quote(body))
-                }
-                quoting = true
-                continue
-            }
             let indent = (line.prefix { $0 == " " || $0 == "\t" }.count) / 2
             if let marker = trimmed.first, "-*+".contains(marker), trimmed.dropFirst().hasPrefix(" ") {
                 flushParagraph()
@@ -168,6 +204,7 @@ public enum Markdown {
                 paragraph += (continues ? "\n" : " ") + trimmed
             }
         }
+        flushQuote()
         flushTable()
 
         // An unterminated fence is still code; dropping it would lose the text entirely. The trailing
@@ -178,11 +215,7 @@ public enum Markdown {
             blocks.append(.code(language: open.language, text: lines.joined(separator: "\n")))
         }
         flushParagraph()
-        // A quote's closing bare `>` lines are no part of what it says.
-        return blocks.map { block in
-            if case .quote(let text) = block { return .quote(text.trimmingCharacters(in: .newlines)) }
-            return block
-        }
+        return blocks
     }
 
     /// Adds a broken-off line to the block it belongs to. Only text-carrying items can take one; anything

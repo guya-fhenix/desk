@@ -31,9 +31,10 @@ extension GitHubProvider {
         try await Shell.output(ghPath, ["pr", "close", String(number), "--repo", repo])
     }
 
-    /// Always a squash: one commit per PR on the base branch.
-    public func squashMerge(repo: String, number: Int) async throws {
-        try await Shell.output(ghPath, ["pr", "merge", String(number), "--repo", repo, "--squash"])
+    /// Always a squash: one commit per PR on the base branch. Only of `headSha`, the head you saw: a commit pushed
+    /// since, by a session or anyone, makes GitHub refuse it rather than squash in what nobody looked at.
+    public func squashMerge(repo: String, number: Int, headSha: String) async throws {
+        try await Shell.output(ghPath, ["pr", "merge", String(number), "--repo", repo, "--squash", "--match-head-commit", headSha])
     }
 
     /// Replies in a review thread.

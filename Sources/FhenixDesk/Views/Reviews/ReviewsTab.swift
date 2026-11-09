@@ -46,9 +46,9 @@ struct ReviewsTab: View {
             if let url = opened, let pr = (rows + (model.state.github?.allOpen ?? [])).first(where: { $0.url == url }) {
                 // Start review swaps the page for the diff; back from the diff is the page again.
                 if model.reviewing == url {
-                    ReviewDiffScreen(pr: pr, model: model) { model.reviewing = nil }
+                    ReviewDiffScreen(pr: pr, model: model) { model.reviewing = nil }.id(pr.url)
                 } else {
-                    ReviewPage(pr: pr, model: model, onMe: onMe.contains(pr.url)) { opened = nil }
+                    ReviewPage(pr: pr, model: model, onMe: onMe.contains(pr.url)) { opened = nil }.id(pr.url)
                 }
             } else {
                 list(rows: rows, onMe: onMe)

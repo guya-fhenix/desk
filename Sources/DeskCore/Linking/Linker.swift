@@ -9,7 +9,7 @@ public enum RebaseReason: String, Sendable {
         switch self {
         case .conflicts: return "merge conflicts"
         case .behindBase: return "behind its base"
-        case .baseMerged: return "base branch has no open PR"
+        case .baseMerged: return "its base branch was merged"
         }
     }
 }
@@ -23,10 +23,14 @@ public enum Linker {
         return repos.first { $0.name == pr.repoName }
     }
 
+    /// Whether a PR into a branch named like this one's head is built on it. Not a fork's, nor one from the default
+    /// branch: a PR into a branch of that name targets origin's branch, which only shares the name.
+    private static func isBase(_ pr: PullRequest) -> Bool { !pr.isCrossRepository && pr.headRef != pr.defaultBranch }
+
     /// Maps each PR url to the url of the PR it is stacked on.
     public static func stackParents(_ pullRequests: [PullRequest]) -> [String: String] {
         var headsByRepo: [String: [String: String]] = [:]
-        for pr in pullRequests { headsByRepo[pr.repo, default: [:]][pr.headRef] = pr.url }
+        for pr in pullRequests where isBase(pr) { headsByRepo[pr.repo, default: [:]][pr.headRef] = pr.url }
         var parents: [String: String] = [:]
         for pr in pullRequests {
             if let parent = headsByRepo[pr.repo]?[pr.baseRef], parent != pr.url { parents[pr.url] = parent }
@@ -77,26 +81,19 @@ public enum Linker {
         return roots.sorted(using: order).flatMap { stacks[$0.id] ?? [] }
     }
 
-    public static func defaultBranches(worktrees: [Worktree], pullRequests: [PullRequest]) -> [String: String] {
-        var result: [String: String] = [:]
-        for worktree in worktrees where worktree.isMain { result[worktree.repoName] = worktree.defaultBranch }
-        for pr in pullRequests where result[pr.repoName] == nil {
-            let bases = pullRequests.filter { $0.repoName == pr.repoName }.map(\.baseRef)
-            result[pr.repoName] = bases.contains("master") && !bases.contains("main") ? "master" : "main"
-        }
-        return result
-    }
-
-    public static func rebaseReason(_ pr: PullRequest, openHeads: Set<String>, defaultBranch: String) -> RebaseReason? {
+    /// A base that is neither the default branch nor a merged PR's head is a release branch, a teammate's draft or a
+    /// parent the searches did not reach: nothing says it needs a rebase, so it gets none.
+    public static func rebaseReason(_ pr: PullRequest, mergedHeads: Set<String>) -> RebaseReason? {
         if pr.mergeState == .dirty { return .conflicts }
         if pr.mergeState == .behind { return .behindBase }
-        if pr.baseRef != defaultBranch && !openHeads.contains(pr.baseRef) { return .baseMerged }
+        if pr.baseRef != pr.defaultBranch && mergedHeads.contains(pr.baseRef) { return .baseMerged }
         return nil
     }
 
-    public static func openHeadsByRepo(_ pullRequests: [PullRequest]) -> [String: Set<String>] {
+    /// The head branches of merged PRs, by repo `owner/name`.
+    public static func mergedHeadsByRepo(_ merged: [PullRequest]) -> [String: Set<String>] {
         var heads: [String: Set<String>] = [:]
-        for pr in pullRequests where pr.state == .open { heads[pr.repoName, default: []].insert(pr.headRef) }
+        for pr in merged where isBase(pr) { heads[pr.repo, default: []].insert(pr.headRef) }
         return heads
     }
 }

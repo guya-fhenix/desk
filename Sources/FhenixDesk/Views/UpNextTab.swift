@@ -30,11 +30,11 @@ struct UpNextTab: View {
         let rows = early + drifts.map(\.id) + tickets.map(\.key) + waiting
         Group {
             if let key = opened, let ticket = model.state.ticket(key) {
-                TicketPage(ticket: ticket, model: model, back: "Up Next", plan: startPlan) { opened = nil }
+                TicketPage(ticket: ticket, model: model, back: "Up Next", plan: startPlan) { opened = nil }.id(ticket.key)
             } else if let url = opened, let pr = model.yourPullRequest(url) {
-                PullRequestPage(pr: pr, model: model, back: "Up Next") { opened = nil }
+                PullRequestPage(pr: pr, model: model, back: "Up Next") { opened = nil }.id(pr.url)
             } else if let url = opened, let pr = model.state.github?.allOpen.first(where: { $0.url == url }) {
-                ReviewPage(pr: pr, model: model, onMe: onMe(pr), back: "Up Next") { opened = nil }
+                ReviewPage(pr: pr, model: model, onMe: onMe(pr), back: "Up Next") { opened = nil }.id(pr.url)
             } else {
                 list(plan: plan, tickets: tickets, drifts: drifts)
             }

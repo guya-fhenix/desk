@@ -6,8 +6,8 @@ public struct NudgeInput: Sendable {
     public var config: DeskConfig
     public var mine: [PullRequest]
     public var reviewRequests: [PullRequest]
-    public var openHeadsByRepo: [String: Set<String>]
-    public var defaultBranches: [String: String]
+    /// Your merged PRs' head branches, by repo `owner/name`: a PR based on one needs a rebase.
+    public var mergedHeadsByRepo: [String: Set<String>]
     /// The background sessions, newest first: one on a PR of yours puts it in the flow.
     public var sessions: [ClaudeJob]
     /// The Jira keys each PR of yours names, by PR url: a ticket's session carries its PRs.
@@ -15,24 +15,22 @@ public struct NudgeInput: Sendable {
 
     public init(
         now: Date, login: String, config: DeskConfig, mine: [PullRequest], reviewRequests: [PullRequest],
-        openHeadsByRepo: [String: Set<String>], defaultBranches: [String: String],
-        sessions: [ClaudeJob] = [], ticketKeys: [String: [String]] = [:]
+        mergedHeadsByRepo: [String: Set<String>], sessions: [ClaudeJob] = [], ticketKeys: [String: [String]] = [:]
     ) {
         self.now = now
         self.login = login
         self.config = config
         self.mine = mine
         self.reviewRequests = reviewRequests
-        self.openHeadsByRepo = openHeadsByRepo
-        self.defaultBranches = defaultBranches
+        self.mergedHeadsByRepo = mergedHeadsByRepo
         self.sessions = sessions
         self.ticketKeys = ticketKeys
     }
 
-    /// The session carrying this PR through the flow, as `DeskState.session(for:)` picks it.
+    /// The session carrying this PR through the flow, as `ClaudeJobs.carrier` picks it.
     func session(for pr: PullRequest) -> ClaudeJob? {
         guard let key = ClaudeJobs.prKey(pr.url) else { return nil }
-        return sessions.first { $0.carries(key, tickets: ticketKeys[pr.url] ?? []) }
+        return ClaudeJobs.carrier(of: key, tickets: ticketKeys[pr.url] ?? [], in: sessions)
     }
 }
 
@@ -51,19 +49,20 @@ public enum NudgeEngine {
                 let latest = pr.reviews.filter { $0.state == "CHANGES_REQUESTED" }.map(\.submittedAt).max() ?? pr.updatedAt
                 nudges.append(Nudge(id: "changes:\(pr.url):\(latest.timeIntervalSince1970)", kind: .changesRequested, severity: .warning, title: "Changes requested on \(label)", detail: pr.title, url: pr.url))
             }
-            let openHeads = input.openHeadsByRepo[pr.repoName] ?? []
-            let defaultBranch = input.defaultBranches[pr.repoName] ?? "main"
-            if let reason = Linker.rebaseReason(pr, openHeads: openHeads, defaultBranch: defaultBranch) {
+            if let reason = Linker.rebaseReason(pr, mergedHeads: input.mergedHeadsByRepo[pr.repo] ?? []) {
                 nudges.append(Nudge(id: "rebase:\(pr.url):\(reason.rawValue):\(pr.headSha)", kind: .needsRebase, severity: .warning, title: "\(label) needs a rebase", detail: "\(reason.text): \(pr.baseRef)", url: pr.url))
             }
-            if pr.reviewDecision == .approved && pr.mergeState == .clean && !pr.checks.isRed && !pr.checks.isPending && !inFlow {
-                nudges.append(Nudge(id: "ready:\(pr.url):\(pr.headSha)", kind: .readyToMerge, severity: .info, title: "\(label) is approved and green", detail: "Merge it.", url: pr.url))
+            // Ready by the stage's rule, and GitHub would take the merge now: nothing left to wait for.
+            if FlowStage.of(pr) == .approved && pr.mergeState == .clean && !pr.checks.isPending && !inFlow {
+                nudges.append(Nudge(id: "ready:\(pr.url):\(pr.headSha)", kind: .readyToMerge, severity: .info, title: "\(label) is ready to merge", detail: "Merge it.", url: pr.url))
             }
         }
 
         for pr in input.reviewRequests {
             let waiting = input.now.timeIntervalSince(pr.createdAt)
-            nudges.append(Nudge(id: "review:\(pr.url)", kind: .reviewRequested, severity: waiting > 86_400 ? .warning : .info, title: "Needs review: \(pr.repoName)#\(pr.number)", detail: "\(pr.title) · \(pr.author) · \(TimeText.duration(waiting))", url: pr.url))
+            // Keyed by your last review too, so a request that comes back after you answered is news again.
+            let answered = ReviewStatus.lastSubmitted(pr, by: input.login)?.submittedAt.timeIntervalSince1970 ?? 0
+            nudges.append(Nudge(id: "review:\(pr.url):\(answered)", kind: .reviewRequested, severity: waiting > 86_400 ? .warning : .info, title: "Needs review: \(pr.repoName)#\(pr.number)", detail: "\(pr.title) · \(pr.author) · \(TimeText.duration(waiting))", url: pr.url))
         }
 
         nudges += flowNudges(input)
@@ -100,7 +99,7 @@ public enum NudgeEngine {
                 case .passed: title = "\(label) passed /pre-pr: mark it ready" + (threads > 0 ? ", \(open) left" : "")
                 case .importantOpen: title = "\(label): /pre-pr left an Important finding open"
                 }
-            case .approved: title = "\(label) is approved: merge it"
+            case .approved: title = "\(label) is ready: merge it"
             default:
                 // Open threads wait on you at any stage; a stage that waits on you already says so.
                 guard threads > 0 else { continue }

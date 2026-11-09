@@ -23,6 +23,8 @@ import Testing
         let noOrg = Setup.github([GitHubAccount(login: "a", active: true, scopes: "repo, gist")])
         #expect(!noOrg.ok)
         #expect(noOrg.detail.contains("read:org"))
+        // GitHub lists only the broadest org scope, which implies read:org.
+        #expect(Setup.github([GitHubAccount(login: "a", active: true, scopes: "admin:org, repo")]).ok)
         // A token gh reads no scopes off is let through: nothing says it lacks them.
         #expect(Setup.github([GitHubAccount(login: "a", active: true, scopes: nil)]).ok)
     }

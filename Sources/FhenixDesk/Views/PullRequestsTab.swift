@@ -38,7 +38,7 @@ struct PullRequestsTab: View {
         let shown = scope == .open ? rows.map(\.pullRequest.url) : merged.map(\.url)
         Group {
             if let pr = opened.flatMap(pullRequest) {
-                PullRequestPage(pr: pr, model: model) { opened = nil }
+                PullRequestPage(pr: pr, model: model) { opened = nil }.id(pr.url)
             } else {
                 list(rows: rows, merged: merged, shown: shown)
             }
@@ -230,7 +230,7 @@ struct PullRequestRow: View {
         if let parent = model.state.stackParent(of: pr) {
             Text(verbatim: "on #\(parent.number)").scaled(.caption).foregroundStyle(.secondary).fixedSize()
                 .help("Stacked on #\(parent.number) by \(parent.author)" as String)
-        } else if pr.baseRef != model.state.defaultBranches[pr.repoName] ?? "main" {
+        } else if pr.baseRef != pr.defaultBranch {
             Text("on \(pr.baseRef)").scaled(.caption).foregroundStyle(.orange).fixedSize()
                 .help("Base branch has no open PR")
         }
@@ -442,6 +442,8 @@ private struct ActionsCard: View {
 
     var body: some View {
         let blocker = pr.mergeBlocker
+        // A merge, or a flow press, holds the PR in `busyFlows` until it is done.
+        let busy = self.busy || model.busyFlows.contains(pr.url)
         SideCard(title: "Actions") {
             Button { confirming = .merge } label: {
                 HStack(spacing: 6) {

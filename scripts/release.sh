@@ -13,8 +13,10 @@ fail() { echo "release: $*" >&2; exit 1; }
 git fetch --quiet --tags origin main
 [[ "$(git rev-parse HEAD)" == "$(git rev-parse origin/main)" ]] || fail "main is not at origin/main; pull or push first"
 ! git rev-parse --quiet --verify "refs/tags/${TAG}" >/dev/null || fail "${TAG} exists; raise CFBundleShortVersionString in Resources/Info.plist"
+gh auth status >/dev/null 2>&1 || fail "gh is not signed in; run gh auth login"
+swift test || fail "the tests fail; fix them on main first"
 
 scripts/dmg.sh
-git tag -a "$TAG" -m "Fhenix Desk ${VERSION}"
-git push origin "$TAG"
-gh release create "$TAG" "build/FhenixDesk-${VERSION}.dmg" --title "Fhenix Desk ${VERSION}" --generate-notes
+# gh makes the tag when it publishes the release, so a failed upload leaves no tag for the rerun to trip on.
+gh release create "$TAG" "build/FhenixDesk-${VERSION}.dmg" --title "Fhenix Desk ${VERSION}" --generate-notes \
+  --target "$(git rev-parse HEAD)"

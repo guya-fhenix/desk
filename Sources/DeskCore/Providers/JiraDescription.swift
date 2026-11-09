@@ -169,13 +169,18 @@ public enum JiraDescription {
     /// Markdown, as the edit box holds it, into the ADF Jira stores: the nodes `markdown(_:)` reads, so a description
     /// goes back the way it came. A bare address becomes a link, as an inline card read as one.
     public static func adf(fromMarkdown text: String) -> [String: Any] {
+        ["type": "doc", "version": 1, "content": content(Markdown.blocks(text))]
+    }
+
+    /// Blocks as ADF nodes, consecutive list lines as one list: a document's, or a quote's.
+    private static func content(_ blocks: [MarkdownBlock]) -> [[String: Any]] {
         var content: [[String: Any]] = []
         var items: [ListEntry] = []
         func flushList() {
             if !items.isEmpty { content += lists(items[...]) }
             items = []
         }
-        for block in Markdown.blocks(text) {
+        for block in blocks {
             switch block {
             case .bullet(let indent, let text): items.append(ListEntry(indent: indent, ordered: false, number: nil, text: text))
             case .numbered(let indent, let number, let text):
@@ -188,7 +193,7 @@ public enum JiraDescription {
             }
         }
         flushList()
-        return ["type": "doc", "version": 1, "content": content]
+        return content
     }
 
     private struct ListEntry {
@@ -208,9 +213,8 @@ public enum JiraDescription {
             var code: [String: Any] = ["type": "codeBlock", "content": text.isEmpty ? [] : [["type": "text", "text": text]]]
             if let language { code["attrs"] = ["language": language] }
             return [code]
-        case .quote(let text):
-            let paragraphs = text.components(separatedBy: "\n\n").filter { !$0.isEmpty }.map(paragraph)
-            return [["type": "blockquote", "content": paragraphs]]
+        case .quote(let blocks):
+            return [["type": "blockquote", "content": content(blocks)]]
         case .table(let header, let rows):
             func row(_ cells: [String], header: Bool) -> [String: Any] {
                 ["type": "tableRow", "content": cells.map { ["type": header ? "tableHeader" : "tableCell", "content": [paragraph($0)]] }]

@@ -164,12 +164,15 @@ public actor GitHubProvider {
     ///
     /// `retrying: false` is for writes, which must run exactly once: a 502 returned after the mutation
     /// landed would otherwise post it twice.
+    ///
+    /// `gh` prints a failed call's body to stdout too. Only one holding GraphQL's `errors` is an answer, which the
+    /// decoders turn into its messages; any other failure is HTTP's, and gh's stderr is what says why.
     func graphQL(query: String, variables: [String: any Sendable], retrying: Bool = true) async throws -> Data {
         let body = try JSONSerialization.data(withJSONObject: ["query": query, "variables": variables])
         var attempt = 0
         while true {
             let result = try await Shell.run(ghPath, ["api", "graphql", "--input", "-"], stdin: body)
-            if result.stdout.first == UInt8(ascii: "{") { return result.stdout }
+            if result.status == 0 || GitHubDecoding.hasErrors(result.stdout) { return result.stdout }
             attempt += 1
             guard retrying, attempt < Self.attempts, GitHubError.isTransient(stderr: result.stderr) else {
                 throw ShellError.failed(command: "gh api graphql", status: result.status, stderr: result.stderr)
@@ -219,16 +222,17 @@ public enum GitHubQueries {
     """
 
     /// A PR's whole conversation. An outdated thread's `line` is null; `originalLine` is where it was written.
-    /// ponytail: the first 100 threads, comments and reviews, and 100 comments a thread; page them if a PR ever has more.
+    /// ponytail: the newest 100 threads and reviews, the first 100 comments, and 100 comments a thread; page them if a PR
+    /// ever has more.
     public static let conversationQuery = """
     query($owner: String!, $name: String!, $number: Int!) {
       repository(owner: $owner, name: $name) { pullRequest(number: $number) {
-        reviewThreads(first: 100) { nodes {
+        reviewThreads(last: 100) { nodes {
           id isResolved isOutdated path line originalLine diffSide viewerCanReply viewerCanResolve viewerCanUnresolve
           comments(first: 100) { nodes { id author { __typename login avatarUrl(size: 64) } body createdAt url } }
         } }
         comments(first: 100) { nodes { id author { __typename login avatarUrl(size: 64) } body createdAt url } }
-        reviews(first: 100) { nodes { id state body submittedAt url author { __typename login avatarUrl(size: 64) } } }
+        reviews(last: 100) { nodes { id state body submittedAt url author { __typename login avatarUrl(size: 64) } } }
       } }
     }
     """
@@ -263,13 +267,13 @@ public enum GitHubQueries {
     """
 
     /// The open threads are only counted here.
-    public static let searchQuery = searchQuery(threads: "reviewThreads(first: 100) { nodes { isResolved } }")
+    public static let searchQuery = searchQuery(threads: "reviewThreads(last: 100) { totalCount nodes { isResolved } }")
 
     /// Your own PRs' search: each thread in full, for the PR page's list, and the comments the /pre-pr evidence is one
     /// of. /pre-pr edits its one evidence comment in place, and posts it while the PR is a draft, so it is early on.
     /// ponytail: the first 50 comments; read the evidence by REST if a PR ever has more before it.
     public static let mineSearchQuery = searchQuery(threads: """
-      reviewThreads(first: 100) { nodes { id isResolved isOutdated path line originalLine
+      reviewThreads(last: 100) { totalCount nodes { id isResolved isOutdated path line originalLine
         comments(first: 1) { totalCount nodes { author { __typename login } body url } } } }
       comments(first: 50) { nodes { author { __typename login } body } }
       """)
@@ -280,9 +284,9 @@ public enum GitHubQueries {
       search(query: $q, type: ISSUE, first: $first, after: $after) { pageInfo { hasNextPage endCursor } nodes { ...PR } }
     }
     fragment PR on PullRequest {
-      number title body url isDraft createdAt updatedAt mergedAt state baseRefName headRefName additions deletions
+      number title body url isDraft createdAt updatedAt mergedAt state baseRefName headRefName isCrossRepository additions deletions
       author { __typename login }
-      repository { nameWithOwner }
+      repository { nameWithOwner defaultBranchRef { name } }
       reviewDecision
       mergeStateStatus
       baseRef { rules(first: 20) { nodes { type parameters { ... on PullRequestParameters { requiredApprovingReviewCount requireCodeOwnerReview } } } } }
@@ -294,12 +298,12 @@ public enum GitHubQueries {
         } } }
         status { context(name: "\(ApprovalGate.context)") { description } }
       } } }
-      reviews(first: 100) { nodes { state submittedAt author { __typename login } } }
+      reviews(last: 100) { nodes { state submittedAt author { __typename login } } }
       pending: reviews(states: PENDING, first: 1) {
         nodes { id commit { oid } comments { totalCount } }
       }
       reviewRequests(first: 20) { nodes { requestedReviewer { __typename ... on User { login } ... on Team { name } } } }
-      timelineItems(itemTypes: [REVIEW_REQUESTED_EVENT], first: 50) {
+      timelineItems(itemTypes: [REVIEW_REQUESTED_EVENT], last: 50) {
         nodes { ... on ReviewRequestedEvent { createdAt requestedReviewer { __typename ... on User { login } ... on Team { name } } } }
       }
       \(threads)
@@ -377,6 +381,12 @@ public enum GitHubDecoding {
             id: node.id, author: node.author?.name ?? "ghost", avatar: node.author?.avatarUrl, body: node.body,
             createdAt: node.createdAt, url: node.url
         )
+    }
+
+    /// Whether the body is GraphQL's own answer naming what went wrong, rather than a failed HTTP call's.
+    static func hasErrors(_ data: Data) -> Bool {
+        struct Answer: Decodable { var errors: [GraphQLError]? }
+        return (try? JSONDecoder().decode(Answer.self, from: data))?.errors?.isEmpty == false
     }
 
     /// A write's answer: only its errors matter.
@@ -459,6 +469,8 @@ public enum GitHubDecoding {
             mergedAt: node.mergedAt,
             baseRef: node.baseRefName,
             headRef: node.headRefName,
+            isCrossRepository: node.isCrossRepository ?? false,
+            defaultBranch: node.repository.defaultBranchRef?.name ?? "",
             headSha: commit?.oid ?? "",
             additions: node.additions,
             deletions: node.deletions,
@@ -473,7 +485,11 @@ public enum GitHubDecoding {
                 guard let createdAt = event.createdAt, let reviewer = event.requestedReviewer else { return nil }
                 return ReviewRequestEvent(createdAt: createdAt, reviewer: reviewer.displayName, isTeam: reviewer.typename == "Team")
             },
-            unresolvedThreads: node.reviewThreads?.nodes.filter { !$0.isResolved }.count ?? 0,
+            // Past the newest 100, the threads left unread count as unresolved: none of them can be shown resolved, and
+            // a PR must not look clean for want of reading them.
+            unresolvedThreads: node.reviewThreads.map { threads in
+                threads.nodes.count { !$0.isResolved } + max(0, (threads.totalCount ?? 0) - threads.nodes.count)
+            } ?? 0,
             pendingReview: node.pending?.nodes.first.map { review in
                 PendingReview(id: review.id, commitId: review.commit?.oid ?? "", comments: review.comments.totalCount)
             },
@@ -534,7 +550,11 @@ public enum GitHubDecoding {
             case avatarUrl
         }
     }
-    private struct Repository: Decodable { var nameWithOwner: String }
+    private struct Repository: Decodable {
+        var nameWithOwner: String
+        var defaultBranchRef: Name?
+    }
+    private struct Name: Decodable { var name: String }
 
     private struct ConversationData: Decodable { var repository: ConversationRepository? }
     private struct ConversationRepository: Decodable { var pullRequest: ConversationPR? }
@@ -652,6 +672,7 @@ public enum GitHubDecoding {
         var state: String
         var baseRefName: String
         var headRefName: String
+        var isCrossRepository: Bool?
         var additions: Int
         var deletions: Int
         var author: Login?
@@ -702,7 +723,10 @@ public enum GitHubDecoding {
         var requireCodeOwnerReview: Bool?
     }
 
-    private struct ReviewThreads: Decodable { var nodes: [ReviewThreadNode] }
+    private struct ReviewThreads: Decodable {
+        var totalCount: Int?
+        var nodes: [ReviewThreadNode]
+    }
     private struct ReviewThreadNode: Decodable {
         var id: String?
         var isResolved: Bool

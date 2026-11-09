@@ -22,6 +22,9 @@ struct FhenixDeskApp: App {
                 .frame(minWidth: 960, minHeight: 560)
         }
         .defaultSize(width: 1180, height: 720)
+        // Shown at every launch, even one that restores no window: the window's task is what builds the menu bar item
+        // and `openDesk`, and without them this Dock-less app has no way back in.
+        .defaultLaunchBehavior(.presented)
         .windowResizability(.contentMinSize)
         // The window's buttons sit on the sidebar and its title bar is gone; the background drags the window.
         .windowStyle(.hiddenTitleBar)
@@ -110,11 +113,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// kept a scene alive.
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 
-    /// A review session's `open fhenixdesk://show/…`: the Desk comes forward on that PR's diff, at that line.
+    /// A review session's `fhenixdesk://show/…`: the Desk comes forward on that PR's diff, at that line. Only for a PR
+    /// it knows: any web page can open the link, and must not pull focus with it.
     func application(_ application: NSApplication, open urls: [URL]) {
         MainActor.assumeIsolated {
-            urls.forEach { model?.open($0) }
-            Self.openDesk?()
+            // Every link is read, not only up to the first that matches.
+            if urls.map({ model?.open($0) == true }).contains(true) { Self.openDesk?() }
         }
     }
 
