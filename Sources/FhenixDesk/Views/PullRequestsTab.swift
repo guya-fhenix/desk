@@ -38,7 +38,7 @@ struct PullRequestsTab: View {
         let shown = scope == .open ? rows.map(\.pullRequest.url) : merged.map(\.url)
         Group {
             if let pr = opened.flatMap(pullRequest) {
-                PullRequestPage(pr: pr, model: model) { opened = nil }
+                PullRequestPage(pr: pr, model: model) { opened = nil }.id(pr.url)
             } else {
                 list(rows: rows, merged: merged, shown: shown)
             }
