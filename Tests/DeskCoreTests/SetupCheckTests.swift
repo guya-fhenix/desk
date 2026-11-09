@@ -27,6 +27,11 @@ import Testing
         #expect(Setup.github([GitHubAccount(login: "a", active: true, scopes: "admin:org, repo")]).ok)
         // A token gh reads no scopes off is let through: nothing says it lacks them.
         #expect(Setup.github([GitHubAccount(login: "a", active: true, scopes: nil)]).ok)
+        // Every press that opens GitHub CLI's sign-in page says that page asks for gh's own scopes, Workflow among them.
+        let pages = [Setup.github([]), Setup.github([GitHubAccount(login: "a", active: true, state: "failure")]), noOrg]
+        for check in pages {
+            #expect(check.fixes.allSatisfy { $0.note?.contains("Workflow") == true })
+        }
     }
 
     @Test func readsClaudeSignIn() {

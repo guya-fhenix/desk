@@ -183,6 +183,12 @@ private struct CheckRow: View {
                 if check?.ok == false {
                     Text(kind.without).scaled(.caption).foregroundStyle(kind.isRequired ? .red : .orange)
                 }
+                // What a fix's press brings up that Desk does not choose, such as GitHub CLI's own permissions.
+                if run != nil {
+                    ForEach(Array(Set((check?.fixes ?? []).compactMap(\.note))).sorted(), id: \.self) { note in
+                        Text(note).scaled(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    }
+                }
             }
             Spacer()
             if let run {
