@@ -35,6 +35,11 @@ final class TerminalTab: Identifiable, LocalProcessTerminalViewDelegate {
         view.feed(text: "\r\n[ended — close this tab, or start it again from Desk]\r\n")
     }
 
+    /// The view has printed why. A tab that never started counts as ended, so opening it again starts it afresh.
+    func processFailedToStart(source: TerminalView, error: LocalProcessError) {
+        running = false
+    }
+
     func sizeChanged(source: LocalProcessTerminalView, newCols: Int, newRows: Int) {}
     func setTerminalTitle(source: LocalProcessTerminalView, title: String) {}
     func hostCurrentDirectoryUpdate(source: TerminalView, directory: String?) {}

@@ -109,8 +109,9 @@ final class AppModel {
             + state.ticketDrifts.count
     }
 
+    /// The polls start first: reading the Jira account can wait out acli's whole timeout offline, and the window would
+    /// stay empty all that time.
     func start() async {
-        jiraAccount = await service.jiraAccount()
         for source in Source.allCases where loops[source] == nil {
             loops[source] = Task { [weak self] in
                 while !Task.isCancelled {
@@ -121,6 +122,7 @@ final class AppModel {
                 }
             }
         }
+        jiraAccount = await service.jiraAccount()
     }
 
     private func interval(for source: Source) -> Int {
