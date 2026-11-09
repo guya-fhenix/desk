@@ -11,6 +11,10 @@ final class AppModel {
     var refreshing: Set<Source> = []
     /// Sources asked to refresh while they already were, each to go once more when that one ends.
     private var refreshAgain: Set<Source> = []
+    /// Jira refreshes that failed in a row, which stretch its next poll (`PollBackoff`); one success clears it.
+    private var jiraFailures = 0
+    /// When each source's poll next runs, so a source that keeps failing can say when it will be tried again.
+    var nextPoll: [Source: Date] = [:]
     /// Why config.json couldn't be read at launch, or why the last settings write failed, in a sentence that says what to
     /// do; nil once a write succeeds.
     var configError: String?
@@ -127,6 +131,7 @@ final class AppModel {
                     guard let self else { return }
                     await self.refresh(source)
                     let seconds = self.interval(for: source)
+                    self.nextPoll[source] = Date().addingTimeInterval(TimeInterval(seconds))
                     try? await Task.sleep(for: .seconds(seconds))
                 }
             }
@@ -138,7 +143,7 @@ final class AppModel {
         switch source {
         case .github: return max(config.githubPollSeconds, 30)
         case .git: return max(config.gitPollSeconds, 15)
-        case .jira: return max(config.jiraPollSeconds, 60)
+        case .jira: return PollBackoff.seconds(interval: max(config.jiraPollSeconds, 60), failures: jiraFailures)
         }
     }
 
@@ -199,6 +204,8 @@ final class AppModel {
             state.errors[source] = "\(error)"
             Self.log.error("\(source.title, privacy: .public): \(String(describing: error), privacy: .public)")
         }
+        // Jira failing again and again is asked less and less often, which is what lets a throttle on the account lift.
+        if source == .jira { jiraFailures = state.errors[.jira] == nil ? 0 : jiraFailures + 1 }
         state.recompute()
         notifier.deliver(state.nudges, post: config.notificationsEnabled && allSourcesReported)
     }

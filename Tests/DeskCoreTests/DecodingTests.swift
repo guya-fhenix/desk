@@ -220,6 +220,26 @@ import Testing
     /// Other people's backlog is most of a Jira refresh — 228 tickets against 16 in the sprint and 7 of yours, here — so
     /// it is searched only when the Jira screen shows it; fetched on every poll regardless, it was enough for Jira to
     /// slow acli until searches failed.
+    /// A Jira refresh asks acli one search at a time: several at once from every refresh were part of what had Jira
+    /// throttle acli for the account.
+    @Test func jiraSearchesRunOneAtATime() async throws {
+        actor InFlight {
+            var now = 0, most = 0
+            func start() { now += 1; most = max(most, now) }
+            func end() { now -= 1 }
+        }
+        let inFlight = InFlight()
+        let jira = JiraProvider(acliPath: "/acli") { _, arguments, _, _, _, _ in
+            if arguments.contains("auth") { return .ok("✓ Authenticated\n  Site: fhenix.atlassian.net\n") }
+            await inFlight.start()
+            try await Task.sleep(for: .milliseconds(20))
+            await inFlight.end()
+            return .ok("[]")
+        }
+        _ = try await jira.openIssues(projects: ["PRO"], teamBacklog: true, previousTeam: [])
+        #expect(await inFlight.most == 1)
+    }
+
     @Test func otherPeoplesBacklogIsSearchedOnlyWhenShown() async throws {
         actor Asked { var jql: [String] = []; func add(_ query: String) { jql.append(query) } }
         func searches(teamBacklog: Bool) async throws -> [String] {

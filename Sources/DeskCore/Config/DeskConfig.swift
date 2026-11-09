@@ -26,6 +26,7 @@ public struct DeskConfig: Codable, Sendable, Equatable {
     /// something or finishing shows within moments. It runs no network calls, and one scan is a few git processes per
     /// repo and worktree.
     public var gitPollSeconds: Int = 15
+    /// How often Jira is asked, before `PollBackoff` stretches it while Jira keeps failing.
     public var jiraPollSeconds: Int = 300
     public var notificationsEnabled: Bool = true
     public var claudePath: String = ""
@@ -107,4 +108,14 @@ public struct AppSupport: Sendable {
         try JSON.encoder().encode(value).write(to: url(name), options: .atomic)
     }
 
+}
+
+/// How long a source waits for its next poll after `failures` in a row: its interval, doubled for each failure, up to
+/// `cap`. A source that keeps failing — Jira throttling acli for the account, say — is then asked less and less often,
+/// which is what lets the throttle lift; one success puts it back on its interval.
+public enum PollBackoff {
+    public static func seconds(interval: Int, failures: Int, cap: Int = 1_800) -> Int {
+        guard failures > 0 else { return interval }
+        return min(interval << min(failures, 16), max(cap, interval))
+    }
 }

@@ -851,7 +851,11 @@ private struct SyncDetail: View {
 
     private func age(_ source: Source) -> String {
         if model.refreshing.contains(source) { return "syncing…" }
-        if model.state.errors[source] != nil { return "failed" }
+        if model.state.errors[source] != nil {
+            // A source that keeps failing waits longer each time (Jira's back-off): say when, or it looks given up on.
+            guard let next = model.nextPoll[source], next > Date() else { return "failed" }
+            return "failed · next try in \(TimeText.duration(next.timeIntervalSinceNow))"
+        }
         return model.state.lastRefresh[source].map { "synced \(Format.ago($0))" } ?? "not synced yet"
     }
 }

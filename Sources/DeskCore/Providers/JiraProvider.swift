@@ -61,16 +61,17 @@ public actor JiraProvider {
     private static let mine = "assignee = currentUser() AND resolution = Unresolved"
 
     /// Two searches rather than one: sprint membership is a JQL function, not a field acli will return,
-    /// so which search a ticket comes back in is what places it.
+    /// so which search a ticket comes back in is what places it. One after the other, as every search here is: several
+    /// at once, from each refresh, were part of what had Jira throttle acli for this account until searches failed.
     public func myOpenIssues() async throws -> [Ticket] {
-        async let sprint = search(
+        let sprint = try await search(
             jql: "\(Self.mine) AND sprint in openSprints() ORDER BY updated DESC", assignedToMe: true, placement: .sprint
         )
-        async let backlog = search(
+        let backlog = try await search(
             jql: "\(Self.mine) AND (sprint is EMPTY OR sprint not in openSprints()) ORDER BY updated DESC",
             assignedToMe: true, placement: .backlog
         )
-        return try await sprint + backlog
+        return sprint + backlog
     }
 
     /// Everyone else's unfinished tickets in these projects, unassigned ones included, for the Jira screen's
@@ -82,13 +83,13 @@ public actor JiraProvider {
         guard !projects.isEmpty else { return [] }
         let others = "project in (\(projects.joined(separator: ","))) AND resolution = Unresolved"
             + " AND (assignee is EMPTY OR assignee != currentUser())"
-        async let sprint = search(jql: "\(others) AND sprint in openSprints() ORDER BY updated DESC", assignedToMe: false, placement: .sprint)
-        guard backlog else { return try await sprint }
-        async let backlogTickets = search(
+        let sprint = try await search(jql: "\(others) AND sprint in openSprints() ORDER BY updated DESC", assignedToMe: false, placement: .sprint)
+        guard backlog else { return sprint }
+        let backlogTickets = try await search(
             jql: "\(others) AND (sprint is EMPTY OR sprint not in openSprints()) ORDER BY updated DESC",
             assignedToMe: false, placement: .backlog
         )
-        return try await sprint + backlogTickets
+        return sprint + backlogTickets
     }
 
     /// Your unfinished tickets and everyone else's in `projects`. Yours decide whether the refresh worked. Everyone
@@ -98,11 +99,9 @@ public actor JiraProvider {
     public func openIssues(
         projects: [String], teamBacklog: Bool, previousTeam: [Ticket]
     ) async throws -> (tickets: [Ticket], teamError: String?) {
-        async let mine = myOpenIssues()
-        async let team = teamOpenIssues(projects: projects, backlog: teamBacklog)
-        let yours = try await mine
+        let yours = try await myOpenIssues()
         do {
-            return (yours + (try await team), nil)
+            return (yours + (try await teamOpenIssues(projects: projects, backlog: teamBacklog)), nil)
         } catch {
             return (yours + previousTeam, "Other people's tickets kept their last list: \(error)")
         }
