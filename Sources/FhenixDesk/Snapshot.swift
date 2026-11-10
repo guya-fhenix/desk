@@ -65,7 +65,7 @@ enum Snapshot {
     private static func window(_ arguments: [String]) async {
         let screen = arguments.first ?? ""
         guard arguments.count >= 2, screen == "settings" || screen == "setup" || DeskWindow.Tab(rawValue: screen) != nil else {
-            print("usage: --snapshot window <upNext|pullRequests|reviews|tickets|settings|setup> <out.png> [height] [dark] [open=<pr url>] [terminal [expand] [font=<pt>]] [pane=<pane>] [step=<step>]")
+            print("usage: --snapshot window <upNext|pullRequests|reviews|tickets|settings|setup> <out.png> [height] [dark] [open=<pr url>] [terminal [expand [collapse]] [font=<pt>]] [pane=<pane>] [step=<step>]")
             return
         }
         func value(_ name: String) -> String? { arguments.first { $0.hasPrefix("\(name)=") }.map { String($0.dropFirst(name.count + 1)) } }
@@ -87,6 +87,10 @@ enum Snapshot {
                 Task {
                     try? await Task.sleep(for: .seconds(1))
                     model.terminals.expanded = true
+                    // `collapse` puts it back a second later: the snapshot shows the terminal survived the round trip.
+                    guard arguments.contains("collapse") else { return }
+                    try? await Task.sleep(for: .seconds(1))
+                    model.terminals.expanded = false
                 }
             }
         }
