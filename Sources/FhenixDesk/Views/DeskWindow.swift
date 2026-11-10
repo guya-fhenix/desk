@@ -149,7 +149,11 @@ struct DeskWindow: View {
         }
         .listStyle(.sidebar)
         .safeAreaInset(edge: .bottom) {
-            SidebarStatus().padding(.horizontal, Theme.Space.s).padding(.bottom, Theme.Space.m)
+            VStack(spacing: Theme.Space.s) {
+                UpdateNotice()
+                SidebarStatus()
+            }
+            .padding(.horizontal, Theme.Space.s).padding(.bottom, Theme.Space.m)
         }
         .toolbar(removing: model.showingSetup ? .sidebarToggle : nil)
         // Outermost, or the split view does not see it.
