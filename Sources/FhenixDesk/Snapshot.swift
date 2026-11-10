@@ -5,7 +5,7 @@ import ScreenCaptureKit
 import SwiftUI
 
 /// Draws a PR's page, or its review diff at its first open thread, off screen into a PNG, with live data, as the app
-/// shows it: `FhenixDesk --snapshot <pr url> <out.png> [page|diff] [height] [dark]`. `--snapshot window <tab> <out.png>
+/// shows it: `FhenixDesk --snapshot <pr url> <out.png> [page|files|diff] [height] [dark]`. `--snapshot window <tab> <out.png>
 /// [height] [dark]` draws the whole Desk window on one of its screens instead. For checking a view without driving the
 /// window. Debug builds only.
 @MainActor
@@ -25,7 +25,7 @@ enum Snapshot {
             return
         }
         guard arguments.count >= 2 else {
-            print("usage: --snapshot <pr url> <out.png> [page|diff] [height] [dark]")
+            print("usage: --snapshot <pr url> <out.png> [page|files|diff] [height] [dark]")
             return
         }
         let (url, out) = (arguments[0], arguments[1])
@@ -52,7 +52,8 @@ enum Snapshot {
             }
             view = AnyView(ReviewDiffScreen(pr: pr, model: model) {})
         } else if model.state.mine.contains(where: { $0.url == url }) {
-            view = AnyView(PullRequestPage(pr: pr, model: model) {})
+            // `files`: your PR's page on its Files changed tab.
+            view = AnyView(PullRequestPage(pr: pr, model: model, tab: mode == "files" ? .files : .conversation) {})
         } else {
             view = AnyView(ReviewPage(pr: pr, model: model, onMe: false) {})
         }

@@ -83,8 +83,11 @@ under it.
 
 Your PR's page leads with its title, which you can edit while it is open. The status line under it says how it ended,
 or its checks, review and merge state; then its Jira ticket; on the right the session (see Background sessions), and
-⋯ with Open on GitHub, Copy Branch, Copy Link and Close Pull Request…, which asks first. The wide column holds the
-description, editable too, and the conversation. The side column holds three cards. **Next step** is what the PR's
+⋯ with Open on GitHub, Copy Branch, Copy Link and Close Pull Request…, which asks first. The wide column has two tabs.
+**Conversation** holds the description, editable too, and the conversation. **Files changed** holds the code the PR
+changed, a box per file that folds, with each review thread under the line it ends on, to reply to or resolve there
+(an outdated one has no line left, so only Conversation lists it); it is fetched when the tab opens and again once new
+commits move the head. The side column holds three cards. **Next step** is what the PR's
 stage waits on and the press that moves it (see Flow). **Checks** sums up every check on the head commit in one line,
 "✓ 14 passed, 2 skipped"; Show all lists them, worst first, with where a failed one stopped. **About this PR** has the
 open threads by who started them (/pre-pr, CodeRabbit, each person by name) with the way to them on GitHub, the

@@ -303,6 +303,8 @@ struct PullRequestPage: View {
     var model: AppModel
     /// The screen it was opened from, which its back link names and returns to.
     var back = "Pull Requests"
+    /// The main column's tab it opens on.
+    var tab: PullRequestTab = .conversation
     var onBack: () -> Void
 
     /// Yours to rewrite while it is open; a review's description is the author's, so the Reviews page only reads it.
@@ -340,8 +342,10 @@ struct PullRequestPage: View {
                 Text(error).scaled(.caption).foregroundStyle(.red).textSelection(.enabled)
             }
         } main: {
-            description
-            ConversationSection(pr: pr, model: model)
+            PullRequestMain(pr: pr, model: model, tab: tab) {
+                description
+                ConversationSection(pr: pr, model: model)
+            }
         } side: {
             // An ended PR has nothing left to act on or check: its facts. How it ended is on the status line.
             if pr.state == .open {
@@ -361,6 +365,90 @@ struct PullRequestPage: View {
         }
     }
 
+}
+
+/// Your PR's main column, in two tabs: its conversation (the description and what was said), or the code it changed with
+/// each review thread under its line. A tab, not a screen of its own like a review's diff: the next step and the facts
+/// stay beside it.
+enum PullRequestTab: Hashable { case conversation, files }
+
+private struct PullRequestMain<Conversation: View>: View {
+    var pr: PullRequest
+    var model: AppModel
+    @State var tab: PullRequestTab
+    @ViewBuilder var conversation: Conversation
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Theme.Space.l) {
+            PillTabs(
+                options: [
+                    .init(value: .conversation, title: "Conversation"),
+                    .init(value: .files, title: "Files changed", count: model.diffs[pr.url]?.files.count),
+                ],
+                selection: $tab
+            )
+            switch tab {
+            case .conversation: VStack(alignment: .leading, spacing: Theme.Space.xl) { conversation }
+            case .files: PullRequestFiles(pr: pr, model: model)
+            }
+        }
+    }
+}
+
+/// The code your PR changed, a box per file that folds, each review thread under the line it ends on, to reply to or
+/// resolve there. Fetched when the tab opens, and again once new commits move the PR's head: it is your branch, so the
+/// newest code is the one to see, where a review's diff asks first.
+private struct PullRequestFiles: View {
+    var pr: PullRequest
+    var model: AppModel
+    @State private var collapsed: Set<String> = []
+    @Environment(\.textScale) private var scale
+
+    var body: some View {
+        Group {
+            if let diff = model.diffs[pr.url] {
+                files(diff)
+            } else if let error = model.diffErrors[pr.url] {
+                EmptyState(icon: "exclamationmark.triangle", text: "Couldn't load the changes.", detail: error,
+                           actionTitle: "Retry", action: { model.loadDiff(pr, force: true) })
+            } else {
+                ProgressView().frame(maxWidth: .infinity).padding(.vertical, 40)
+            }
+        }
+        .task(id: "\(pr.url) \(pr.headSha)") { model.loadDiff(pr, force: model.diffs[pr.url].map { $0.sha != pr.headSha } ?? false) }
+        .task(id: "\(pr.url) \(pr.updatedAt)") { await model.loadConversation(pr) }
+    }
+
+    // ponytail: each file's rows are built in full once its box scrolls in; make the rows lazy too if a huge file stutters.
+    private func files(_ diff: LoadedDiff) -> some View {
+        LazyVStack(alignment: .leading, spacing: Theme.Space.m) {
+            if diff.files.isEmpty { Text("No changes.").scaled(.secondary).foregroundStyle(.secondary) }
+            ForEach(diff.files) { file in
+                VStack(alignment: .leading, spacing: 0) {
+                    DiffFileHeader(file: file, folded: collapsed.contains(file.path)) {
+                        if collapsed.contains(file.path) { collapsed.remove(file.path) } else { collapsed.insert(file.path) }
+                    }
+                    if !collapsed.contains(file.path) {
+                        if file.isBinary {
+                            Text("Binary file").font(DiffType(scale: scale).mono).foregroundStyle(.secondary).padding(8)
+                        }
+                        let rows = diff.rows[file.path] ?? []
+                        ForEach(rows.indices, id: \.self) { index in
+                            switch rows[index] {
+                            case .hunk(let header):
+                                DiffHunkRow(header: header)
+                            case .line(let line):
+                                DiffLineRow(line: line)
+                                DiffThreads(line: line, path: file.path, pr: pr, model: model)
+                            }
+                        }
+                    }
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Theme.line))
+            }
+        }
+    }
 }
 
 /// ⋯ on the page's status line: the presses kept out of the way of its next step — the ways out to GitHub and the
