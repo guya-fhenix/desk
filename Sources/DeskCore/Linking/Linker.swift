@@ -84,7 +84,7 @@ public enum Linker {
     /// A base that is neither the default branch nor a merged PR's head is a release branch, a teammate's draft or a
     /// parent the searches did not reach: nothing says it needs a rebase, so it gets none.
     public static func rebaseReason(_ pr: PullRequest, mergedHeads: Set<String>) -> RebaseReason? {
-        if pr.mergeState == .dirty { return .conflicts }
+        if pr.hasConflicts { return .conflicts }
         if pr.mergeState == .behind { return .behindBase }
         if pr.baseRef != pr.defaultBranch && mergedHeads.contains(pr.baseRef) { return .baseMerged }
         return nil

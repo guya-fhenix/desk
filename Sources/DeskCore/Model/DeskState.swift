@@ -359,8 +359,8 @@ extension DeskState {
             + ticketDrifts.count
     }
 
-    /// Up Next: every PR of yours under one section — your move when it is red, conflicts, has changes requested,
-    /// needs a rebase or a flow or session waits on you; ready to merge when its nudge says so; otherwise waiting on
+    /// Up Next: every PR of yours under one section — your move when it is red, conflicts, has changes requested or a
+    /// review thread open, needs a rebase or a flow or session waits on you; ready to merge when its nudge says so; otherwise waiting on
     /// others — most recently updated first; then the reviews you have a draft on that is not submitted yet, whatever
     /// the day filter, since you started them; then the review queue's PRs that need your review, inside the Reviews
     /// screen's day and approval filters (`reviewDays`, nil for all time; `needingApproval`), oldest first as the queue
@@ -373,7 +373,9 @@ extension DeskState {
         var sections: [UpNextSection: [PullRequest]] = [:]
         for pr in mine.sorted(by: { $0.updatedAt > $1.updatedAt }) {
             let found = kinds[pr.url] ?? []
-            let fix = pr.checks.isRed || pr.mergeState == .dirty || pr.reviewDecision == .changesRequested || rebaseReason(pr) != nil
+            // An open thread is something to answer or fix, so it is yours too: it held the PR in Waiting, on nobody.
+            let fix = pr.checks.isRed || pr.hasConflicts || pr.reviewDecision == .changesRequested || pr.unresolvedThreads > 0
+                || rebaseReason(pr) != nil
             let section: UpNextSection = fix || !found.isDisjoint(with: yours) ? .yourMove
                 : found.contains(.readyToMerge) ? .readyToMerge : .waiting
             sections[section, default: []].append(pr)

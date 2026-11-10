@@ -77,17 +77,22 @@ import Testing
         #expect(FlowStage.of(closed) == .closed)
     }
 
-    /// A row says one thing, the first that holds: conflicts, CI failed, changes requested, ready to merge, draft, then
-    /// waiting on review.
+    /// A row says one thing, the first that holds: conflicts, CI failed, changes requested, ready to merge, draft, open
+    /// threads, then waiting on review.
     @Test func aRowSaysTheFirstThingItWaitsOn() {
+        var conflicting = pr()
+        conflicting.conflicting = true
         let cases: [(String, PullRequest, RowState, RowState.Move)] = [
             ("conflicts outrank red CI", pr(review: .changesRequested, checks: .failure, merge: .dirty), .conflicts, .yoursToFix),
+            ("conflicts GitHub sums up as blocked", conflicting, .conflicts, .yoursToFix),
             ("red CI outranks changes requested", pr(review: .changesRequested, checks: .failure), .ciFailed, .yoursToFix),
             ("changes requested", pr(review: .changesRequested), .changesRequested, .yoursToFix),
             ("a draft with red CI", pr(draft: true, checks: .error), .ciFailed, .yoursToFix),
             ("approved and nothing open", pr(review: .approved, merge: .clean), .readyToMerge, .yoursToMerge),
             ("the gate is met", pr(gate: "medium risk: 1 of 1 approvals on the latest commit"), .readyToMerge, .yoursToMerge),
-            ("approved, a thread still open", pr(threads: 1, review: .approved), .waitingOnReview, .others),
+            ("approved, a thread still open", pr(threads: 1, review: .approved), .openThreads(1), .yoursToFix),
+            ("in review, threads open", pr(threads: 2), .openThreads(2), .yoursToFix),
+            ("a draft keeps its pill with threads open", pr(draft: true, threads: 1), .draft(.notRun), .draft),
             ("a draft /pre-pr has not run on", pr(draft: true), .draft(.notRun), .draft),
             ("a draft /pre-pr left a finding open on", pr(draft: true, evidence: Self.evidence), .draft(.importantOpen), .draft),
             ("waiting on review", pr(), .waitingOnReview, .others),
@@ -99,6 +104,8 @@ import Testing
         var passed = pr(draft: true, evidence: Self.evidence)
         passed.labels = [PrePR.reviewedLabel]
         #expect(RowState.of(passed).title == "Draft · mark ready")
+        #expect(RowState.openThreads(1).title == "1 open thread" && RowState.openThreads(3).title == "3 open threads")
+        #expect(FlowStage.of(conflicting) == .inReview, "a conflict is never ready to merge")
     }
 
     /// The session at work is shown beside the stage, never as one: a draft whose self-review runs is still a draft.

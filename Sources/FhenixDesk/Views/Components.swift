@@ -145,6 +145,15 @@ struct MergeBadge: View {
     var pr: PullRequest
 
     var body: some View {
+        // A conflict says so whatever GitHub's merge state sums up.
+        if pr.hasConflicts {
+            Chip(text: "Conflicts", color: .red)
+        } else {
+            stateChip
+        }
+    }
+
+    @ViewBuilder private var stateChip: some View {
         switch pr.mergeState {
         case .clean: Chip(text: "Clean", color: .green)
         case .dirty: Chip(text: "Conflicts", color: .red)
