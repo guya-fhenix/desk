@@ -359,7 +359,7 @@ struct ClaudeSessionButton: View {
         } else if jobs.count > 1, let newest = jobs.first {
             Menu {
                 ForEach(jobs) { job in
-                    Button("\(job.name) — \(job.state)") { model.attach(job, for: pr) }
+                    Button("\(job.name) — \(job.status)") { model.attach(job, for: pr) }
                 }
             } label: {
                 Label { Text("Attach") } icon: { icon("terminal.fill", newest.isRunning ? .green : .accentColor) }
@@ -374,7 +374,7 @@ struct ClaudeSessionButton: View {
             }
             .sessionStyle(prominent)
             .labelStyle(.titleAndIcon)
-            .help(failure ?? "Attach to “\(job.name)” (\(job.state)) in Desk’s terminal panel")
+            .help(failure ?? "Attach to “\(job.name)” (\(job.status)) in Desk’s terminal panel")
         } else {
             // Words, not only a hollow or filled terminal: which one it is was a tooltip's secret.
             Button { model.startSession(for: pr) } label: {
@@ -931,13 +931,13 @@ struct SessionStatus: View {
         let jobs = model.state.claudeJobs(for: pr)
         if let newest = jobs.first {
             // One text and an icon: a menu button keeps no more of its label than that.
-            let label = Label("Session · \(newest.state)", systemImage: newest.isRunning ? "terminal.fill" : "terminal")
+            let label = Label("Session · \(newest.status)", systemImage: newest.isRunning ? "terminal.fill" : "terminal")
                 .labelStyle(.titleAndIcon)
             Group {
                 if jobs.count > 1 {
                     Menu {
                         ForEach(jobs) { job in
-                            Button("Attach to \(job.name) — \(job.state)") { model.attach(job, for: pr) }
+                            Button("Attach to \(job.name) — \(job.status)") { model.attach(job, for: pr) }
                         }
                     } label: {
                         label
@@ -950,7 +950,7 @@ struct SessionStatus: View {
                 }
             }
             .fixedSize()
-            .help("“\(newest.name)”, \(newest.state). Click to attach it in Desk’s terminal panel"
+            .help("“\(newest.name)”, \(newest.status). Click to attach it in Desk’s terminal panel"
                 + (jobs.count > 1 ? "; the arrow lists the other sessions on this PR" : ""))
         } else {
             ClaudeSessionButton(pr: pr, model: model, prominent: true).fixedSize()

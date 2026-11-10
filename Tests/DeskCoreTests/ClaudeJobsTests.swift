@@ -84,6 +84,24 @@ import Testing
         #expect(ClaudeJobs.carrier(of: key, tickets: [], in: [session("other", created: 0, linked: ["o/r#1"])]) == nil)
     }
 
+    /// powershot#115's session ended a long report with "Should I watch the PR for longer?" and Claude Code marked it
+    /// blocked; attached, the line read as the report's end, not a question. Desk now says the question itself, from
+    /// Claude Code's own summary of it, and says "asks you" for "blocked", which read as stuck.
+    @Test func anAskingSessionSaysWhatItAsks() throws {
+        let home = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: home) }
+        let pr = #""children": [{"id": "115", "href": "https://github.com/FhenixProtocol/powershot/pull/115", "kind": "pr"}]"#
+        try job(home, id: "f33ce657", body: #"{"state": "blocked", "needs": " Should I watch the PR for longer?\n", "updatedAt": "2026-11-09T16:39:49.877Z", \#(pr)}"#)
+        // Left behind once the session moved on: not a question any more.
+        try job(home, id: "aaaaaaaa", body: #"{"state": "done", "needs": "Merge it?", "updatedAt": "2026-11-09T10:00:00.000Z", \#(pr)}"#)
+        let jobs = ClaudeJobs.scan(home: home.path)
+        #expect(jobs.map(\.id) == ["f33ce657", "aaaaaaaa"])
+        #expect(jobs[0].question == "Should I watch the PR for longer?")
+        #expect(jobs[0].status == "asks you")
+        #expect(jobs[0].asking == "The session asks: Should I watch the PR for longer?")
+        #expect(jobs[1].question == nil && jobs[1].status == "done")
+    }
+
     @Test func scanSurvivesAMissingOrUnreadableJobsDirectory() {
         #expect(ClaudeJobs.scan(home: "/nope/not/here").isEmpty)
     }

@@ -21,8 +21,12 @@ struct NextStepCard: View {
             if let key = session?.ticketKey { LabeledContent("Started from", value: key) }
             stageContent(stage)
             // The session itself, its state and Attach, is the page's header button; here only what it means for the flow.
-            if session?.isAsking == true {
-                Text("The session is asking you something: attach to it at the top to answer.").scaled(.caption).foregroundStyle(.orange)
+            if let session, session.isAsking {
+                // Its question is often the last line of a long report, easy to read past once attached; so it is said here.
+                Text(session.question.map { "The session asks: “\($0)” Attach to it at the top to answer." }
+                     ?? "The session is asking you something: attach to it at the top to answer.")
+                    .scaled(.caption).foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
             } else if session?.isRunning == true {
                 HStack(spacing: 6) {
                     ProgressView().controlSize(.mini)
@@ -295,7 +299,7 @@ struct SessionMarks: View {
                 ProgressView().controlSize(.mini).help("The session is working")
             } else if session.isAsking {
                 Image(systemName: "exclamationmark.bubble.fill").foregroundStyle(.orange)
-                    .help("The session is asking you something")
+                    .help(session.asking)
             } else if let error = model.flowErrors[pr.url] {
                 Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.red).help(error)
             }
