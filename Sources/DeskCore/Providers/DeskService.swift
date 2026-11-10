@@ -204,7 +204,7 @@ public actor DeskService {
         ]
         return config.prompt(
             .session, values,
-            when: ["worktree": worktree != nil, "unresolved": pr.unresolvedThreads > 0, "conflict": pr.mergeState == .dirty]
+            when: ["worktree": worktree != nil, "unresolved": pr.unresolvedThreads > 0, "conflict": pr.hasConflicts]
         )
     }
 

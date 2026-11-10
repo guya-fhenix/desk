@@ -31,7 +31,7 @@ public enum FlowStage: String, Sendable, CaseIterable {
         case .open: break
         }
         if pr.isDraft { return .draft }
-        let ready = pr.approvalsMet && pr.unresolvedThreads == 0 && !pr.checks.isRed && pr.mergeState != .dirty
+        let ready = pr.approvalsMet && pr.unresolvedThreads == 0 && !pr.checks.isRed && !pr.hasConflicts
         return ready ? .approved : .inReview
     }
 }
@@ -39,18 +39,20 @@ public enum FlowStage: String, Sendable, CaseIterable {
 /// What one of your open PRs waits on, as its row's one pill says it: the first of these that holds, in this order, so a
 /// row says one thing rather than three chips and a stage. Ready to merge is the flow's own definition.
 public enum RowState: Sendable, Equatable {
-    case conflicts, ciFailed, changesRequested, readyToMerge, draft(PrePRStatus), waitingOnReview
+    case conflicts, ciFailed, changesRequested, readyToMerge, draft(PrePRStatus), openThreads(Int), waitingOnReview
 
     /// Whose move it is, which colours the pill: yours to fix, yours to merge, someone else's, or a draft's, which is
     /// yours but not yet asked of anyone.
     public enum Move: Sendable { case yoursToFix, yoursToMerge, others, draft }
 
+    /// A draft keeps its own pill with threads open: /pre-pr's findings are threads, and "finding open" says so.
     public static func of(_ pr: PullRequest) -> RowState {
-        if pr.mergeState == .dirty { return .conflicts }
+        if pr.hasConflicts { return .conflicts }
         if pr.checks.isRed { return .ciFailed }
         if pr.reviewDecision == .changesRequested { return .changesRequested }
         if FlowStage.of(pr) == .approved { return .readyToMerge }
         if pr.isDraft { return .draft(PrePRStatus.of(pr)) }
+        if pr.unresolvedThreads > 0 { return .openThreads(pr.unresolvedThreads) }
         return .waitingOnReview
     }
 
@@ -64,13 +66,14 @@ public enum RowState: Sendable, Equatable {
         case .draft(.notRun): return "Draft · run /pre-pr"
         case .draft(.importantOpen): return "Draft · finding open"
         case .draft(.passed): return "Draft · mark ready"
+        case .openThreads(let count): return count == 1 ? "1 open thread" : "\(count) open threads"
         case .waitingOnReview: return "Waiting on review"
         }
     }
 
     public var move: Move {
         switch self {
-        case .conflicts, .ciFailed, .changesRequested: return .yoursToFix
+        case .conflicts, .ciFailed, .changesRequested, .openThreads: return .yoursToFix
         case .readyToMerge: return .yoursToMerge
         case .draft: return .draft
         case .waitingOnReview: return .others

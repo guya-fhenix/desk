@@ -49,6 +49,22 @@ import Testing
         #expect(state.upNextCount(reviewDays: nil) == 2)
     }
 
+    /// An open review thread is something to answer or fix, and a conflict something to resolve, so both put the PR in
+    /// Your move: a PR with threads open sat in Waiting, as if it were on someone else.
+    @Test func openThreadsAndConflictsAreYourMove() {
+        var state = state
+        var threads = Fixtures.pr(number: 1, head: "a")
+        threads.unresolvedThreads = 2
+        var conflicting = Fixtures.pr(number: 2, head: "b", merge: .blocked)
+        conflicting.conflicting = true
+        let waiting = Fixtures.pr(number: 3, head: "c")
+        state.github?.mine = [threads, conflicting, waiting]
+        state.recompute()
+        let plan = state.upNext(reviewDays: nil)
+        #expect(plan.first { $0.section == .yourMove }?.pullRequests.map(\.number).sorted() == [1, 2])
+        #expect(plan.first { $0.section == .waiting }?.pullRequests.map(\.number) == [3])
+    }
+
     /// A move or edit of this app's is laid over a Jira answer that does not show it yet, and dropped once one does.
     @Test func ticketEditsCorrectALaggingJira() {
         var state = state
