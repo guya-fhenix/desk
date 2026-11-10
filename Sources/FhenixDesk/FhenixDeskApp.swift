@@ -70,6 +70,21 @@ struct FhenixDeskApp: App {
                 Button("Show/Hide Terminal") { model.terminals.visible.toggle() }
                     .keyboardShortcut("`", modifiers: .control)
                     .disabled(model.terminals.tabs.isEmpty)
+                Button(model.terminals.expanded ? "Put Terminal Beside the Screen" : "Expand Terminal") {
+                    model.terminals.expanded.toggle()
+                    model.terminals.visible = true
+                }
+                .keyboardShortcut("`", modifiers: [.control, .shift])
+                .disabled(model.terminals.tabs.isEmpty)
+                Button("Terminal Text Bigger") { model.terminals.zoom(1) }
+                    .keyboardShortcut("=", modifiers: .command)
+                    .disabled(model.terminals.fontSize >= TerminalPanel.fontSizes.upperBound)
+                Button("Terminal Text Smaller") { model.terminals.zoom(-1) }
+                    .keyboardShortcut("-", modifiers: .command)
+                    .disabled(model.terminals.fontSize <= TerminalPanel.fontSizes.lowerBound)
+                Button("Terminal Text Default Size") { model.terminals.fontSize = TerminalPanel.defaultFontSize }
+                    .keyboardShortcut("0", modifiers: .command)
+                    .disabled(model.terminals.fontSize == TerminalPanel.defaultFontSize)
                 Divider()
             }
         }

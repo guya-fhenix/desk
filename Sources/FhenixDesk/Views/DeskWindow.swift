@@ -74,10 +74,11 @@ struct DeskWindow: View {
             // pages show inside the detail too, in place of its list, so the panel stays beside them. An HStack, not an
             // HSplitView: inside the split view's detail an HSplitView took its width from the sidebar, squeezing it
             // below its own minimum and cutting its labels.
+            let terminal = model.terminals.visible && !model.terminals.tabs.isEmpty
             HStack(spacing: 0) {
                 Group { if model.showingSetup { SetupView() } else if model.showingSettings { SettingsView() } else { screen } }
                     .frame(minWidth: Self.screenMinimum, maxWidth: .infinity, maxHeight: .infinity)
-                if model.terminals.visible, !model.terminals.tabs.isEmpty {
+                if terminal, !model.terminals.expanded {
                     let width = min(max(terminalWidth, Self.terminalMinimum), max(detailWidth - Self.screenMinimum - 1, Self.terminalMinimum))
                     PanelDivider(width: $terminalWidth, shown: width, range: Self.terminalMinimum...max(detailWidth - Self.screenMinimum - 1, Self.terminalMinimum))
                     TerminalPanelView(panel: model.terminals)
@@ -85,6 +86,8 @@ struct DeskWindow: View {
                         .frame(maxHeight: .infinity)
                 }
             }
+            // Expanded, the panel covers the screen rather than replacing it, so the screen keeps its place underneath.
+            .overlay { if terminal, model.terminals.expanded { TerminalPanelView(panel: model.terminals) } }
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { detailWidth = $0 }
             .background(Theme.background.ignoresSafeArea())
         }
@@ -102,6 +105,7 @@ struct DeskWindow: View {
             guard let requested else { return }
             tab = requested
             model.showingSettings = false
+            model.terminals.expanded = false
             model.pendingTab = nil
         }
         .onDisappear { NSApp.setActivationPolicy(.accessory) }
@@ -164,6 +168,8 @@ struct DeskWindow: View {
         Binding {
             model.showingSettings ? .settings : .tab(tab)
         } set: { choice in
+            // A screen chosen while the terminal is expanded over it shows; the terminal goes back beside it.
+            if choice != nil { model.terminals.expanded = false }
             switch choice {
             case .tab(let item):
                 tab = item
