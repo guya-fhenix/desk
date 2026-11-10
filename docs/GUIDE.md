@@ -135,6 +135,11 @@ review sessions, and Setup's installs and sign-ins. Switching tabs or screens le
 what runs in it. An attached session only detaches, and a review session can be reopened with `claude --resume`. View
 → Show/Hide Terminal (⌃`) hides the panel. It is SwiftTerm, inside the app.
 
+Drag the line beside it to widen it, as far as the screen's own minimum allows; for more, the panel's expand button
+(View → Expand Terminal, ⌃⇧`) lays it over the whole window beside the sidebar, and choosing a screen puts it back. Its
+text size buttons, and View → Terminal Text Bigger, Smaller and Default Size (⌘=, ⌘-, ⌘0), set every tab's text from
+9 to 24 pt, 12 to start; Desk remembers it.
+
 ## Jira
 
 The Jira screen lists the running sprint or the backlog, one group per status in workflow order, yours unless the

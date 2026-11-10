@@ -65,7 +65,7 @@ enum Snapshot {
     private static func window(_ arguments: [String]) async {
         let screen = arguments.first ?? ""
         guard arguments.count >= 2, screen == "settings" || screen == "setup" || DeskWindow.Tab(rawValue: screen) != nil else {
-            print("usage: --snapshot window <upNext|pullRequests|reviews|tickets|settings|setup> <out.png> [height] [dark] [open=<pr url>] [terminal] [pane=<pane>] [step=<step>]")
+            print("usage: --snapshot window <upNext|pullRequests|reviews|tickets|settings|setup> <out.png> [height] [dark] [open=<pr url>] [terminal [expand] [font=<pt>]] [pane=<pane>] [step=<step>]")
             return
         }
         func value(_ name: String) -> String? { arguments.first { $0.hasPrefix("\(name)=") }.map { String($0.dropFirst(name.count + 1)) } }
@@ -81,6 +81,14 @@ enum Snapshot {
         if let open = arguments.first(where: { $0.hasPrefix("open=") }) { model.selectPullRequest = String(open.dropFirst(5)) }
         if arguments.contains("terminal") {
             model.terminals.open(id: "snapshot", title: "Session", executable: "/bin/sh", arguments: ["-c", "echo a session; sleep 30"])
+            if let size = value("font").flatMap(Double.init) { model.terminals.fontSize = size }
+            // After the window has opened on its screen, which puts an expanded terminal back beside it.
+            if arguments.contains("expand") {
+                Task {
+                    try? await Task.sleep(for: .seconds(1))
+                    model.terminals.expanded = true
+                }
+            }
         }
         if let pane = value("pane").flatMap(SettingsPane.init(rawValue:)) { model.settings.pane = pane }
         let size = NSSize(width: 1180, height: height)

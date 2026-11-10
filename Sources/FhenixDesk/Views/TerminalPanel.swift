@@ -13,10 +13,10 @@ final class TerminalTab: Identifiable, LocalProcessTerminalViewDelegate {
     let view = LocalProcessTerminalView(frame: .zero)
     private(set) var running = true
 
-    init(id: String, title: String, executable: String, arguments: [String], directory: String?) {
+    init(id: String, title: String, executable: String, arguments: [String], directory: String?, fontSize: Double) {
         self.id = id
         self.title = title
-        view.font = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
+        view.font = Self.font(fontSize)
         view.processDelegate = self
         var environment = Shell.toolEnvironment
         environment["TERM"] = "xterm-256color"
@@ -38,6 +38,9 @@ final class TerminalTab: Identifiable, LocalProcessTerminalViewDelegate {
         running = false
     }
 
+    /// A new size re-lays the view out, and the program inside is told its new columns and rows.
+    static func font(_ size: Double) -> NSFont { NSFont.monospacedSystemFont(ofSize: size, weight: .regular) }
+
     func sizeChanged(source: LocalProcessTerminalView, newCols: Int, newRows: Int) {}
     func setTerminalTitle(source: LocalProcessTerminalView, title: String) {}
     func hostCurrentDirectoryUpdate(source: TerminalView, directory: String?) {}
@@ -52,6 +55,20 @@ final class TerminalPanel {
     var selected: String?
     /// View → Show/Hide Terminal. Opening a tab shows the panel again.
     var visible = false
+    /// Over the whole window beside the sidebar instead of beside the screen, whose floor caps how wide the panel can be
+    /// dragged: View → Expand Terminal, or the panel's own button. Choosing a screen puts it back beside it.
+    var expanded = false
+    /// Every tab's text size, in points: View → Terminal Text Bigger and Smaller, or the panel's buttons. Remembered.
+    var fontSize: Double = UserDefaults.standard.object(forKey: "terminal.fontSize") as? Double ?? TerminalPanel.defaultFontSize {
+        didSet {
+            UserDefaults.standard.set(fontSize, forKey: "terminal.fontSize")
+            for tab in tabs { tab.view.font = TerminalTab.font(fontSize) }
+        }
+    }
+    static let defaultFontSize: Double = 12
+    static let fontSizes: ClosedRange<Double> = 9...24
+
+    func zoom(_ step: Double) { fontSize = min(max(fontSize + step, Self.fontSizes.lowerBound), Self.fontSizes.upperBound) }
 
     var current: TerminalTab? { tabs.first { $0.id == selected } ?? tabs.last }
 
@@ -61,7 +78,7 @@ final class TerminalPanel {
     func open(id: String, title: String, executable: String, arguments: [String], directory: String? = nil) {
         if tab(id)?.running != true {
             tabs.removeAll { $0.id == id }
-            tabs.append(TerminalTab(id: id, title: title, executable: executable, arguments: arguments, directory: directory))
+            tabs.append(TerminalTab(id: id, title: title, executable: executable, arguments: arguments, directory: directory, fontSize: fontSize))
         }
         select(id)
     }
@@ -77,7 +94,10 @@ final class TerminalPanel {
         tab(id)?.view.terminate()
         tabs.removeAll { $0.id == id }
         if selected == id { selected = tabs.last?.id }
-        if tabs.isEmpty { visible = false }
+        if tabs.isEmpty {
+            visible = false
+            expanded = false
+        }
     }
 
     /// Puts `text` in the program's input as a paste, not sent: you finish the question and press Return. False when
@@ -103,13 +123,29 @@ struct TerminalPanelView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 4) {
-                    ForEach(panel.tabs) { tab in
-                        TerminalTabButton(tab: tab, selected: tab.id == panel.current?.id, select: { panel.select(tab.id) }, close: { panel.close(tab.id) })
+            HStack(spacing: 0) {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 4) {
+                        ForEach(panel.tabs) { tab in
+                            TerminalTabButton(tab: tab, selected: tab.id == panel.current?.id, select: { panel.select(tab.id) }, close: { panel.close(tab.id) })
+                        }
                     }
+                    .padding(.horizontal, Theme.Space.m)
                 }
-                .padding(.horizontal, Theme.Space.m)
+                HStack(spacing: 2) {
+                    Button { panel.zoom(-1) } label: { Label("Smaller text", systemImage: "textformat.size.smaller") }
+                        .help("Smaller text (⌘-)").disabled(panel.fontSize <= TerminalPanel.fontSizes.lowerBound)
+                    Button { panel.zoom(1) } label: { Label("Bigger text", systemImage: "textformat.size.larger") }
+                        .help("Bigger text (⌘=)").disabled(panel.fontSize >= TerminalPanel.fontSizes.upperBound)
+                    Button { panel.expanded.toggle() } label: {
+                        Label(panel.expanded ? "Back beside the screen" : "Expand",
+                              systemImage: panel.expanded ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
+                    }
+                    .help(panel.expanded ? "Back beside the screen (⌃⇧`)" : "Fill the window beside the sidebar (⌃⇧`)")
+                }
+                .labelStyle(.iconOnly)
+                .buttonStyle(.borderless)
+                .padding(.trailing, Theme.Space.m)
             }
             // Clear of the window's title-bar strip, which takes the clicks along the top for dragging.
             .padding(.top, 14)
