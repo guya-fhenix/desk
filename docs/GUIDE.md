@@ -45,7 +45,9 @@ and Settings (⌘,). ⌘1 to ⌘4 pick a screen. The sidebar collapses with its 
 Under it, one status block says how the sync stands: when every source last synced, with the arrow that syncs them
 all (⌘R), a spinner while one syncs, or the sources that failed with Retry. Under that, your Claude plan's session and
 week limits are two thin meters. Click the block for each source's age and error, the Settings pane that fixes a
-sign-in, and when each limit resets.
+sign-in, and when each limit resets. When a newer Desk is out, a block above it says "Update to 1.1.7 · You have
+1.1.6" and opens the release page. Desk asks `gh` for the latest release at launch and every six hours; without access
+to the repo, it never shows.
 
 In a list, the arrow keys walk the rows, and a click, Return or → opens the row's page in place of the list. The
 page's back link, ← or Go → Back (⌘[) returns to the list with the row still selected. Only Jira has a details panel

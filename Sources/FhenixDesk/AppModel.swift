@@ -96,6 +96,9 @@ final class AppModel {
     private let service: DeskService
     private let notifier: Notifier
     private var loops: [Source: Task<Void, Never>] = [:]
+    private var updateCheck: Task<Void, Never>?
+    /// A newer Desk, once GitHub's latest release is later than this app; the sidebar suggests updating to it.
+    var update: AppUpdate.Available?
     private nonisolated static let log = Logger(subsystem: "io.fhenix.desk", category: "refresh")
 
     init() {
@@ -133,6 +136,18 @@ final class AppModel {
                     let seconds = self.interval(for: source)
                     self.nextPoll[source] = Date().addingTimeInterval(TimeInterval(seconds))
                     try? await Task.sleep(for: .seconds(seconds))
+                }
+            }
+        }
+        // At launch, then every six hours. A build without a bundle (`swift run`) has no version to compare.
+        if updateCheck == nil, let current = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String {
+            updateCheck = Task { [weak self] in
+                while !Task.isCancelled {
+                    guard let self else { return }
+                    if let gh = self.config.resolvedGhPath, let latest = await AppUpdate.latest(gh: gh) {
+                        self.update = AppUpdate.available(latest: latest, current: current)
+                    }
+                    try? await Task.sleep(for: .seconds(6 * 3600))
                 }
             }
         }
