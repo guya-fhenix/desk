@@ -58,11 +58,7 @@ struct ReviewDiffScreen: View {
     @Environment(\.textScale) private var scale
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    /// The code at the app's text size; the rows' heights follow it.
-    private var mono: Font { AppTextStyle.code.font(scale: scale) }
-    /// The one line-number column, the new number or a removed line's old one: five digits and a gap at the code's size,
-    /// 44 pt at the default.
-    private var gutter: CGFloat { (AppTextStyle.code.size * scale).rounded() * 3.7 }
+    private var mono: Font { DiffType(scale: scale).mono }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -216,32 +212,10 @@ struct ReviewDiffScreen: View {
         }
     }
 
-    /// A button, so the keyboard and VoiceOver can fold a file too.
     private func fileHeader(_ file: DiffFile) -> some View {
-        let folded = collapsed.contains(file.path)
-        return Button {
-            if folded { collapsed.remove(file.path) } else { collapsed.insert(file.path) }
-        } label: {
-            HStack(spacing: 8) {
-                Image(systemName: folded ? "chevron.right" : "chevron.down")
-                    .scaled(.caption.weight(.semibold)).foregroundStyle(.secondary).frame(width: 12)
-                Text(file.previousPath.map { "\($0) → \(file.path)" } ?? file.path)
-                    .font(mono.weight(.semibold)).lineLimit(1).truncationMode(.head)
-                Text(file.status == .modified ? "" : file.status.rawValue).scaled(.caption).foregroundStyle(.secondary)
-                Spacer(minLength: 8)
-                Text("+\(file.additions)").foregroundStyle(.green)
-                Text("−\(file.deletions)").foregroundStyle(.red)
-            }
-            .font(mono)
-            .padding(.horizontal, 10).padding(.vertical, 7)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(Rectangle())
+        DiffFileHeader(file: file, folded: collapsed.contains(file.path)) {
+            if collapsed.contains(file.path) { collapsed.remove(file.path) } else { collapsed.insert(file.path) }
         }
-        .buttonStyle(.plain)
-        .background(Theme.raised)
-        .overlay(alignment: .bottom) { Rectangle().fill(Theme.line).frame(height: 1) }
-        .help(folded ? "Show its lines" : "Hide its lines")
-        .accessibilityValue(folded ? "Collapsed" : "Expanded")
         // Pinned, it sits at the scroll's top edge; the next file's header pushes it off. One gone from the lazy stack is
         // out of the running: the file on top always has its header on screen.
         .onGeometryChange(for: Bool.self) { $0.frame(in: .scrollView).minY <= 1 } action: { onTop in
@@ -254,61 +228,24 @@ struct ReviewDiffScreen: View {
     @ViewBuilder private func row(_ row: DiffRow, id: DiffRowID) -> some View {
         switch row {
         case .hunk(let header):
-            Text(header)
-                .font(mono).foregroundStyle(.secondary).lineLimit(1)
-                .padding(.vertical, 3).padding(.leading, gutter + 12)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color.blue.opacity(0.08))
-                .id(id)
+            DiffHunkRow(header: header).id(id)
         case .line(let line):
-            HStack(alignment: .top, spacing: 0) {
-                Text((line.newLine ?? line.oldLine).map(String.init) ?? "").frame(width: gutter, alignment: .trailing).foregroundStyle(.secondary)
-                Text(marker(line) + line.text).padding(.leading, 12)
-            }
-            .font(mono)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(background(line, id))
-            .help(line.oldLine.map { "Was line \($0)" } ?? "")
-            .contentShape(Rectangle())
-            .onTapGesture { select(id, extend: NSEvent.modifierFlags.contains(.shift)) }
-            .id(id)
+            DiffLineRow(line: line, highlight: highlight(id))
+                .contentShape(Rectangle())
+                .onTapGesture { select(id, extend: NSEvent.modifierFlags.contains(.shift)) }
+                .id(id)
         }
     }
 
-    /// The threads that end on this line, under it: a right-side one by the line's new number, a left-side one, on a
-    /// removed line, by its old. An outdated thread has no line here; the review's page lists it.
-    @ViewBuilder private func threads(under line: DiffLine, in path: String) -> some View {
-        if let conversation = model.conversations[pr.url] {
-            let threads = (line.newLine.map { conversation.threads(at: path, side: .right, line: $0) } ?? [])
-                + (line.oldLine.map { conversation.threads(at: path, side: .left, line: $0) } ?? [])
-            if !threads.isEmpty {
-                VStack(alignment: .leading, spacing: 8) {
-                    ForEach(threads) { ThreadView(thread: $0, pr: pr, model: model, showsLocation: false) }
-                }
-                .frame(maxWidth: 760, alignment: .leading)
-                .padding(.leading, gutter + 12)
-                .padding(.trailing, 16)
-                .padding(.vertical, 8)
-            }
-        }
+    private func threads(under line: DiffLine, in path: String) -> some View {
+        DiffThreads(line: line, path: path, pr: pr, model: model)
     }
 
-    private func marker(_ line: DiffLine) -> String {
-        switch line.kind {
-        case .added: "+ "
-        case .removed: "- "
-        case .context: "  "
-        }
-    }
-
-    private func background(_ line: DiffLine, _ id: DiffRowID) -> Color {
+    /// A session's link lights a line up for a moment; the selection tints its lines.
+    private func highlight(_ id: DiffRowID) -> Color? {
         if flash == id { return .yellow.opacity(0.4) }
         if let selection, selection.path == id.path, selection.range.contains(id.index) { return .accentColor.opacity(0.28) }
-        switch line.kind {
-        case .added: return .green.opacity(0.15)
-        case .removed: return .red.opacity(0.15)
-        case .context: return .clear
-        }
+        return nil
     }
 
     /// The selection after ↑ or ↓: the cursor a line on, into the next open file past the last line, or from the file on
@@ -347,7 +284,129 @@ struct ReviewDiffScreen: View {
         }
         guard let first = lines.first, let last = lines.last else { return }
         let number = { (line: DiffLine) in line.newLine ?? line.oldLine ?? 0 }
-        let body = lines.map { marker($0) + $0.text }.joined(separator: "\n")
+        let body = lines.map { $0.marker + $0.text }.joined(separator: "\n")
         model.askClaude(pr, "\(selection.path) lines \(number(first))–\(number(last)):\n```diff\n\(body)\n```\n")
+    }
+}
+
+// MARK: - The pieces every diff draws: Reviews' diff screen and the Files changed tab of your PR's page.
+
+/// The code at the app's text size, which the rows' heights follow, and the one line-number column, the new number or a
+/// removed line's old one: five digits and a gap at the code's size, 44 pt at the default.
+struct DiffType {
+    var scale: CGFloat
+    var mono: Font { AppTextStyle.code.font(scale: scale) }
+    var gutter: CGFloat { (AppTextStyle.code.size * scale).rounded() * 3.7 }
+}
+
+extension DiffLine {
+    /// What a unified diff puts before the line.
+    var marker: String {
+        switch kind {
+        case .added: "+ "
+        case .removed: "- "
+        case .context: "  "
+        }
+    }
+}
+
+/// A file's header: its path, how it changed, its +/− counts. A button that folds the file, so the keyboard and VoiceOver
+/// can fold it too.
+struct DiffFileHeader: View {
+    var file: DiffFile
+    var folded: Bool
+    var toggle: () -> Void
+    @Environment(\.textScale) private var scale
+
+    var body: some View {
+        let mono = DiffType(scale: scale).mono
+        Button(action: toggle) {
+            HStack(spacing: 8) {
+                Image(systemName: folded ? "chevron.right" : "chevron.down")
+                    .scaled(.caption.weight(.semibold)).foregroundStyle(.secondary).frame(width: 12)
+                Text(file.previousPath.map { "\($0) → \(file.path)" } ?? file.path)
+                    .font(mono.weight(.semibold)).lineLimit(1).truncationMode(.head)
+                Text(file.status == .modified ? "" : file.status.rawValue).scaled(.caption).foregroundStyle(.secondary)
+                Spacer(minLength: 8)
+                Text("+\(file.additions)").foregroundStyle(.green)
+                Text("−\(file.deletions)").foregroundStyle(.red)
+            }
+            .font(mono)
+            .padding(.horizontal, 10).padding(.vertical, 7)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .background(Theme.raised)
+        .overlay(alignment: .bottom) { Rectangle().fill(Theme.line).frame(height: 1) }
+        .help(folded ? "Show its lines" : "Hide its lines")
+        .accessibilityValue(folded ? "Collapsed" : "Expanded")
+    }
+}
+
+struct DiffHunkRow: View {
+    var header: String
+    @Environment(\.textScale) private var scale
+
+    var body: some View {
+        let type = DiffType(scale: scale)
+        Text(header)
+            .font(type.mono).foregroundStyle(.secondary).lineLimit(1)
+            .padding(.vertical, 3).padding(.leading, type.gutter + 12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.blue.opacity(0.08))
+    }
+}
+
+/// One line of code: its number, its marker and text, tinted green or red by what happened to it, or by `highlight`.
+struct DiffLineRow: View {
+    var line: DiffLine
+    var highlight: Color?
+    @Environment(\.textScale) private var scale
+
+    var body: some View {
+        let type = DiffType(scale: scale)
+        HStack(alignment: .top, spacing: 0) {
+            Text((line.newLine ?? line.oldLine).map(String.init) ?? "").frame(width: type.gutter, alignment: .trailing).foregroundStyle(.secondary)
+            Text(line.marker + line.text).padding(.leading, 12)
+        }
+        .font(type.mono)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(highlight ?? tint)
+        .help(line.oldLine.map { "Was line \($0)" } ?? "")
+    }
+
+    private var tint: Color {
+        switch line.kind {
+        case .added: .green.opacity(0.15)
+        case .removed: .red.opacity(0.15)
+        case .context: .clear
+        }
+    }
+}
+
+/// The review threads that end on this line, under it, to reply to or resolve: a right-side one by the line's new number,
+/// a left-side one, on a removed line, by its old. An outdated thread has no line here; the conversation lists it.
+struct DiffThreads: View {
+    var line: DiffLine
+    var path: String
+    var pr: PullRequest
+    var model: AppModel
+    @Environment(\.textScale) private var scale
+
+    var body: some View {
+        if let conversation = model.conversations[pr.url] {
+            let threads = (line.newLine.map { conversation.threads(at: path, side: .right, line: $0) } ?? [])
+                + (line.oldLine.map { conversation.threads(at: path, side: .left, line: $0) } ?? [])
+            if !threads.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(threads) { ThreadView(thread: $0, pr: pr, model: model, showsLocation: false) }
+                }
+                .frame(maxWidth: 760, alignment: .leading)
+                .padding(.leading, DiffType(scale: scale).gutter + 12)
+                .padding(.trailing, 16)
+                .padding(.vertical, 8)
+            }
+        }
     }
 }
