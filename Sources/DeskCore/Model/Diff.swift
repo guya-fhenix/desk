@@ -127,3 +127,20 @@ public struct DiffFile: Sendable, Hashable, Identifiable {
         .min { $0.distance < $1.distance }?.index
     }
 }
+
+public extension [DiffFile] {
+    /// The files the review screen shows folded until you open them, as GitHub does a large diff: a file of more than
+    /// `fileLimit` rows, and every file that would take the open ones past `totalLimit` rows. The screen's lazy stack
+    /// builds every row above the one it scrolls to and keeps it, about 18 KB each: a jump to the end of a 40,000-row
+    /// diff took 750 MB and six seconds, and some 200,000 rows run SwiftUI out of room, which takes the app down.
+    // ponytail: bounds what opens on its own, not what you unfold by hand; a table with row reuse if huge files matter.
+    func foldedAtFirst(fileLimit: Int = 1_000, totalLimit: Int = 5_000) -> Set<String> {
+        var open = 0
+        var folded: Set<String> = []
+        for file in self {
+            let rows = file.hunks.reduce(0) { $0 + 1 + $1.lines.count }
+            if rows > fileLimit || open + rows > totalLimit { folded.insert(file.path) } else { open += rows }
+        }
+        return folded
+    }
+}

@@ -187,4 +187,17 @@ import Testing
         #expect(rows.lineIndex(after: 4, step: 1) == nil)
         #expect([DiffRow]().lineIndex(after: nil, step: 1) == nil)
     }
+
+    @Test func foldsALargeFileAndWhatGoesPastTheBudgetButNotASmallFileThatStillFits() {
+        func file(_ path: String, lines: Int) -> DiffFile {
+            let line = DiffLine(kind: .added, oldLine: nil, newLine: 1, text: "x")
+            return DiffFile(path: path, hunks: [
+                DiffHunk(oldStart: 1, oldCount: 0, newStart: 1, newCount: lines, heading: "", lines: Array(repeating: line, count: lines)),
+            ])
+        }
+        let files = [file("small", lines: 10), file("huge", lines: 50), file("mid", lines: 30), file("over", lines: 30), file("tiny", lines: 5)]
+        // A hunk's header is a row too: 11, 51, 31, 31 and 6 rows. "over" would take the open ones to 73.
+        #expect(files.foldedAtFirst(fileLimit: 40, totalLimit: 50) == ["huge", "over"])
+        #expect(files.foldedAtFirst().isEmpty)
+    }
 }

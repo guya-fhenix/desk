@@ -249,10 +249,20 @@ public enum Shell {
     /// was started from a Claude session, and makes every claude it runs think it is nested in that one.
     public static var toolEnvironment: [String: String] {
         var environment = ProcessInfo.processInfo.environment
-        environment["PATH"] = toolPath(login: loginPath.withLock { $0 }, inherited: environment["PATH"])
+        let (login, inherited) = (loginPath.withLock { $0 }, environment["PATH"])
+        environment["PATH"] = mergedPath.withLock { merged in
+            if let merged, merged.login == login, merged.inherited == inherited { return merged.path }
+            let path = toolPath(login: login, inherited: inherited)
+            merged = (login, inherited, path)
+            return path
+        }
         environment["CLAUDECODE"] = nil
         return environment
     }
+
+    /// The last PATH put together, and what it was put together from: every command asks for it, a hundred a scan, and
+    /// merging the same directories again was a fifth of what a scan cost the app.
+    private static let mergedPath = Mutex<(login: String?, inherited: String?, path: String)?>(nil)
 
     /// The directories of each PATH in turn, each kept where it first appears.
     public static func toolPath(login: String?, inherited: String?) -> String {

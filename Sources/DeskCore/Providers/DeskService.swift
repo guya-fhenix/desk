@@ -108,9 +108,20 @@ public actor DeskService {
     public func reviewSkills(repos: [RepoRef]) async -> [String: ReviewSkill] {
         var skills: [String: ReviewSkill] = [:]
         for repo in repos where skills[repo.root] == nil {
-            skills[repo.root] = ClaudePlugins.reviewSkill(repoRoot: repo.root, adopted: await Self.adoptedReviewFlow(repoRoot: repo.root))
+            skills[repo.root] = ClaudePlugins.reviewSkill(repoRoot: repo.root, adopted: await adoptedReviewFlow(repoRoot: repo.root))
         }
         return skills
+    }
+
+    /// Whether each clone has adopted the review flow, by root, and when it was asked. A clone without the files in its
+    /// checkout cost one or two git processes every scan to say the same again; every ten minutes will do.
+    private var adoptedFlows: [String: (adopted: Bool, asked: Date)] = [:]
+
+    private func adoptedReviewFlow(repoRoot: String) async -> Bool {
+        if let known = adoptedFlows[repoRoot], Date().timeIntervalSince(known.asked) < 600 { return known.adopted }
+        let adopted = await Self.adoptedReviewFlow(repoRoot: repoRoot)
+        adoptedFlows[repoRoot] = (adopted, Date())
+        return adopted
     }
 
     /// Whether the repo has adopted the review flow — `REVIEW.md` and `.github/review/tier.sh`, what /pre-pr itself

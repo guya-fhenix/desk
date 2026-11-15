@@ -133,10 +133,22 @@ final class AppModel {
                     let seconds = self.interval(for: source)
                     self.nextPoll[source] = Date().addingTimeInterval(TimeInterval(seconds))
                     try? await Task.sleep(for: .seconds(seconds))
+                    // With the window closed, covered or on another desktop, nothing shows what the local scan reads,
+                    // and it is a hundred-odd git processes a time: it waits for the window, or two minutes, which
+                    // keeps the sessions a notification goes by fresh. A look every few seconds sees the window back.
+                    let slept = ContinuousClock.now
+                    while source == .git, !Self.deskVisible, ContinuousClock.now - slept < .seconds(120), !Task.isCancelled {
+                        try? await Task.sleep(for: .seconds(3))
+                    }
                 }
             }
         }
         jiraAccount = await service.jiraAccount()
+    }
+
+    /// Whether any of the Desk window can be seen.
+    private static var deskVisible: Bool {
+        NSApp.windows.contains { $0.identifier?.rawValue == DeskWindow.id && $0.occlusionState.contains(.visible) }
     }
 
     private func interval(for source: Source) -> Int {
