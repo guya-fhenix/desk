@@ -8,10 +8,13 @@ struct LoadedDiff {
     let sha: String
     let files: [DiffFile]
     let rows: [String: [DiffRow]]
+    /// The files too large to open on their own: folded until you unfold them.
+    let foldedAtFirst: Set<String>
 
     init(sha: String, files: [DiffFile]) {
         self.sha = sha
         self.files = files
+        foldedAtFirst = files.foldedAtFirst()
         rows = Dictionary(files.map { ($0.path, $0.rows) }, uniquingKeysWith: { first, _ in first })
     }
 }
@@ -48,7 +51,8 @@ struct ReviewDiffScreen: View {
     @State private var selection: DiffSelection?
     @State private var scrollTarget: DiffRowID?
     @State private var flash: DiffRowID?
-    @State private var collapsed: Set<String> = []
+    /// The files whose fold you changed from how the diff opened: a large file opens folded, the rest unfolded.
+    @State private var flipped: Set<String> = []
     /// The files whose header is pinned at the top of the scroll, or being pushed off it by the next: the last of them is
     /// the file you are in.
     @State private var atTop: Set<String> = []
@@ -120,6 +124,8 @@ struct ReviewDiffScreen: View {
         }
     }
 
+    private func folded(_ path: String, in diff: LoadedDiff) -> Bool { diff.foldedAtFirst.contains(path) != flipped.contains(path) }
+
     /// The file at the top of the scroll.
     private func topFile(_ diff: LoadedDiff) -> Int { diff.files.lastIndex { atTop.contains($0.path) } ?? 0 }
 
@@ -157,7 +163,7 @@ struct ReviewDiffScreen: View {
                 LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
                     ForEach(diff.files) { file in
                         Section {
-                            if !collapsed.contains(file.path) {
+                            if !folded(file.path, in: diff) {
                                 let rows = diff.rows[file.path] ?? []
                                 if file.isBinary {
                                     Text("Binary file").font(mono).foregroundStyle(.secondary).padding(8)
@@ -168,7 +174,7 @@ struct ReviewDiffScreen: View {
                                 }
                             }
                         } header: {
-                            fileHeader(file)
+                            fileHeader(file, folded: folded(file.path, in: diff), large: diff.foldedAtFirst.contains(file.path))
                         }
                     }
                 }
@@ -197,9 +203,14 @@ struct ReviewDiffScreen: View {
             }
             .onChange(of: scrollTarget) { _, target in
                 guard let target else { return }
-                collapsed.remove(target.path)
-                withAnimation(reduceMotion ? nil : .default) { proxy.scrollTo(target, anchor: target.index < 0 ? .top : .center) }
+                let unfolding = folded(target.path, in: diff)
+                if unfolding { flipped.formSymmetricDifference([target.path]) }
                 scrollTarget = nil
+                Task {
+                    // A file unfolded this moment has no rows to scroll to until the stack has drawn them.
+                    if unfolding { try? await Task.sleep(for: .milliseconds(100)) }
+                    withAnimation(reduceMotion ? nil : .default) { proxy.scrollTo(target, anchor: target.index < 0 ? .top : .center) }
+                }
             }
             // A session's link: the line it named, or the nearest one the diff has, lit up for a moment.
             .onChange(of: model.diffJump, initial: true) { _, jump in
@@ -217,10 +228,9 @@ struct ReviewDiffScreen: View {
     }
 
     /// A button, so the keyboard and VoiceOver can fold a file too.
-    private func fileHeader(_ file: DiffFile) -> some View {
-        let folded = collapsed.contains(file.path)
-        return Button {
-            if folded { collapsed.remove(file.path) } else { collapsed.insert(file.path) }
+    private func fileHeader(_ file: DiffFile, folded: Bool, large: Bool) -> some View {
+        Button {
+            flipped.formSymmetricDifference([file.path])
         } label: {
             HStack(spacing: 8) {
                 Image(systemName: folded ? "chevron.right" : "chevron.down")
@@ -228,6 +238,7 @@ struct ReviewDiffScreen: View {
                 Text(file.previousPath.map { "\($0) → \(file.path)" } ?? file.path)
                     .font(mono.weight(.semibold)).lineLimit(1).truncationMode(.head)
                 Text(file.status == .modified ? "" : file.status.rawValue).scaled(.caption).foregroundStyle(.secondary)
+                if folded, large { Text("Large diff: click to show").scaled(.caption).foregroundStyle(.secondary) }
                 Spacer(minLength: 8)
                 Text("+\(file.additions)").foregroundStyle(.green)
                 Text("−\(file.deletions)").foregroundStyle(.red)
@@ -314,7 +325,7 @@ struct ReviewDiffScreen: View {
     /// The selection after ↑ or ↓: the cursor a line on, into the next open file past the last line, or from the file on
     /// top when there is none yet; with ⇧, the selection stretched a line, within its file. Nil when it would go nowhere.
     private func moved(_ step: Int, extend: Bool, in diff: LoadedDiff) -> DiffSelection? {
-        let open = diff.files.map(\.path).filter { !collapsed.contains($0) }
+        let open = diff.files.map(\.path).filter { !folded($0, in: diff) }
         let line = { (path: String) in diff.rows[path]?.lineIndex(after: nil, step: step).map { DiffSelection(path: path, anchor: $0, end: $0) } }
         guard let selection, let at = open.firstIndex(of: selection.path) else {
             return open.drop { $0 != diff.files[topFile(diff)].path }.lazy.compactMap(line).first ?? open.lazy.compactMap(line).first

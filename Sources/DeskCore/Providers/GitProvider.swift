@@ -172,6 +172,11 @@ public actor GitProvider {
 
     private let gitPath: String
     private let concurrency = 6
+    /// Each clone's origin, by path, as of when its config file last changed: a scan asked git for it again every time,
+    /// one process per folder under the repo roots every 15 s. Nil is a clone without an origin.
+    private var remotes: [String: (configChanged: Date?, remote: String?)] = [:]
+    /// Each clone's default branch, by root, and when it was asked: it changes about never, so every ten minutes will do.
+    private var defaultBranches: [String: (branch: String, asked: Date)] = [:]
 
     public init(gitPath: String = "/usr/bin/git") {
         self.gitPath = gitPath
@@ -219,7 +224,7 @@ public actor GitProvider {
         await withTaskGroup(of: RepoRef?.self) { group in
             for path in candidates {
                 group.addTask {
-                    guard let remote = try? await self.git(["remote", "get-url", "origin"], cwd: path),
+                    guard let remote = await self.remote(of: path),
                           let slug = GitParsing.repoSlug(fromRemote: remote), slugs?.contains(slug) ?? true else { return nil }
                     return RepoRef(name: (path as NSString).lastPathComponent, root: path, remote: remote)
                 }
@@ -231,11 +236,26 @@ public actor GitProvider {
         return repos.sorted { $0.name < $1.name }
     }
 
+    private func remote(of path: String) async -> String? {
+        let changed = (try? FileManager.default.attributesOfItem(atPath: "\(path)/.git/config"))?[.modificationDate] as? Date
+        if let known = remotes[path], known.configChanged == changed { return known.remote }
+        let remote = try? await git(["remote", "get-url", "origin"], cwd: path)
+        remotes[path] = (changed, remote)
+        return remote
+    }
+
+    private func defaultBranch(of root: String) async -> String {
+        if let known = defaultBranches[root], Date().timeIntervalSince(known.asked) < 600 { return known.branch }
+        let branch = await Self.defaultBranch(root: root, gitPath: gitPath)
+        defaultBranches[root] = (branch, Date())
+        return branch
+    }
+
     private func scanRepo(_ repo: RepoRef) async -> (worktrees: [Worktree], error: String?) {
         do {
             let porcelain = try await git(["worktree", "list", "--porcelain"], cwd: repo.root)
             let entries = GitParsing.worktreeEntries(porcelain).filter { !$0.isBare }
-            let defaultBranch = await Self.defaultBranch(root: repo.root, gitPath: gitPath)
+            let defaultBranch = await defaultBranch(of: repo.root)
             // Every branch's tip and distance from the default branch in one call, rather than three per worktree. Without
             // origin's default branch, ahead-behind fails the whole call: the dates alone then.
             let tip = "--format=%(refname)%09%(committerdate:unix)"
