@@ -165,6 +165,30 @@ public actor DeskService {
     /// directory to it. The prompt sends it on to the branch, and carries the PR url, which is what ties
     /// the session to this PR until it has touched it itself. With `flow`, the session starts on that flow
     /// instruction, such as /pre-pr's run, instead of the plain PR session prompt.
+    // ponytail: the master and its workers run in auto mode, the mode Desk is used in; a setting when someone needs another.
+    public static let masterPermissionMode = "auto"
+
+    /// What every worker starts with: the master's own permission mode, since a worker in another mode holds the
+    /// master's messages for approval, and the plugin folder while skills are being tried.
+    public static func workerFlags(config: DeskConfig) -> [String] {
+        ["--permission-mode", masterPermissionMode] + config.pluginDirFlags
+    }
+
+    /// The master's prompt: its skill, and the worker flags as one shell-ready line for it to copy.
+    public static func masterPrompt(config: DeskConfig) -> String {
+        let flags = workerFlags(config: config).map { $0.contains(" ") ? "'\($0)'" : $0 }.joined(separator: " ")
+        return "Use the fhenix-workflow:coordinate-tasks skill. Start every worker with these flags: \(flags)"
+    }
+
+    /// Starts the master session in `folder`, named `master` so Desk's Master tab and the workers find it.
+    public func startMaster(in folder: String) async throws -> ClaudeJob {
+        try FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
+        let id = try await claude().startBackground(
+            Self.masterPrompt(config: config), cwd: folder, flags: ["-n", "master"] + Self.workerFlags(config: config)
+        )
+        return ClaudeJob(id: id, name: "master", state: "working", cwd: folder, prKeys: [], updatedAt: Date(), role: .master)
+    }
+
     public func startClaudeSession(pr: PullRequest, repoRoot: String, worktree: String?, flow: PromptID? = nil) async throws -> ClaudeJob {
         let cli = try claude()
         let path: String

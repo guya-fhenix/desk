@@ -602,6 +602,44 @@ final class AppModel {
         }
     }
 
+    // MARK: Master
+
+    static let masterTab = "master"
+    /// Why the Master tab last failed to open, until it opens.
+    var masterError: String?
+    private var startingMaster = false
+
+    /// The Master tab: attached to the master session, first among the tabs. With none running, it starts one in the
+    /// master folder and attaches to that. Closing the tab only detaches; the master keeps running.
+    func openMaster() {
+        guard let claude = config.resolvedClaudePath else {
+            masterError = DeskError.claudeNotFound.description
+            return
+        }
+        masterError = nil
+        let attach = { (id: String) in
+            self.terminals.open(id: Self.masterTab, title: "Master", executable: claude, arguments: ["attach", id], pinned: true)
+        }
+        if let master = state.master {
+            attach(master.id)
+            return
+        }
+        guard !startingMaster else { return }
+        startingMaster = true
+        Task {
+            defer { startingMaster = false }
+            do {
+                let master = try await service.startMaster(in: masterFolder.path)
+                // Held until the next scan reads it off disk.
+                state.claudeJobs.insert(master, at: 0)
+                attach(master.id)
+            } catch {
+                masterError = "\(error)"
+                Self.log.error("master: \(String(describing: error), privacy: .public)")
+            }
+        }
+    }
+
     /// Opens a background Claude session in the terminal panel. A background session is a daemon rather than a
     /// shell, so `claude attach` is the only way into one — and it works whether it is still running or
     /// has already finished. Closing the tab only detaches.
