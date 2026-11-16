@@ -66,7 +66,7 @@ enum Snapshot {
     private static func window(_ arguments: [String]) async {
         let screen = arguments.first ?? ""
         guard arguments.count >= 2, screen == "settings" || screen == "setup" || DeskWindow.Tab(rawValue: screen) != nil else {
-            print("usage: --snapshot window <upNext|pullRequests|reviews|tickets|settings|setup> <out.png> [height] [dark] [open=<pr url>] [terminal [expand [collapse]] [font=<pt>]] [pane=<pane>] [step=<step>]")
+            print("usage: --snapshot window <upNext|pullRequests|reviews|tickets|settings|setup> <out.png> [height] [dark] [open=<pr url>] [terminal [expand [collapse]] [font=<pt>]] [pane=<pane>] [step=<step>] [update=<current>,<latest>]")
             return
         }
         func value(_ name: String) -> String? { arguments.first { $0.hasPrefix("\(name)=") }.map { String($0.dropFirst(name.count + 1)) } }
@@ -96,6 +96,10 @@ enum Snapshot {
             }
         }
         if let pane = value("pane").flatMap(SettingsPane.init(rawValue:)) { model.settings.pane = pane }
+        // `update=<current>,<latest>`: the sidebar's update notice, which an unbundled build never checks for.
+        if let versions = value("update")?.split(separator: ","), versions.count == 2 {
+            model.update = AppUpdate.Available(current: String(versions[0]), latest: String(versions[1]))
+        }
         let size = NSSize(width: 1180, height: height)
         if screen == "setup" {
             await capture(SetupView(step: value("step").flatMap(SetupStep.init(rawValue:)) ?? .tools).environment(model), size: size, to: arguments[1], titled: true)

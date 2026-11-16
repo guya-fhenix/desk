@@ -719,6 +719,35 @@ struct SidebarItem: View {
     }
 }
 
+/// Over the sync status while a newer Desk is out: the version to update to and the one you have. A click opens the
+/// release page, where its DMG is; there is no changelog here.
+struct UpdateNotice: View {
+    @Environment(AppModel.self) private var model
+    @Environment(\.openURL) private var openURL
+
+    var body: some View {
+        if let update = model.update {
+            Button { openURL(AppUpdate.releasesPage) } label: {
+                HStack(alignment: .firstTextBaseline, spacing: Theme.Space.s) {
+                    Image(systemName: "arrow.down.circle.fill").foregroundStyle(Theme.accent)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Update to \(update.latest)").scaled(.secondary.weight(.medium))
+                        Text("You have \(update.current)").scaled(.caption).foregroundStyle(.secondary)
+                    }
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Theme.raised, in: RoundedRectangle(cornerRadius: 8))
+                .contentShape(RoundedRectangle(cornerRadius: 8))
+            }
+            .buttonStyle(.plain)
+            .help("Fhenix Desk \(update.latest) is out; you have \(update.current). Opens its release page.")
+        }
+    }
+}
+
 /// Pinned under the sidebar, one block: the sync state with its one press — the arrow that syncs every source, a spinner
 /// while one syncs, Retry naming the sources that failed — and your Claude plan's session and week limits as two thin
 /// meters. A click on it opens the detail: each source's age and error, and each limit's reset and the sessions at work.
