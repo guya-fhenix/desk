@@ -1,6 +1,6 @@
 # Fhenix Desk
 
-Menu bar app that tracks the Fhenix development cycle. You talk to one master session, in the Master tab; it starts a
+Menu bar app that tracks the Fhenix development cycle. You talk to one master session, in iTerm; it starts a
 worker session per task, and the workers follow the Fhenix workflow on their own and ask, through the master, before
 anything other people will see. Desk is the board: your work by task, the reviews waiting on you, Jira, and what changed
 on GitHub, which it hands to the master.
@@ -36,8 +36,9 @@ sign-ins as JSON; an older one gets an Upgrade press), `acli` and Claude Code; *
 which needs a review skill: `review-teammate-task` (1.0, any set of PRs) or `review-pr` (0.8, one PR). Each check is read
 off the tool every time. GitHub and Jira ask for a token there (Create a token opens GitHub with a classic token's scopes
 ticked, or Atlassian's API tokens page), with Use the browser beside it. Install, Use the browser and the other fixes run
-their command in the terminal panel, in a login shell, so you can follow it and type a password; the checks run again
-when the tab ends. Then come Settings' own GitHub, Repos (Track my clones ticks every org repo you have a clone of) and
+their command in a window of your terminal app (iTerm2 unless Settings → Master says Terminal), in a login shell, so you
+can follow it and type a password; the checks run again when you come back to Desk. Tools also checks tmux and iTerm2,
+which show the master and its workers. Then come Settings' own GitHub, Repos (Track my clones ticks every org repo you have a clone of) and
 Jira pages, and Finish, which needs the Command Line Tools, `gh` signed in and one tracked repo. Later closes Setup until
 the next launch. `make doctor` prints the same checks.
 
@@ -147,7 +148,7 @@ deploys, production) that the diff alone does not show. The session summarizes t
 questions with where to look, follows your notes, and posts the comments and the verdicts you decide on, each PR's
 together.
 
-The review swaps the page for the diff, with the session beside it in the terminal panel. The group's PRs sit above the
+The review swaps the page for the diff; the session runs in its own pane in iTerm, beside the master. The group's PRs sit above the
 diff, base first, to move between them, with your notes under them. While the diff shows, the sidebar folds away to give
 the code the room; it comes back as it was when you leave the diff, and ⌃⌘S shows it in between. The file you are in
 stays pinned at the top, and the menu at the top, "File 2 of 4 · contracts/ACL.sol", lists every file with its +/− counts
@@ -158,23 +159,27 @@ and the verdicts stay the session's. If a PR gets new commits while you read, Re
 The diff and the session are linked. When the session points at a line, the diff moves there, to whichever PR of the
 group the line is in: it runs Desk's `desk-show` helper, which opens one `fhenixdesk://show/…` link and nothing else, and
 is allowed for it without asking. Only a link to a PR Desk knows brings the window forward. Select lines in the diff
-(click, then shift-click, or move with ↑ ↓ and stretch with ⇧↑ ⇧↓) and Ask Claude (⌘↩) pastes them into the session's
-input, with the PR they are from, for your question. To background the session, use Claude's own agents view. Review on
+(click, then shift-click, or move with ↑ ↓ and stretch with ⇧↑ ⇧↓) and Copy lines (⇧⌘C) puts them on the clipboard,
+with the PR, path and line numbers, to paste into the session's pane. Review on
 GitHub still opens the Files tab. The row says where your review stands: `draft · 7` while you have a pending review, or
 the verdict you sent. Nothing of it is stored: every poll reads your pending and submitted reviews off the PR.
 
-## Terminal panel
+## Terminals: iTerm and tmux
 
-Sessions open in a panel on the right of the window, a tab each: the master, first and pinned; background sessions
-attached with `claude attach`; review sessions; and Setup's installs and sign-ins. Switching tabs or screens leaves them
-running; closing a tab stops what runs in it. An attached session, the master included, only detaches, and a review
-session can be reopened with `claude --resume`. View → Show/Hide Terminal (⌃`) hides the panel. It is SwiftTerm, inside
-the app.
+Desk opens no terminal of its own and sends nothing to a session. The master and its workers run in iTerm2, in panes of
+one tmux session, `desk`, window `agents`: the master in the left half, and on the right a pane per other session that
+works, waits for you, or worked in the last ten minutes (the open tasks' workers and the review sessions). Each pane
+runs `claude attach <id>`; a review session runs in its own pane. iTerm2 shows the session through tmux's control mode
+(`tmux -CC attach -t desk`), so the panes are native iTerm splits, and closing iTerm leaves every session running.
 
-Drag the line beside it to widen it, as far as the screen's own minimum allows; for more, the panel's expand button
-(View → Expand Terminal, ⌃⇧`) lays it over the whole window beside the sidebar, and choosing a screen puts it back. Its
-text size buttons, and View → Terminal Text Bigger, Smaller and Default Size (⌘=, ⌘-, ⌘0), set every tab's text from
-9 to 24 pt, 12 to start; Desk remembers it.
+Desk makes the layout the first time you ask to see a session: the Master block's Open, a Show in iTerm on a page,
+Answer in iTerm, Start review. Then, on every scan of the sessions, it opens a pane for a session that starts and closes
+the pane of one past its turn. A pane you close by hand stays closed until you show that session again or it starts
+waiting for you. Show in iTerm focuses the pane and brings iTerm forward, opening a window on the layout when no terminal
+is attached: Desk writes `desk-attach.command` in its folder and opens it with `open -a iTerm`, which needs no
+Automation permission. Settings → Master → Terminal picks Terminal.app instead, with plain `tmux attach`. View → Show
+Master in iTerm (⇧⌘M) goes straight there. `FhenixDesk --terminals status|sync|show <name>` drives the same code from the
+command line, and `make doctor` prints the layout.
 
 ## Jira
 
@@ -209,9 +214,9 @@ Set the three status names in Settings → Jira, exactly as Jira spells them. An
 
 On your PR's page, and on a review's page, the session press says whether one of Claude Code's background sessions
 (`claude agents`, the ones under `~/.claude/jobs`) is about that PR. A PR's session is the one started on it or on its
-ticket, else the earliest one that links to it. **Attach** runs `claude attach <id>` in the terminal panel: the only
-way into a background session from outside the terminal that started it, and it works whether the session is still
-running or has finished. With more than one, the arrow beside it lists them all, newest first. Interactive sessions
+ticket, else the earliest one that links to it. **Show in iTerm** puts its pane of the `desk` layout in front, where
+`claude attach <id>` runs: the only way into a background session from outside the terminal that started it, and it
+works whether the session is still running or has finished. With more than one, the arrow beside it lists them all, newest first. Interactive sessions
 never appear: nothing outside their own terminal can reach them.
 
 Desk reads every background session that is about a PR or a ticket, that its prompt names as the master, a worker or a
@@ -220,10 +225,13 @@ sessions: the master starts the workers.
 
 ## The master and its workers
 
-The **Master** block in the sidebar attaches the terminal panel to the master session, first among the tabs. With none running it
-starts one, named `master`, in the master folder: `~/Library/Application Support/Fhenix Desk/master`. It runs the
-fhenix-workflow `coordinate-tasks` skill, in auto mode, and starts every worker in the same mode, so no worker holds its
-messages for approval. Closing the tab only detaches; the master keeps running.
+The **Master** block in the sidebar opens the Master screen: the sessions down a column, the `desk` layout as iTerm
+shows it with Show on each pane, the questions the master asked you with Answer in iTerm, and the events Desk told it
+today; beside them where it runs and its terminal. Open in iTerm (↩) shows the master's pane. With none running, the
+block's Start starts one, named `master`, in the master folder: `~/Library/Application Support/Fhenix Desk/master`. It
+runs the fhenix-workflow `coordinate-tasks` skill, in auto mode, and starts every worker in the same mode, so no worker
+holds its messages for approval. Stop master runs `claude stop`; its workers run on. You talk to it in its pane; Desk
+shows what it asked and sends it nothing but the files below.
 
 You talk to it in plain words: "start PRO-123", "find out why decrypt requests fail on testnet", "what's waiting on
 me?", "review PRO-646 and teecryptor#14". It starts one worker per task, even across repos, named after the ticket or
