@@ -42,8 +42,6 @@ final class AppModel {
     var searchFocusRequest = 0
     /// How many search boxes are on screen. Find falls back to Search (⌘K) on a screen that has none.
     var visibleSearchBoxes = 0
-    /// Bumped by View → Show/Hide Details (⌥⌘I); the window flips the details panel of the screen it shows.
-    var inspectorToggleRequest = 0
     /// What Settings is editing, kept here so leaving Settings and coming back keeps what you had typed.
     let settings = SettingsDraft()
     /// Ticket keys with a transition in flight, so a poll that lands mid-move does not start another.

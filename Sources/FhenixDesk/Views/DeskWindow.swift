@@ -20,15 +20,6 @@ struct DeskWindow: View {
             }
         }
 
-        /// The key its details panel remembers its flag under, on the screens that have one.
-        var inspectorKey: String? {
-            switch self {
-            case .tickets: return "tickets"
-            // Pull requests and reviews open a page of their own instead.
-            case .pullRequests, .reviews, .upNext: return nil
-            }
-        }
-
         var icon: String {
             switch self {
             case .upNext: return "tray"
@@ -116,12 +107,6 @@ struct DeskWindow: View {
             model.pendingTab = nil
         }
         .onDisappear { NSApp.setActivationPolicy(.accessory) }
-        // View → Show/Hide Details flips the remembered flag of the screen on show; its panel follows the flag.
-        .onChange(of: model.inspectorToggleRequest) {
-            guard !model.showingSettings, let key = tab.inspectorKey else { return }
-            let flag = "inspector.\(key)"
-            UserDefaults.standard.set(!(UserDefaults.standard.object(forKey: flag) as? Bool ?? true), forKey: flag)
-        }
     }
 
     /// Search, which opens over the window rather than being chosen, the tabs with their counts, and Settings; the master
@@ -326,38 +311,3 @@ struct RoutePage: View {
     }
 }
 
-/// The details panel the list screens share, on the right. Its switch sits in the screen's header; the flag is
-/// remembered per screen, so closing it on one does not close it everywhere.
-extension View {
-    /// `width` is where the column starts; the user can drag it anywhere from 260 to 560.
-    func deskInspector<Inspector: View>(
-        _ key: String, width: CGFloat = 300, @ViewBuilder content: @escaping () -> Inspector
-    ) -> some View {
-        modifier(DeskInspector(key: key, width: width, inspector: content))
-    }
-}
-
-private struct DeskInspector<Inspector: View>: ViewModifier {
-    @AppStorage private var shown: Bool
-    let width: CGFloat
-    let inspector: () -> Inspector
-
-    init(key: String, width: CGFloat, inspector: @escaping () -> Inspector) {
-        self.width = width
-        _shown = AppStorage(wrappedValue: true, "inspector.\(key)")
-        self.inspector = inspector
-    }
-
-    func body(content: Content) -> some View {
-        content
-            // A screen wider than the room beside the panel spills into its own margins rather than pushing the panel
-            // past the window's edge.
-            .frame(minWidth: 0)
-            .inspector(isPresented: $shown) {
-                VStack(alignment: .leading, spacing: 0) { inspector() }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                    .background(Theme.background.ignoresSafeArea())
-                    .inspectorColumnWidth(min: 260, ideal: width, max: 560)
-            }
-    }
-}

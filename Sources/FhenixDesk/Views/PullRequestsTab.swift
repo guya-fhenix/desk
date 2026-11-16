@@ -116,12 +116,21 @@ struct PullRequestsTab: View {
                     switch scope {
                     case .open where byTask:
                         ForEach(taskSections) { section in
-                            Section {
-                                ForEach(section.rows, id: \.pullRequest.url) { row in
-                                    PullRequestRow(row: row, model: model, selected: selection == row.pullRequest.url) { open(row.pullRequest.url) }
+                            let first = section.id == taskSections.first?.id
+                            // A task with no PR is its band alone: an empty section would leave a line under it.
+                            if section.rows.isEmpty {
+                                TaskHeader(task: section.task, model: model, first: first).plainListRow().selectionDisabled()
+                            } else {
+                                Section {
+                                    // Indented under the task's band, so they read as its PRs rather than the next rows.
+                                    ForEach(section.rows, id: \.pullRequest.url) { row in
+                                        PullRequestRow(row: row, model: model, selected: selection == row.pullRequest.url, indent: Theme.Space.xl) {
+                                            open(row.pullRequest.url)
+                                        }
+                                    }
+                                } header: {
+                                    TaskHeader(task: section.task, model: model, first: first)
                                 }
-                            } header: {
-                                TaskHeader(task: section.task, model: model)
                             }
                         }
                     case .open:
@@ -208,11 +217,12 @@ struct PullRequestRow: View {
     var row: StackedPullRequest
     var model: AppModel
     var selected: Bool
+    var indent: CGFloat = 0
     var open: () -> Void
 
     var body: some View {
         let pr = row.pullRequest
-        ListRow(selected: selected, open: open) {
+        ListRow(selected: selected, open: open, indent: indent) {
             // No avatar and no tick: every PR here is yours, and a mark that is gone on the next launch is no mark.
             HStack(alignment: .center, spacing: 12) {
                 if row.depth > 0 {
@@ -333,12 +343,15 @@ private struct TaskSection: Identifiable {
     var id: String { task.id }
 }
 
-/// A task's line above its PRs: what it is (the ticket key, the worker's name, or the stack's root), its title, Jira's
-/// status for a ticket, who it waits on, and its worker with a press that attaches it; under it, what the worker is doing
-/// and what the task depends on. A task with no PR yet, an investigation say, is this line alone.
+/// A task's band above its PRs, set apart from them by its fill, a gap before it, and an edge in the colour of who it
+/// waits on: what it is (the ticket key, the worker's name, or the stack's root), its title, Jira's status for a ticket,
+/// who it waits on, and its worker with a press that attaches it; under it, what the worker is doing and what the task
+/// depends on. A task with no PR yet, an investigation say, is this band alone, and says so.
 struct TaskHeader: View {
     var task: WorkTask
     var model: AppModel
+    /// The first band has no gap above it.
+    var first = false
 
     /// A stack's root reads as `desk#28`, without its owner.
     static func label(_ task: WorkTask) -> String {
@@ -347,15 +360,24 @@ struct TaskHeader: View {
 
     private var waits: (text: String, color: Color)? {
         switch task.waitingOn(asked: model.state.askedTasks) {
-        case .you: return ("waits on you", .orange)
-        case .worker: return ("worker on it", .secondary)
-        case .reviewers: return ("in review", .secondary)
+        case .you: return ("Waits on you", .orange)
+        case .worker: return ("Worker on it", .blue)
+        case .reviewers: return ("In review", .secondary)
         case .nobody: return nil
+        }
+    }
+
+    private var icon: String {
+        switch task.origin {
+        case .ticket: return "ticket"
+        case .session: return "terminal"
+        case .pullRequest: return "arrow.triangle.pull"
         }
     }
 
     private var notes: String? {
         var parts: [String] = []
+        if task.pullRequests.isEmpty { parts.append("No PR yet") }
         if let detail = task.worker?.detail, !detail.isEmpty { parts.append(detail) }
         if !task.dependsOn.isEmpty {
             parts.append("depends on " + task.dependsOn.map { $0.split(separator: "/", maxSplits: 1).last.map(String.init) ?? $0 }.joined(separator: ", "))
@@ -364,16 +386,17 @@ struct TaskHeader: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
+        VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 8) {
-                Text(Self.label(task)).scaled(.secondary.monospaced()).fontWeight(.semibold).foregroundStyle(.primary)
+                Image(systemName: icon).foregroundStyle(.secondary).frame(width: 16)
+                Text(Self.label(task)).scaled(.rowTitle.monospaced()).fontWeight(.semibold).foregroundStyle(.primary).fixedSize()
                 // Not when it would repeat: a session named by its title, or one PR whose row says it right below.
                 if task.title != Self.label(task), !(task.origin == .pullRequest && task.pullRequests.count == 1) {
-                    Text(task.title).scaled(.secondary).foregroundStyle(.primary).lineLimit(1)
+                    Text(task.title).scaled(.rowTitle).foregroundStyle(.primary).lineLimit(1)
                 }
                 if task.origin == .ticket, let status = model.state.ticket(task.id)?.status { Chip(text: status).fixedSize() }
                 Spacer(minLength: 8)
-                if let waits { Text(waits.text).scaled(.caption).foregroundStyle(waits.color) }
+                if let waits { Chip(text: waits.text, color: waits.color).fixedSize() }
                 if let worker = task.worker {
                     Button { model.attach(jobId: worker.id, errorKey: task.id) } label: {
                         Label(worker.status, systemImage: "terminal").scaled(.caption)
@@ -382,10 +405,21 @@ struct TaskHeader: View {
                     .help("Attach \(worker.name) in the terminal panel")
                 }
             }
-            if let notes { Text(notes).scaled(.caption).foregroundStyle(.secondary).lineLimit(1) }
+            if let notes {
+                Text(notes).scaled(.caption).foregroundStyle(.secondary).lineLimit(1).padding(.leading, 24)
+            }
         }
         .textCase(nil)
-        .padding(.vertical, 4)
+        .padding(.horizontal, Theme.Space.m)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Theme.raised)
+        .overlay(alignment: .leading) { Rectangle().fill(waits?.color ?? Theme.line).frame(width: 3) }
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .padding(.top, first ? Theme.Space.s : Theme.Space.xl)
+        .padding(.bottom, Theme.Space.xs)
+        // Opaque, for while it is pinned over the rows scrolling under it.
+        .background(Theme.background)
     }
 }
 

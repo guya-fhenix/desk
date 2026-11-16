@@ -13,8 +13,8 @@ Sources: GitHub PRs (`gh`), local git worktrees, Claude Code sessions (`~/.claud
 off them on every refresh. Under `~/Library/Application Support/Fhenix Desk` it keeps your settings (`config.json`),
 which nudges it has already notified (`notified.json`), and the master's folder (see The master and its workers). If
 `config.json` can't be read, Desk starts on its defaults, keeps the broken file as `config.json.bad`, and Settings says
-so. Its UserDefaults keep the rest: the moves you dismissed, each screen's filters and sort, which details panels are
-open, and that you finished setup.
+so. Its UserDefaults keep the rest: the moves you dismissed, each screen's filters and sort, and that you finished
+setup.
 
 ```sh
 make doctor   # print all data as text: the tasks and the master included
@@ -58,8 +58,8 @@ says "Update to 1.1.7 · You have 1.1.6" and opens the release page. Desk asks `
 every six hours; without access to the repo, it never shows.
 
 In a list, the arrow keys walk the rows, and a click, Return or → opens the row's page in place of the list. The
-page's back link, ← or Go → Back (⌘[) returns to the list with the row still selected. Only Jira has a details panel
-beside its list; View → Show/Hide Details (⌥⌘I) toggles it.
+page's back link, ← or Go → Back (⌘[) returns to the list with the row still selected. Jira's rows open in place
+instead (see Jira).
 
 Search finds any open PR by `repo#number`, title or branch, and any of your tickets by key or summary. ↩ opens it here:
 your PR on Tasks, one in the review queue on Reviews, a ticket on Jira. ⌘↩ opens it on GitHub or Jira. A PR on none of
@@ -91,10 +91,12 @@ root). A ticket's task holds every open PR of yours that names it, in any repo, 
 that opens a PR with no key keeps it in its own task. Nothing of it is stored: every refresh works it out again.
 
 Open lists the tasks, Recently merged your PRs merged in the last month; ⌃Tab and ⌃⇧Tab flip between the two. Show PRs
-gives the flat list of your open PRs instead. A task's header names it, with its title, Jira's status for a ticket, who it
-waits on (you, its worker, reviewers), its worker to attach, and under them what the worker is doing (Claude Code's own
-status line) and what the task depends on: someone else's open PR, or a branch no open PR opens. Its PRs sit under it,
-stacked base first. A task with no PR yet is its header alone.
+gives the flat list of your open PRs instead. Each task is a band with a gap above it, its left edge in the colour of
+who it waits on: orange for you, blue for its worker, gray for reviewers. The band names the task, with an icon for what
+it started from (ticket, session or PR), its title, Jira's status for a ticket, who it waits on, its worker to attach,
+and under them what the worker is doing (Claude Code's own status line) and what the task depends on: someone else's
+open PR, or a branch no open PR opens. Its PRs sit indented under the band, stacked base first. A task with no PR yet
+is its band alone, and says "No PR yet".
 
 Each PR row leads with the title. Under it is a line with the checks, number, repo, branches, size, open threads and
 ticket. On the right is one pill for what the PR waits on, coloured by whose move it is: Conflicts, CI failed, Changes
@@ -177,8 +179,10 @@ text size buttons, and View → Terminal Text Bigger, Smaller and Default Size (
 ## Jira
 
 The Jira screen lists the running sprint or the backlog, one group per status in workflow order, yours unless the
-assignee filter (the row of pictures) picks others. Done is left out. Selecting a row previews it in the details
-panel; Return, a double-click or → opens its page, and ⌘↩ opens it in Jira. A ticket's page shows its key and summary,
+assignee filter (the row of pictures) picks others. Done is left out. A click, Space or Return opens a ticket under
+its row and closes the one open before, so one is open at a time. The open part has only what the row doesn't say:
+who opened it, its PRs and sessions, why Desk suggests its move with Move and Dismiss, and its description, editable,
+with Open page and Open in Jira. → opens its page, and ⌘↩ opens it in Jira. A ticket's page shows its key and summary,
 where it stands, its description, and beside it the PRs that name it, the sessions started on it, and the move Desk
 suggests for it, if any. To start work on one, tell the master: "start PRO-123".
 
@@ -190,7 +194,7 @@ ready, `Done` once they have all merged and one of them landed on the repo's def
 
 Where Jira is behind, Desk suggests the move; it never makes it. Each suggestion waits for your **Move** or
 **Dismiss**: on the Jira screen above the status groups (Move all moves every one), under Jira moves on Up Next, and on
-the ticket's page and details panel. Move runs `acli jira workitem transition`; a ticket still in To Do passes through
+the ticket's page and under its row. Move runs `acli jira workitem transition`; a ticket still in To Do passes through
 the in-progress status on its way. If Jira refuses, the suggestion turns red with Jira's reason, and Move becomes Retry.
 Dismiss hides the suggestion until the ticket's PRs point it somewhere else. A Jira row shows the suggested status as a
 chip, and a Tasks row an orange arrow beside the ticket key.
