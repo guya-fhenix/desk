@@ -668,7 +668,10 @@ final class AppModel {
 
     /// A background session's pane, in front: the layout made or brought up to date, the pane focused, and a terminal
     /// opened on it when none is attached.
-    func show(jobId: String) {
+    func show(jobId: String) { Task { await showNow(jobId: jobId) } }
+
+    /// `show(jobId:)`, waited for: what `--terminals show` runs.
+    func showNow(jobId: String) async {
         guard let claude = config.resolvedClaudePath else {
             terminalError = DeskError.claudeNotFound.description
             return
@@ -676,7 +679,7 @@ final class AppModel {
         let job = state.claudeJobs.first { $0.id == jobId }
         let spec = PaneSpec(key: jobId, name: job?.role == .master ? "master" : job?.name ?? jobId, isMaster: job?.role == .master)
         tmuxShown.insert(jobId)
-        present(spec, command: TmuxLayout.attachCommand(claude: claude, id: jobId))
+        await presentNow(spec, command: TmuxLayout.attachCommand(claude: claude, id: jobId))
     }
 
     /// A command run in your terminal app, in a window of its own: Setup's installs and sign-ins.
@@ -694,27 +697,29 @@ final class AppModel {
 
     /// `spec`'s pane in front, opening it with `command` when it isn't there.
     private func present(_ spec: PaneSpec, command: String) {
-        Task {
-            do {
-                guard let tmux else { throw DeskError.tmuxNotFound }
-                tmuxDismissed.remove(spec.key)
-                if !(await tmux.hasSession()) {
-                    try await tmux.create(spec, command: command)
-                } else if !(try await tmux.panes()).contains(where: { $0.key == spec.key }) {
-                    try await tmux.open(spec, command: command)
-                }
-                tmuxMade.insert(spec.key)
-                await syncTerminals()
-                try? await tmux.arrange()
-                _ = try await tmux.focus(spec.key)
-                let script = await tmux.clients() > 0 ? nil : try TerminalOpener.writeScript(
-                    TerminalOpener.script(app: config.terminalApp, tmux: tmux.path), in: support.directory)
-                try await Shell.output("/usr/bin/open", TerminalOpener.openArguments(app: config.terminalApp, script: script))
-                terminalError = nil
-            } catch {
-                terminalError = "Couldn't show it in \(config.terminalApp == .iTerm ? "iTerm" : "Terminal"): \(error)"
-                Self.log.error("terminal: \(String(describing: error), privacy: .public)")
+        Task { await presentNow(spec, command: command) }
+    }
+
+    private func presentNow(_ spec: PaneSpec, command: String) async {
+        do {
+            guard let tmux else { throw DeskError.tmuxNotFound }
+            tmuxDismissed.remove(spec.key)
+            if !(await tmux.hasSession()) {
+                try await tmux.create(spec, command: command)
+            } else if !(try await tmux.panes()).contains(where: { $0.key == spec.key }) {
+                try await tmux.open(spec, command: command)
             }
+            tmuxMade.insert(spec.key)
+            await syncTerminals()
+            try? await tmux.arrange()
+            _ = try await tmux.focus(spec.key)
+            let script = await tmux.clients() > 0 ? nil : try TerminalOpener.writeScript(
+                TerminalOpener.script(app: config.terminalApp, tmux: tmux.path), in: support.directory)
+            try await Shell.output("/usr/bin/open", TerminalOpener.openArguments(app: config.terminalApp, script: script))
+            terminalError = nil
+        } catch {
+            terminalError = "Couldn't show it in \(config.terminalApp == .iTerm ? "iTerm" : "Terminal"): \(error)"
+            Self.log.error("terminal: \(String(describing: error), privacy: .public)")
         }
     }
 

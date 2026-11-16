@@ -15,6 +15,10 @@ enum Entry {
             await Doctor.run()
             return
         }
+        if let index = arguments.firstIndex(of: "--terminals") {
+            TerminalsCommand.start(Array(arguments.dropFirst(index + 1)))
+            return
+        }
         #if DEBUG
         if let index = arguments.firstIndex(of: "--snapshot") {
             Snapshot.start(Array(arguments.dropFirst(index + 1)))

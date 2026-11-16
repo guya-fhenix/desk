@@ -76,6 +76,17 @@ enum Doctor {
             print("  \(pad("\(pr.repoName)#\(pr.number)", 22)) \(pad(draftText(status.draft), 28)) \(flags)")
         }
 
+        section("Terminals")
+        if let path = Shell.which("tmux") {
+            let tmux = Tmux(path: path)
+            let panes = (try? await tmux.panes()) ?? []
+            print("tmux \(path)  app: \(config.terminalApp.rawValue)  session \(TmuxLayout.session): \(await tmux.hasSession() ? "\(panes.count) panes, \(await tmux.clients()) terminal(s) attached" : "not made yet: Show in iTerm makes it")")
+            for pane in panes { print("  \(pad(pane.paneId, 6)) \(pane.index)  \(pane.key.isEmpty ? "(not Desk's)" : pane.key)") }
+            let wanted = TmuxLayout.desired(master: state.master, sessions: state.tasks.compactMap(\.worker) + state.claudeJobs.filter { $0.role == .review })
+            print("wanted: \(wanted.map { "\($0.name)\($0.isMaster ? " (master)" : "")" }.joined(separator: ", "))")
+        } else {
+            print("tmux not found: brew install tmux")
+        }
         section("Background sessions")
         state.claudeJobs = await service.claudeJobs(keepIn: scan.repos.map(\.root))
         if state.claudeJobs.isEmpty { print("  no background Claude session is about a PR, a ticket or a tracked clone") }
