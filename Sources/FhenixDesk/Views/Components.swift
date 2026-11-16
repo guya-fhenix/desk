@@ -925,7 +925,7 @@ struct SessionStatus: View {
                 }
             }
             .fixedSize()
-            .help("“\(newest.name)”, \(newest.status). Click to attach it in Desk’s terminal panel"
+            .help("“\(newest.name)”, \(newest.status). Click to show it in its pane in iTerm"
                 + (jobs.count > 1 ? "; the arrow lists the other sessions on this PR" : ""))
         } else {
             ClaudeSessionButton(pr: pr, model: model, prominent: true).fixedSize()

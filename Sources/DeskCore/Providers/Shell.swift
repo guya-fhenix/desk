@@ -245,7 +245,7 @@ public enum Shell {
     }
 
     /// The app's environment with the login shell's PATH and then the tool directories in front of its own: what every
-    /// command here runs with, and the terminal panel's sessions too. Without `CLAUDECODE`, which is set when Desk itself
+    /// command here runs with, and the tmux panes Desk opens too. Without `CLAUDECODE`, which is set when Desk itself
     /// was started from a Claude session, and makes every claude it runs think it is nested in that one.
     public static var toolEnvironment: [String: String] {
         var environment = ProcessInfo.processInfo.environment

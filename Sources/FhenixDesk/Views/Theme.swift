@@ -213,7 +213,7 @@ struct FilterBar<Leading: View, Trailing: View>: View {
 }
 
 /// A page's status line: its facts on the left and its presses on the right, on one line where they fit. Where they do
-/// not — the terminal panel open beside the page, a narrow window — the facts wrap and the presses take a line of their
+/// not — a narrow window — the facts wrap and the presses take a line of their
 /// own, rather than the line holding the page wider than its column.
 struct StatusLine<Facts: View, Actions: View>: View {
     @ViewBuilder var facts: Facts
@@ -238,7 +238,7 @@ struct StatusLine<Facts: View, Actions: View>: View {
 }
 
 /// A page's two columns, the long reads and the facts and presses: side by side where the page is wide enough for both,
-/// the facts above the reads where it is not, as with the terminal panel open beside it. One layout either way, so
+/// the facts above the reads where it is not, in a narrow window. One layout either way, so
 /// nothing in either column starts over when the width crosses the line — a comment half typed included.
 struct PageColumns: Layout {
     var spacing: CGFloat
@@ -699,42 +699,6 @@ struct SidebarIcon: View {
         image.isTemplate = true
         return image
     }()
-}
-
-/// A small grey heading over a group of sidebar items.
-struct SidebarHeading: View {
-    var title: String
-
-    var body: some View {
-        Text(title).scaled(.secondary).foregroundStyle(.secondary)
-            .padding(.horizontal, Theme.Space.m).padding(.top, Theme.Space.s).padding(.bottom, Theme.Space.xs)
-    }
-}
-
-/// One item of a Settings-like page's column of parts: icon and title, and a rounded fill when chosen.
-struct SidebarItem: View {
-    var title: String
-    var icon: String
-    var selected = false
-    var action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: Theme.Space.s) {
-                SidebarIcon(name: icon).foregroundStyle(.secondary).frame(width: 16)
-                Text(title).foregroundStyle(selected ? .primary : .secondary)
-                Spacer(minLength: Theme.Space.xs)
-            }
-            .scaled(.body)
-            .padding(.horizontal, Theme.Space.m)
-            .padding(.vertical, Theme.Space.s)
-            .background(selected ? Theme.selected : Color.clear, in: RoundedRectangle(cornerRadius: 6))
-            .hoverFill(enabled: !selected)
-            .contentShape(RoundedRectangle(cornerRadius: 6))
-        }
-        .buttonStyle(.plain)
-        .accessibilityAddTraits(selected ? .isSelected : [])
-    }
 }
 
 /// Over the sync status while a newer Desk is out: the version to update to and the one you have. A click opens the

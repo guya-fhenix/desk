@@ -827,7 +827,7 @@ final class AppModel {
     }
 
     /// Start review on a teammate's PR: its diff on the Reviews screen, and a regular Claude session on the
-    /// review-pr skill in the terminal panel — or the one already running there. Not a background session: Claude's
+    /// review-pr skill in its own pane in iTerm — or the one already running there. Not a background session: Claude's
     /// own agents view backgrounds it if you want. It starts in the repository's checkout, where Claude Code reads
     /// the project's plugins; the skill reads the PR's code at its head without checking anything out.
     func startReview(_ pr: PullRequest) {
