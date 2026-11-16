@@ -75,19 +75,26 @@ struct DeskWindow: View {
             // HSplitView: inside the split view's detail an HSplitView took its width from the sidebar, squeezing it
             // below its own minimum and cutting its labels.
             let terminal = model.terminals.visible && !model.terminals.tabs.isEmpty
+            let widest = max(detailWidth - Self.screenMinimum - 1, Self.terminalMinimum)
+            let width = min(max(terminalWidth, Self.terminalMinimum), widest)
             HStack(spacing: 0) {
                 Group { if model.showingSetup { SetupView() } else if model.showingSettings { SettingsView() } else { screen } }
                     .frame(minWidth: Self.screenMinimum, maxWidth: .infinity, maxHeight: .infinity)
                 if terminal, !model.terminals.expanded {
-                    let width = min(max(terminalWidth, Self.terminalMinimum), max(detailWidth - Self.screenMinimum - 1, Self.terminalMinimum))
-                    PanelDivider(width: $terminalWidth, shown: width, range: Self.terminalMinimum...max(detailWidth - Self.screenMinimum - 1, Self.terminalMinimum))
-                    TerminalPanelView(panel: model.terminals)
-                        .frame(width: width)
-                        .frame(maxHeight: .infinity)
+                    PanelDivider(width: $terminalWidth, shown: width, range: Self.terminalMinimum...widest)
+                    // The panel's room; the panel itself is laid over it, below.
+                    Color.clear.frame(width: width)
                 }
             }
-            // Expanded, the panel covers the screen rather than replacing it, so the screen keeps its place underneath.
-            .overlay { if terminal, model.terminals.expanded { TerminalPanelView(panel: model.terminals) } }
+            // One panel, laid over the right of the column: its room beside the screen, or, expanded, the whole column,
+            // covering the screen so the screen keeps its place underneath. Only its width changes, never where it sits:
+            // two panels, one beside and one over, handed the tab's view between them, and collapsing left it in neither.
+            .overlay(alignment: .trailing) {
+                if terminal {
+                    TerminalPanelView(panel: model.terminals)
+                        .frame(width: model.terminals.expanded ? nil : width)
+                }
+            }
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { detailWidth = $0 }
             .background(Theme.background.ignoresSafeArea())
         }
