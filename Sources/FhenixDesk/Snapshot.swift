@@ -86,6 +86,11 @@ enum Snapshot {
         }
         if let open = arguments.first(where: { $0.hasPrefix("open=") }) { model.selectPullRequest = String(open.dropFirst(5)) }
         if let pane = value("pane").flatMap(SettingsPane.init(rawValue:)) { model.settings.pane = pane }
+        // `finder=<query>`: Search (⌘K) open over the screen with that query.
+        if let query = value("finder") {
+            FinderView.initialQuery = query
+            model.showingFinder = true
+        }
         if let error = value("ghError") { model.state.errors[.github] = error }
         // `update=<current>,<latest>`: the sidebar's update notice, which an unbundled build never checks for.
         if let versions = value("update")?.split(separator: ","), versions.count == 2 {

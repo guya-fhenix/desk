@@ -47,36 +47,49 @@ the installed app only; a build run with `swift run` has no bundle to register.
 
 ## The window
 
-The sidebar lists Search (⌘K), Up Next, Tasks, Reviews and Jira, each screen with a count of the rows it opens on,
-and Settings (⌘,). ⌘1 to ⌘4 pick a screen. The sidebar collapses with its toggle or View → Show/Hide Sidebar (⌃⌘S).
-Under it, the Master block is the master session: its state under its name (not running, starting, working, listening,
-waiting for you) with the questions it has open for you, and Start or Open. Under that, one status block says how the
-sync stands: when every
+Desk is drawn in Nightshift's Instrument look: a warm off-white ground (or a warm near-black one), a panel-coloured
+sidebar, white details columns, small uppercase section labels, Instrument Sans with identifiers in DM Mono. Settings →
+Appearance picks System, Light or Dark, and the accent (indigo, teal, violet or graphite); both apply at once. The
+fonts ship inside the app, with their licences (SIL Open Font License) in `Resources/Fonts`.
+
+The sidebar has the app's mark, Search (⌘K), and Up Next, Tasks, Reviews and Jira, each with a count of the rows it opens
+on (a dot beside Tasks while a worker is at work). ⌘1 to ⌘4 pick a screen. The sidebar collapses with its toggle or
+View → Show/Hide Sidebar (⌃⌘S). At its foot, the Master block is the master session: its state under its name (not
+running, starting, working, listening, waiting for you) with the questions it has open for you; it opens the Master
+screen, or Start starts a master. Under it, one status block says how the sync stands: when every
 source last synced, with the arrow that syncs them all (⌘R), a spinner while one syncs, or the sources that failed with
 Retry. Under that, your Claude plan's session and week limits are two thin meters. Click the block for each source's age
 and error, the Settings pane that fixes a sign-in, and when each limit resets. When a newer Desk is out, a block above it
 says "Update to 1.1.7 · You have 1.1.6" and opens the release page. Desk asks `gh` for the latest release at launch and
 every six hours; without access to the repo, it never shows.
 
-In a list, the arrow keys walk the rows, and a click, Return or → opens the row's page in place of the list. The
-page's back link, ← or Go → Back (⌘[) returns to the list with the row still selected. Jira's rows open in place
-instead (see Jira).
+Under the status block, your GitHub login and which accounts are signed in open Settings (⌘,).
 
-Search finds any open PR by `repo#number`, title or branch, and any of your tickets by key or summary. ↩ opens it here:
-your PR on Tasks, one in the review queue on Reviews, a ticket on Jira. ⌘↩ opens it on GitHub or Jira. A PR on none of
-those screens opens on GitHub.
+Up Next, Tasks, Reviews and Jira are a list with a details column on the right. The arrow keys, or J and K, walk the
+rows; a click selects one and the details column shows it in full, with its presses at the foot. Return, → or a
+double-click opens the row's page in place of the list; the page's breadcrumb, ← or Go → Back (⌘[) returns to the list
+with the row still selected. M shows the master in iTerm. Each list's key hints sit under it.
 
-The menu bar item opens the window on a click. A right-click or Control-click shows a menu: open Desk, quit, your open
-PRs and the reviews that need you, each opening its page. A nudge also comes as a macOS notification, unless Settings
+Search is a palette over the window. It finds any open PR by `repo#number`, title or branch, and any of your tickets by
+key or summary, and has commands: Open master in iTerm, Sync now, Settings. ↩ opens a result here: your PR on Tasks,
+one in the review queue on Reviews, a ticket on Jira. ⌘↩ opens it on GitHub or Jira. A PR on none of those screens
+opens on GitHub.
+
+A click on the menu bar item shows a popover: the master with Open, what needs you (the items Up Next counts, each
+opening Desk on it), the workers at it (each shown in iTerm), the sync line and Open Desk. When GitHub's last refresh
+failed, a banner says why with Retry, and the lists say how old they are. A right-click or Control-click shows the menu:
+open Desk, quit, your open PRs and the reviews that need you, each opening its page. A nudge also comes as a macOS notification, unless Settings
 → General turns them off.
 
 ## Up Next
 
-The window opens on Up Next: what waits on you, under the section that says what to do. **Waiting on you** first: the
-questions the master has open for you, each with the task it is about and how long ago it asked; a row, or Open Master,
-opens the Master tab to answer it. Then Ready to merge, Your move (CI failed, conflicts, changes requested, a review
+The window opens on Up Next, today's date beside its title: what waits on you, under the section that says what to
+do. **Needs you** first: the questions the master has open for you, each with the task it is about and how long ago it
+asked (its details column has Answer in iTerm, which shows the master's pane), then your PRs whose move is yours. Then
+Ready to merge, Your move (CI failed, conflicts, changes requested, a review
 thread open, needs a rebase, or a session waits on you; conflicts by GitHub's own `mergeable`, whatever its merge state
-sums up), Drafts to submit (reviews you started on GitHub and have not sent), To review, Jira moves (the moves Desk
+sums up), Drafts to submit (reviews you started on GitHub and have not sent), To review (the first few, then a link to
+Reviews), Workers at it (the open tasks' workers at work, each shown in iTerm), Jira moves (the moves Desk
 suggests), Ready to start (sprint tickets of yours nothing has started: tell the master "start PRO-123"), and Waiting
 (your PRs that wait on someone else). The rows are the other screens' own, and open their pages here.
 
@@ -91,13 +104,18 @@ investigation of errors in the cloud (named after the session), or from a PR wit
 root). A ticket's task holds every open PR of yours that names it, in any repo, and the PRs stacked on them; a worker
 that opens a PR with no key keeps it in its own task. Nothing of it is stored: every refresh works it out again.
 
-Open lists the tasks, Recently merged your PRs merged in the last month; ⌃Tab and ⌃⇧Tab flip between the two. Show PRs
-gives the flat list of your open PRs instead. Each task is a band with a gap above it, its left edge in the colour of
-who it waits on: orange for you, blue for its worker, gray for reviewers. The band names the task, with an icon for what
-it started from (ticket, session or PR), its title, Jira's status for a ticket, who it waits on, its worker to attach,
-and under them what the worker is doing (Claude Code's own status line) and what the task depends on: someone else's
-open PR, or a branch no open PR opens. Its PRs sit indented under the band, stacked base first. A task with no PR yet
-is its band alone, and says "No PR yet".
+Open lists the tasks, Merged your PRs merged in the last month; ⌃Tab and ⌃⇧Tab flip between the two. PRs gives the
+flat list of your open PRs instead. The tasks are grouped by who they wait on: **Waits on you**, **Worker at it**,
+**In review**, and **No pull request yet**. A task's row has an icon for what it started from (ticket, session or PR),
+its key, its title, and under them its PRs and what its worker is doing (Claude Code's own status line), with a chip
+(Working, Your move, Draft, In review, Investigating…) and how long since it moved. The details column has the ticket's
+summary, its PRs and where each stands, what it depends on (someone else's open PR, or a branch no open PR opens), its
+worker with Show in iTerm, and the master's questions about it; Open task (↩) opens the Task page.
+
+A task's page leads with a stage tracker worked out from its PRs: Plan, Build, Self-review, In review, Merged. Under
+it, its PRs as a table (each opens its page), what it depends on, and the sessions behind it with their summaries and
+Show in iTerm; beside them the ticket's fields with Open in Jira, the master's questions, and the activity Desk knows of
+(PRs opened and moved, sessions started and finished).
 
 Each PR row leads with the title. Under it is a line with the checks, number, repo, branches, size, open threads and
 ticket. On the right is one pill for what the PR waits on, coloured by whose move it is: Conflicts, CI failed, Changes
@@ -105,19 +123,18 @@ requested, Ready to merge, Draft · not self-reviewed (or · self-reviewed, or �
 review. Then the session's mark (a spinner while it works, a bubble while it asks you something) and when the PR last
 moved.
 
-Your PR's page leads with its title, which you can edit while it is open. The status line under it says how it ended,
-or its checks, review and merge state; then its Jira ticket; on the right its session's Attach, and ⋯ with Open on
-GitHub, Copy Branch, Copy Link, Mark Ready for Review on a draft or Convert to Draft on a ready PR, and Close Pull
-Request…, which asks first. The wide column has two tabs. **Conversation** holds the description, editable too, and the
+Your PR's page leads with a breadcrumb back to Tasks, its title, which you can edit while it is open, and a line with
+its number, branches and size; on the right a chip for where it stands, Open on GitHub, and ⋯ with Mark Ready for Review
+on a draft or Convert to Draft on a ready PR, Squash and merge… on one ready to merge (it asks first and merges only the
+head the page showed), Copy Branch, Copy Link, and Close Pull Request…, which asks first. The wide column has two tabs. **Conversation** holds the description, editable too, and the
 conversation. **Files changed** holds the code the PR changed, a box per file that folds, with each review thread under
 the line it ends on, to reply to or resolve there (an outdated one has no line left, so only Conversation lists it); it
-is fetched when the tab opens and again once new commits move the head. The side column holds up to four cards. **Task**,
-when the task is more than this PR: its other PRs and where each stands, what it depends on, its worker and what it is
-doing, and the master's questions about it. **Next step** says what the PR's stage waits on: where its self-review
-stands on a draft, whose move it is in review, and on one ready to merge **Squash and merge**, which asks first and merges
-only the head the page showed. A conflict, red CI or a base to rebase onto shows there too, for the worker to fix when the
+is fetched when the tab opens and again once new commits move the head. The details column on the right: **Next step** says what the PR's stage waits on: where its self-review stands on a
+draft, whose move it is in review (nothing, when the reviewer who asked for changes has been asked again), with Master
+in iTerm when the move is the master's or a worker's. A conflict, red CI or a base to rebase onto shows there too, for the worker to fix when the
 master hands it over. **Checks** sums up every check on the head commit in one line, "✓ 14 passed, 2 skipped"; Show all
-lists them, worst first, with where a failed one stopped. **About this PR** has the open threads by who started them, the
+lists them, worst first, with where a failed one stopped. **Task** names the task, its worker and what it did, with Show in iTerm and a link to the Task page; **Jira** its
+ticket and status, or that it has none. **About** has the open threads by who started them, the
 reviewers and where each stands, labels, size, when it was opened and updated, and its stack.
 
 ## Reviews
@@ -134,8 +151,11 @@ opened in the last few days, and you can hide authors. Up Next, the sidebar badg
 same filters. The tier shows as a Risk chip on each row, and PRs CodeRabbit labels `needs-human` come first, with a
 Needs a person chip. Drafts and bot PRs stay out of the queue altogether.
 
-The queue groups by task: a ticket's PRs, or a stack, under one line saying who wrote it, how many parts and how big. Tick
-any rows, or a group's tick for all its parts, from any repos and authors, and **Review together** asks for notes (what
+The queue groups by task: a ticket's PRs, or a stack, under one line saying who wrote it, which repos and how many
+parts; lone PRs by one author in one repo share that line. The details column has the group's or PR's parts with their
+size and checks, the review skill, and Start review (R) or, while its session runs, Show in iTerm. Tick any rows (X), or
+a group's tick for all its parts, from any repos and authors; the bar at the foot says how many and from how many repos,
+and **Review together** (R) opens a sheet that asks for notes (what
 to focus on, what to check, what you already know) and starts one review session for all of them, on the
 fhenix-workflow `review-teammate-task` skill, in the first PR's clone with the others' clones added. **Start review** on one
 PR asks for notes the same way. Where the skill is not there, from the plugin folder or the installed plugin, the ticks
@@ -184,10 +204,11 @@ command line, and `make doctor` prints the layout.
 ## Jira
 
 The Jira screen lists the running sprint or the backlog, one group per status in workflow order, yours unless the
-assignee filter (the row of pictures) picks others. Done is left out. A click, Space or Return opens a ticket under
-its row and closes the one open before, so one is open at a time. The open part has only what the row doesn't say:
-who opened it, its PRs and sessions, why Desk suggests its move with Move and Dismiss, and its description, editable,
-with Open page and Open in Jira. → opens its page, and ⌘↩ opens it in Jira. A ticket's page shows its key and summary,
+assignee filter (the row of pictures) picks others. Done is left out. A row has the key, summary, status, priority and
+how many open PRs name it, under a column header. The selected ticket opens in the details column on the right: who
+opened it, its status, priority, assignee and the task it belongs to, its PRs and sessions (Show in iTerm), the move
+Desk suggests with Move and Dismiss, and its description, editable; at the foot Open task (↩, its page) and Open in
+Jira (⌘↩). A ticket's page shows its key and summary,
 where it stands, its description, and beside it the PRs that name it, the sessions started on it, and the move Desk
 suggests for it, if any. To start work on one, tell the master: "start PRO-123".
 

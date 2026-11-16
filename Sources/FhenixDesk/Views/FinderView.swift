@@ -7,7 +7,9 @@ import SwiftUI
 /// screens, marked so, on GitHub; ⌘↩ opens either in the browser, on GitHub or Jira. A command runs on either.
 struct FinderView: View {
     @Environment(AppModel.self) private var model
-    @State private var query = ""
+    @State private var query = FinderView.initialQuery
+    /// What the palette opens with: empty, but for a snapshot of it (`--snapshot window … finder=<query>`).
+    nonisolated(unsafe) static var initialQuery = ""
     @State private var index = 0
     @State private var resultsHeight: CGFloat = 0
     @FocusState private var focused: Bool
