@@ -779,8 +779,8 @@ struct MasterStatus: View {
         Button {
             if master == nil { model.openMaster() } else { model.showMasterScreen() }
         } label: {
-            HStack(spacing: 8) {
-                MasterIcon().frame(width: 20)
+            HStack(spacing: 6) {
+                MasterIcon()
                 VStack(alignment: .leading, spacing: 1) {
                     Text("Master").scaled(.body.weight(.semibold)).foregroundStyle(Theme.ink)
                     HStack(spacing: 5) {
@@ -791,16 +791,17 @@ struct MasterStatus: View {
                                           : master!.isAsking || !model.state.asks.isEmpty ? Theme.warn : Theme.ok)
                                 .frame(width: 6, height: 6)
                         }
-                        Text(status).lineLimit(1)
+                        Text(status).lineLimit(1).minimumScaleFactor(0.85)
                     }
                     .scaled(.secondary)
                     .foregroundStyle(failed ? Theme.danger : Theme.quiet)
                 }
-                Spacer(minLength: 4)
+                .layoutPriority(1)
+                Spacer(minLength: 2)
                 Text(master == nil ? "Start" : "Open")
                     .scaled(.secondary.weight(.medium))
                     .foregroundStyle(Theme.accentInk)
-                    .padding(.horizontal, 8).padding(.vertical, 2)
+                    .padding(.horizontal, 7).padding(.vertical, 2)
                     .background(Theme.tint, in: Capsule())
             }
             .padding(.horizontal, 10)
