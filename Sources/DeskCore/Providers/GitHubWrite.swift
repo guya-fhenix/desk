@@ -9,6 +9,11 @@ extension GitHubProvider {
         try await Shell.output(ghPath, ["pr", "ready", String(number), "--repo", repo], run: run)
     }
 
+    /// Turns one of your ready PRs back into a draft.
+    public func convertToDraft(repo: String, number: Int) async throws {
+        try await Shell.output(ghPath, ["pr", "ready", String(number), "--repo", repo, "--undo"], run: run)
+    }
+
     /// Renames one of your PRs, from the title on its page.
     public func retitle(repo: String, number: Int, title: String) async throws {
         try await editPull(repo: repo, number: number, ["title": title])

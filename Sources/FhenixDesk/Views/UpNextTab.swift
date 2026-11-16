@@ -27,7 +27,7 @@ struct UpNextTab: View {
         // In the order the sections show, so the first row selected is the top one.
         let early = plan.filter { $0.section != .waiting }.flatMap(\.pullRequests).map(\.url)
         let waiting = plan.filter { $0.section == .waiting }.flatMap(\.pullRequests).map(\.url)
-        let rows = early + drifts.map(\.id) + tickets.map(\.key) + waiting
+        let rows = model.state.asks.map { Self.askID($0) } + early + drifts.map(\.id) + tickets.map(\.key) + waiting
         RouteStack(path: $path, back: "Up Next", plan: startPlan) {
             list(plan: plan, tickets: tickets, drifts: drifts)
         }
@@ -42,8 +42,9 @@ struct UpNextTab: View {
         // Starting something new comes after what is already under way, and before what waits on others.
         let early = plan.filter { $0.section != .waiting }
         let waiting = plan.first { $0.section == .waiting }
-        let titles = early.map(\.section.title) + (drifts.isEmpty ? [] : [Self.jira]) + (tickets.isEmpty ? [] : [Self.start])
-            + [waiting?.section.title].compactMap { $0 }
+        let asks = model.state.asks
+        let titles = (asks.isEmpty ? [] : [Self.asked]) + early.map(\.section.title) + (drifts.isEmpty ? [] : [Self.jira])
+            + (tickets.isEmpty ? [] : [Self.start]) + [waiting?.section.title].compactMap { $0 }
         // The sources that have neither answered nor failed yet: until GitHub has, an empty list means nothing.
         let pending = Source.allCases.filter { model.state.lastRefresh[$0] == nil && model.state.errors[$0] == nil }
         Screen {
@@ -78,6 +79,13 @@ struct UpNextTab: View {
             ScrollViewReader { proxy in
                 // Arrow keys walk the rows; a click, Return or → opens the PR's or the ticket's page.
                 List(selection: $selection) {
+                    // The master's questions first: a worker waits on each.
+                    if !asks.isEmpty {
+                        header(Self.asked, asks.count, first: titles.first)
+                        ForEach(asks) { ask in
+                            ListRow(selected: selection == Self.askID(ask), open: { model.openMaster() }) { AskRow(ask: ask, model: model) }
+                        }
+                    }
                     ForEach(early) { group in pullRequests(group, first: titles.first) }
                     if !drifts.isEmpty {
                         header(Self.jira, drifts.count, first: titles.first)
@@ -156,6 +164,10 @@ struct UpNextTab: View {
 
     private static let start = "Ready to start"
     private static let jira = "Jira moves"
+    private static let asked = "Waiting on you"
+
+    /// A row id that no PR url or ticket key can be.
+    private static func askID(_ ask: MasterAsk) -> String { "ask:\(ask.id)" }
 
     /// A section's heading, with room above it to set it off from the one before.
     private func header(_ title: String, _ count: Int, first: String?) -> some View {
@@ -181,9 +193,14 @@ struct UpNextTab: View {
         }
     }
 
-    /// Its page, with its row selected behind it for the way back. A PR's url, or a ticket's key.
+    /// Its page, with its row selected behind it for the way back. A PR's url, or a ticket's key; a question of the
+    /// master's opens the Master tab, where it is answered.
     private func open(_ id: String) {
         selection = id
+        if id.hasPrefix("ask:") {
+            model.openMaster()
+            return
+        }
         path.append(model.state.ticket(id) == nil ? .pr(id) : .ticket(id))
     }
 
@@ -195,4 +212,22 @@ struct UpNextTab: View {
 
     /// GitHub put it on you, as opposed to its being open for anyone to review.
     private func onMe(_ pr: PullRequest) -> Bool { model.state.reviewRequests.contains { $0.url == pr.url } }
+}
+
+/// A question the master has open for you: what it asks, the task it is about and how long ago, and the way to answer.
+private struct AskRow: View {
+    var ask: MasterAsk
+    var model: AppModel
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 12) {
+            VStack(alignment: .leading, spacing: 5) {
+                Text(ask.text).scaled(.rowTitle).lineLimit(2)
+                Text([ask.task, ask.askedAt.map { "asked \(Format.age($0)) ago" }].compactMap { $0 }.joined(separator: " · "))
+                    .scaled(.caption).foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 8)
+            Button("Open Master") { model.openMaster() }.controlSize(.small)
+        }
+    }
 }

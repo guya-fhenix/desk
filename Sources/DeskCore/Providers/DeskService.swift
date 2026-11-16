@@ -270,6 +270,10 @@ public actor DeskService {
         try await gh().markReady(repo: pr.repo, number: pr.number)
     }
 
+    public func convertToDraft(_ pr: PullRequest) async throws {
+        try await gh().convertToDraft(repo: pr.repo, number: pr.number)
+    }
+
     public func checks(for pr: PullRequest) async throws -> [PullRequestCheck] {
         try await gh().checks(repo: pr.repo, number: pr.number)
     }

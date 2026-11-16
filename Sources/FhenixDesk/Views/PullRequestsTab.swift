@@ -14,6 +14,8 @@ struct PullRequestsTab: View {
     @State private var path: [Route] = []
     @FocusState private var listFocused: Bool
     @State private var search = ""
+    /// Open PRs grouped under their tasks, or today's flat list of PRs.
+    @AppStorage("pullRequests.byTask") private var byTask = true
     /// With Reduce Motion on, the list jumps to the selected row instead of sliding there.
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -33,10 +35,10 @@ struct PullRequestsTab: View {
     )
 
     var body: some View {
-        let rows = self.rows
+        let rows = byTask ? taskSections.flatMap(\.rows) : self.rows
         let merged = self.merged
         let shown = scope == .open ? rows.map(\.pullRequest.url) : merged.map(\.url)
-        RouteStack(path: $path, back: "Pull Requests") {
+        RouteStack(path: $path, back: "Tasks") {
             list(rows: rows, merged: merged, shown: shown)
         }
         .focusedSceneValue(\.routePath, $path)
@@ -61,7 +63,7 @@ struct PullRequestsTab: View {
 
     @ViewBuilder private func list(rows: [StackedPullRequest], merged: [PullRequest], shown: [String]) -> some View {
         Screen {
-            PageHeader(title: "Pull Requests") {}
+            PageHeader(title: "Tasks") {}
             FilterBar {
                 // Counted over what the search leaves, like the Reviews and Jira tabs; the key cap marks the tab
                 // that ⌃Tab goes to.
@@ -73,13 +75,21 @@ struct PullRequestsTab: View {
                     selection: $scope
                 )
             } trailing: {
-                SearchBox(prompt: "Repo, number or title", text: $search)
-                // Merged PRs read newest first; the columns this sorts by are about open ones.
-                if scope == .open { SortMenu(sort: Self.sort, order: $sortOrder) }
+                SearchBox(prompt: "Task, repo, number or title", text: $search)
+                if scope == .open {
+                    Picker("Show", selection: $byTask) {
+                        Text("Tasks").tag(true)
+                        Text("PRs").tag(false)
+                    }
+                    .pickerStyle(.segmented).labelsHidden().fixedSize()
+                    .help("Your PRs under their tasks, or all of them in one list")
+                    // Merged PRs read newest first; the columns this sorts by are about open ones. Tasks keep their own order.
+                    if !byTask { SortMenu(sort: Self.sort, order: $sortOrder) }
+                }
             }
         } content: {
             Hairline()
-            if (scope == .open ? model.state.mine : model.state.recentlyMerged()).isEmpty {
+            if scope == .open ? model.state.mine.isEmpty && (!byTask || model.state.tasks.isEmpty) : model.state.recentlyMerged().isEmpty {
                 if let error = model.state.errors[.github] {
                     EmptyState(
                         icon: "exclamationmark.triangle", text: "Couldn't load your pull requests from GitHub.", detail: error,
@@ -92,7 +102,7 @@ struct PullRequestsTab: View {
                 }
             } else {
                 StaleBanner(source: .github)
-                if shown.isEmpty {
+                if shown.isEmpty, !(scope == .open && byTask && !taskSections.isEmpty) {
                     EmptyState(
                         icon: "magnifyingglass", text: "No PR matches “\(search)”.",
                         actionTitle: "Clear search", action: { search = "" }
@@ -104,6 +114,16 @@ struct PullRequestsTab: View {
                 // Arrow keys move the selection; a click, Return or → opens the PR's page.
                 List(selection: $selection) {
                     switch scope {
+                    case .open where byTask:
+                        ForEach(taskSections) { section in
+                            Section {
+                                ForEach(section.rows, id: \.pullRequest.url) { row in
+                                    PullRequestRow(row: row, model: model, selected: selection == row.pullRequest.url) { open(row.pullRequest.url) }
+                                }
+                            } header: {
+                                TaskHeader(task: section.task, model: model)
+                            }
+                        }
                     case .open:
                         ForEach(rows, id: \.pullRequest.url) { row in
                             PullRequestRow(row: row, model: model, selected: selection == row.pullRequest.url) { open(row.pullRequest.url) }
@@ -149,6 +169,21 @@ struct PullRequestsTab: View {
         let all = model.state.stackedMine(order: sortOrder)
         guard !search.trimmingCharacters(in: .whitespaces).isEmpty else { return all }
         return all.filter { $0.pullRequest.matches(search: search) }
+    }
+
+    /// Your tasks, each with its PRs stacked base first. A search keeps a task whose name or title matches whole, and
+    /// otherwise the PRs in it that match.
+    private var taskSections: [TaskSection] {
+        let query = search.trimmingCharacters(in: .whitespaces)
+        let byNumber = [KeyPathComparator(\StackedPullRequest.pullRequest.number)]
+        return model.state.tasks.compactMap { task in
+            let all = Linker.stacked(task.pullRequests, parents: model.state.stackParents, order: byNumber)
+            if query.isEmpty || "\(task.id) \(task.title)".localizedCaseInsensitiveContains(query) {
+                return TaskSection(task: task, rows: all)
+            }
+            let rows = all.filter { $0.pullRequest.matches(search: query) }
+            return rows.isEmpty ? nil : TaskSection(task: task, rows: rows)
+        }
     }
 
     /// This month's merged PRs, newest first, filtered by the search field.
@@ -229,9 +264,128 @@ struct PullRequestRow: View {
             Text(verbatim: "on #\(parent.number)").scaled(.caption).foregroundStyle(.secondary).fixedSize()
                 .help("Stacked on #\(parent.number) by \(parent.author)" as String)
         } else if pr.baseRef != pr.defaultBranch {
-            Text("on \(pr.baseRef)").scaled(.caption).foregroundStyle(.orange).fixedSize()
-                .help("Base branch has no open PR")
+            // Something the task depends on rather than something wrong: a merged base asks for a rebase elsewhere.
+            Text("on \(pr.baseRef)").scaled(.caption).foregroundStyle(.secondary).fixedSize()
+                .help("Sits on a branch no open PR opens: its task depends on it")
         }
+    }
+}
+
+/// The task a PR of yours belongs to, read-only: its other PRs and where each stands, what it depends on, its worker and
+/// what that worker is doing, and the master's questions about it. The presses are the master's to make, on your word.
+private struct TaskCard: View {
+    var task: WorkTask
+    var pr: PullRequest
+    var model: AppModel
+
+    /// Shown when the task is more than this PR alone.
+    static func hasMore(_ task: WorkTask, than pr: PullRequest, asks: [MasterAsk]) -> Bool {
+        task.pullRequests.count > 1 || task.worker != nil || !task.dependsOn.isEmpty || asks.contains { $0.task == task.id }
+    }
+
+    var body: some View {
+        SideCard(title: "Task") {
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(task.pullRequests.filter { $0.url != pr.url }, id: \.url) { other in
+                    LabeledContent {
+                        Text(FlowStage.of(other).title).foregroundStyle(.secondary)
+                    } label: {
+                        Text(verbatim: "\(other.repoName)#\(other.number)").scaled(.secondary.monospaced())
+                    }
+                }
+                ForEach(task.dependsOn, id: \.self) { dependency in
+                    // The branch alone, or `repo#n` for a PR: the owner and repo are this PR's own, and the card is narrow.
+                    let short = dependency.contains("@")
+                        ? String(dependency.split(separator: "@", maxSplits: 1).last ?? "")
+                        : String(dependency.split(separator: "/", maxSplits: 1).last ?? "")
+                    LabeledContent("Depends on") {
+                        Text(short).scaled(.caption.monospaced()).lineLimit(2).multilineTextAlignment(.trailing).help(dependency)
+                    }
+                }
+                if let worker = task.worker {
+                    LabeledContent("Worker") {
+                        Button("\(worker.name) · \(worker.status)") { model.attach(jobId: worker.id, errorKey: pr.url) }
+                            .buttonStyle(.link).handCursor()
+                    }
+                    if let detail = worker.detail, !detail.isEmpty {
+                        Text(detail).scaled(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                ForEach(model.state.asks.filter { $0.task == task.id }) { ask in
+                    HStack(alignment: .firstTextBaseline) {
+                        Text("Waiting on you: \(ask.text)").scaled(.caption).foregroundStyle(.orange)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Spacer(minLength: 6)
+                        Button("Open Master") { model.openMaster() }.controlSize(.small)
+                    }
+                }
+            }
+        } trailing: {
+            Text(TaskHeader.label(task)).scaled(.secondary.monospaced()).foregroundStyle(.secondary)
+        }
+    }
+}
+
+/// One task and the rows of its PRs that show.
+private struct TaskSection: Identifiable {
+    var task: WorkTask
+    var rows: [StackedPullRequest]
+    var id: String { task.id }
+}
+
+/// A task's line above its PRs: what it is (the ticket key, the worker's name, or the stack's root), its title, Jira's
+/// status for a ticket, who it waits on, and its worker with a press that attaches it; under it, what the worker is doing
+/// and what the task depends on. A task with no PR yet, an investigation say, is this line alone.
+struct TaskHeader: View {
+    var task: WorkTask
+    var model: AppModel
+
+    /// A stack's root reads as `desk#28`, without its owner.
+    static func label(_ task: WorkTask) -> String {
+        task.origin == .pullRequest ? String(task.id.split(separator: "/").last ?? Substring(task.id)) : task.id
+    }
+
+    private var waits: (text: String, color: Color)? {
+        switch task.waitingOn(asked: model.state.askedTasks) {
+        case .you: return ("waits on you", .orange)
+        case .worker: return ("worker on it", .secondary)
+        case .reviewers: return ("in review", .secondary)
+        case .nobody: return nil
+        }
+    }
+
+    private var notes: String? {
+        var parts: [String] = []
+        if let detail = task.worker?.detail, !detail.isEmpty { parts.append(detail) }
+        if !task.dependsOn.isEmpty {
+            parts.append("depends on " + task.dependsOn.map { $0.split(separator: "/", maxSplits: 1).last.map(String.init) ?? $0 }.joined(separator: ", "))
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 8) {
+                Text(Self.label(task)).scaled(.secondary.monospaced()).fontWeight(.semibold).foregroundStyle(.primary)
+                // Not when it would repeat: a session named by its title, or one PR whose row says it right below.
+                if task.title != Self.label(task), !(task.origin == .pullRequest && task.pullRequests.count == 1) {
+                    Text(task.title).scaled(.secondary).foregroundStyle(.primary).lineLimit(1)
+                }
+                if task.origin == .ticket, let status = model.state.ticket(task.id)?.status { Chip(text: status).fixedSize() }
+                Spacer(minLength: 8)
+                if let waits { Text(waits.text).scaled(.caption).foregroundStyle(waits.color) }
+                if let worker = task.worker {
+                    Button { model.attach(jobId: worker.id, errorKey: task.id) } label: {
+                        Label(worker.status, systemImage: "terminal").scaled(.caption)
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Attach \(worker.name) in the terminal panel")
+                }
+            }
+            if let notes { Text(notes).scaled(.caption).foregroundStyle(.secondary).lineLimit(1) }
+        }
+        .textCase(nil)
+        .padding(.vertical, 4)
     }
 }
 
@@ -302,7 +456,7 @@ struct PullRequestPage: View {
     var pr: PullRequest
     var model: AppModel
     /// The screen it was opened from, which its back link names and returns to.
-    var back = "Pull Requests"
+    var back = "Tasks"
     /// The main column's tab it opens on.
     var tab: PullRequestTab = .conversation
     var onBack: () -> Void
@@ -349,6 +503,9 @@ struct PullRequestPage: View {
         } side: {
             // An ended PR has nothing left to act on or check: its facts. How it ended is on the status line.
             if pr.state == .open {
+                if let task = model.state.task(for: pr), TaskCard.hasMore(task, than: pr, asks: model.state.asks) {
+                    TaskCard(task: task, pr: pr, model: model)
+                }
                 // Every open PR of yours, session or not: Mark ready and Merge need none, and Run /pre-pr starts one.
                 NextStepCard(pr: pr, session: model.state.session(for: pr), model: model)
                 WorkflowsSection(pr: pr, model: model)
@@ -469,6 +626,13 @@ private struct MoreMenu: View {
             Button("Copy Link") { Clipboard.copy(pr.url) }
             if pr.state == .open {
                 Divider()
+                if pr.isDraft {
+                    Button("Mark Ready for Review") { model.markReady(pr) }
+                        .disabled(model.busyFlows.contains(pr.url))
+                } else {
+                    Button("Convert to Draft") { Task { error = await model.convertToDraft(pr) } }
+                        .disabled(model.busyFlows.contains(pr.url))
+                }
                 // Not while a merge or a flow press is under way on it.
                 Button("Close Pull Request…", role: .destructive) { confirmingClose = true }
                     .disabled(closing || model.busyFlows.contains(pr.url))
@@ -496,7 +660,8 @@ private struct MoreMenu: View {
             Text("It closes without merging. It can be reopened on GitHub.")
         }
         .alert(
-            Text(verbatim: "#\(pr.number) is still open"),
+            // The message says which change failed: a close, or turning it back into a draft.
+            Text(verbatim: "#\(pr.number) didn't change"),
             isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })
         ) {
             Button("OK") { error = nil }
