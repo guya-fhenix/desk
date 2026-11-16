@@ -785,13 +785,15 @@ struct EditableDescription<Rendered: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Space.s) {
             HStack {
-                Text("Description").scaled(.secondary.weight(.medium)).foregroundStyle(.secondary)
+                SectionLabel("Description")
                 Spacer()
                 if !editing {
-                    Button("Edit", action: start)
-                        .controlSize(.small)
-                        .disabled(!editable)
-                        .help(editable ? editHelp : lockedHelp)
+                    Button(action: start) {
+                        Label("Edit", systemImage: "pencil").labelStyle(.titleAndIcon)
+                    }
+                    .buttonStyle(.desk(.secondary, .small))
+                    .disabled(!editable)
+                    .help(editable ? editHelp : lockedHelp)
                 }
             }
             if editing {
@@ -803,21 +805,21 @@ struct EditableDescription<Rendered: View>: View {
                     // first click and jumps taller, which carries Cancel out from under that very click.
                     .frame(height: 400)
                     .padding(8)
-                    .background(Theme.raised, in: RoundedRectangle(cornerRadius: 8))
-                    .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Theme.accent, lineWidth: 1.5))
+                    .background(Theme.surface, in: RoundedRectangle(cornerRadius: 8))
+                    .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Theme.accentInk, lineWidth: 1.5))
                 HStack(spacing: 8) {
                     // Verbatim: the hint shows the syntax, so it must not be rendered as markdown itself.
                     Text(verbatim: "Markdown: # headings, - lists, **bold**, `code`, [links](https://…)")
                         .scaled(.caption.monospaced()).foregroundStyle(.secondary)
                     Spacer()
                     if saving { ProgressView().controlSize(.small) }
-                    Button("Cancel", action: cancel).keyboardShortcut(.cancelAction).disabled(saving)
+                    Button("Cancel", action: cancel).buttonStyle(.desk(.secondary, .small)).keyboardShortcut(.cancelAction).disabled(saving)
                     Button("Save", action: commit)
-                        .buttonStyle(.borderedProminent)
+                        .buttonStyle(.desk(.primary, .small))
                         .keyboardShortcut(.return, modifiers: .command)
                         .disabled(saving || draft == text)
                 }
-                if let error { Text(error).scaled(.caption).foregroundStyle(.red).textSelection(.enabled) }
+                if let error { Text(error).scaled(.caption).foregroundStyle(Theme.danger).textSelection(.enabled) }
             } else {
                 rendered
             }
