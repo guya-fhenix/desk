@@ -6,7 +6,7 @@ import UniformTypeIdentifiers
 
 /// The parts of Settings, each a page of its own in the Settings sidebar.
 enum SettingsPane: String, CaseIterable, Identifiable {
-    case general, github, repos, jira, master, prompts
+    case general, github, repos, jira, master
 
     var id: Self { self }
 
@@ -17,7 +17,6 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         case .repos: return "Repos"
         case .jira: return "Jira"
         case .master: return "Master"
-        case .prompts: return "Prompts"
         }
     }
 
@@ -28,7 +27,6 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         case .repos: return "folder"
         case .jira: return SidebarIcon.jira
         case .master: return "bubble.left.and.bubble.right"
-        case .prompts: return "text.bubble"
         }
     }
 }
@@ -45,7 +43,6 @@ final class SettingsDraft {
     /// The folders the master sees besides its own; empty follows the repo roots.
     var masterFoldersText = ""
     var repoFilter = ""
-    var selectedPrompt: PromptID = .ticketPlan
     var pane: SettingsPane = .general
     /// False until `load` has run, or the untouched default draft would read as an edit.
     private(set) var loaded = false
@@ -68,12 +65,6 @@ final class SettingsDraft {
         pending.jiraProjectKeys = Self.split(projectKeysText).map { $0.uppercased() }
         let masterFolders = Self.split(masterFoldersText)
         pending.masterFolders = masterFolders.isEmpty ? nil : masterFolders
-        // Only real edits are kept: a prompt typed back to its default, or cleared, is the default again, and
-        // a key the app no longer has a prompt for is dropped.
-        pending.prompts = config.prompts.filter { key, text in
-            guard let id = PromptID(rawValue: key) else { return false }
-            return !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && text != id.defaultText
-        }
         return pending
     }
 
@@ -128,7 +119,6 @@ struct SettingsView: View {
         case .repos: ReposSettings()
         case .jira: FormPage(title: pane.title) { JiraSettings() }
         case .master: FormPage(title: pane.title) { MasterSettings() }
-        case .prompts: PromptsSettings()
         }
     }
 }
@@ -535,12 +525,6 @@ struct GitHubSettings: View {
             .padding(.top, 14)
         }
         FieldGroup(
-            title: "Flow",
-            note: "The team slug in the org, asked to review a PR when you press Mark ready on it."
-        ) {
-            Field(label: "Review team") { BoxedText(placeholder: "protocol-team", text: $draft.config.reviewTeam) }
-        }
-        FieldGroup(
             title: "Local clones",
             note: "Where your clones live: sessions start in them, and their worktrees show as your work. The list of repos comes from GitHub."
         ) {
@@ -605,7 +589,7 @@ struct JiraSettings: View {
                     key.range(of: #"^[A-Za-z][A-Za-z0-9_]*$"#, options: .regularExpression) == nil ? "“\(key)” is not a Jira project key." : nil
                 }
             }
-            Field(label: "Status when planning starts") {
+            Field(label: "Status while work is under way") {
                 StatusField(placeholder: "In Progress", text: $draft.config.jiraInProgressStatus, known: knownStatuses)
             }
             Field(label: "Status while a PR is open for review") {
@@ -821,66 +805,5 @@ struct ReposSettings: View {
                 draft.config.trackedRepos = tracked.sorted()
             }
         )
-    }
-}
-
-/// A page of its own, like Repos: a prompt runs to dozens of lines, more than a field holds.
-private struct PromptsSettings: View {
-    @Environment(AppModel.self) private var model
-
-    var body: some View {
-        @Bindable var draft = model.settings
-        let id = draft.selectedPrompt
-        let edits = draft.pending.prompts
-        VStack(alignment: .leading, spacing: 0) {
-            PageHeader(title: "Prompts") { EmptyView() }
-            FilterBar {
-                Picker("Prompt", selection: $draft.selectedPrompt) {
-                    ForEach(PromptID.allCases) { prompt in
-                        Text(edits[prompt.rawValue] == nil ? prompt.title : "\(prompt.title) (edited)").tag(prompt)
-                    }
-                }
-                .labelsHidden()
-                .frame(maxWidth: 320, alignment: .leading)
-                if edits[id.rawValue] != nil { Chip(text: "Edited", color: .orange) }
-            } trailing: {
-                Button("Reset to default") { draft.config.prompts[id.rawValue] = nil }
-                    .controlSize(.small)
-                    // The draft, not `pending`: a box cleared to nothing is not an edit, but Reset still refills it.
-                    .disabled(draft.config.prompts[id.rawValue] == nil)
-            }
-            TextEditor(text: promptBinding(id))
-                .scaled(.code)
-                .autocorrectionDisabled()
-                .scrollContentBackground(.hidden)
-                .padding(8)
-                .background(Theme.background, in: RoundedRectangle(cornerRadius: 6))
-                .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Theme.controlBorder))
-            VStack(alignment: .leading, spacing: 4) {
-                Text(LocalizedStringKey(id.usage))
-                if !id.placeholders.isEmpty {
-                    Text(id.placeholders.map { "{\($0.name)} \($0.meaning)" }.joined(separator: " · "))
-                }
-                if !id.conditions.isEmpty {
-                    Text(id.conditions.map { "{#\($0.name)}…{/\($0.name)} when \($0.meaning)" }.joined(separator: " · "))
-                    Text("{else} inside a section gives the text for when it does not hold. A broken or unknown marker is sent as typed.")
-                }
-                Text("Empty uses the default.")
-            }
-            .scaled(.caption)
-            .foregroundStyle(.secondary)
-            .textSelection(.enabled)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.vertical, 10)
-        }
-        .padding(.horizontal, Theme.gutter)
-        .padding(.top, 14)
-    }
-
-    /// The default until you type. What you type is kept as typed — even empty, so clearing the box to start
-    /// over does not snap the default back in — and `pending` decides at Save what is an edit.
-    private func promptBinding(_ id: PromptID) -> Binding<String> {
-        let draft = model.settings
-        return Binding(get: { draft.config.prompts[id.rawValue] ?? id.defaultText }, set: { draft.config.prompts[id.rawValue] = $0 })
     }
 }

@@ -1,17 +1,15 @@
 import DeskCore
 import SwiftUI
 
-/// Your open PR's first card: what its stage waits on and the one press that moves it, read off GitHub and the session on
-/// each refresh. A draft says where /pre-pr stands and runs it, with Mark ready beside it; one in review says whose move
-/// it is; one ready to merge says why it is, and merges, asked first — the page's one Merge. A conflict or red CI has its
-/// Fix it here at any stage, and so does what the session is doing.
+/// Your open PR's first card: what its stage waits on, read off GitHub and the session on each refresh. A draft says where
+/// its self-review stands; one in review says whose move it is; one ready to merge says why it is, and merges, asked
+/// first: the page's one Merge. A conflict, red CI or a base to rebase onto shows here at any stage, for the worker to fix
+/// when the master hands it over; so does a question the session is asking you.
 struct NextStepCard: View {
     var pr: PullRequest
     /// The background session carrying the PR, when it has one.
     var session: ClaudeJob?
     var model: AppModel
-    /// Mark ready on a draft /pre-pr has not passed asks first.
-    @State private var confirmingReady = false
     @State private var confirmingMerge = false
     @State private var mergeError: String?
 
@@ -20,27 +18,23 @@ struct NextStepCard: View {
         SideCard(title: "Next step", edge: stage == .approved ? Color.green.opacity(0.6) : stage == .draft ? Theme.accent.opacity(0.6) : Theme.line) {
             if let key = session?.ticketKey { LabeledContent("Started from", value: key) }
             stageContent(stage)
-            // The session itself, its state and Attach, is the page's header button; here only what it means for the flow.
+            // The session itself, its state and Attach, is the page's header button; here only what it means for the PR.
             if let session, session.isAsking {
                 // Its question is often the last line of a long report, easy to read past once attached; so it is said here.
                 Text(session.question.map { "The session asks: “\($0)” Attach to it at the top to answer." }
                      ?? "The session is asking you something: attach to it at the top to answer.")
                     .scaled(.caption).foregroundStyle(.orange)
                     .fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
-            } else if session?.isRunning == true {
+            } else if let session, session.isRunning {
                 HStack(spacing: 6) {
                     ProgressView().controlSize(.mini)
-                    Text(stage == .draft
-                        ? "Its session is working (on this PR or something else); Run /pre-pr and Mark ready wait until it’s done."
-                        : "Its session is working, on this PR or something else.")
-                        .scaled(.caption).foregroundStyle(.secondary)
+                    Text(session.detail ?? "Its session is working, on this PR or something else.")
+                        .scaled(.caption).foregroundStyle(.secondary).lineLimit(2)
                 }
             }
-            if pr.hasConflicts { fixRow(.fixConflict, problem: "It conflicts with \(pr.baseRef).") }
-            if pr.checks.isRed { fixRow(.fixChecks, problem: "CI failed.") }
-            if let reason = model.state.rebaseReason(pr) {
-                Text("Needs a rebase: \(reason.text)").scaled(.caption).foregroundStyle(.orange)
-            }
+            if pr.hasConflicts { problem("It conflicts with \(pr.baseRef).") }
+            if pr.checks.isRed { problem("CI failed.") }
+            if let reason = model.state.rebaseReason(pr) { problem("Needs a rebase: \(reason.text).") }
             if let error = model.flowErrors[pr.url] ?? mergeError {
                 Text(error).scaled(.caption).foregroundStyle(.red).textSelection(.enabled)
             }
@@ -53,51 +47,19 @@ struct NextStepCard: View {
         let busy = model.busyFlows.contains(pr.url)
         switch stage {
         case .draft:
-            // Two presses, both yours and in any order: /pre-pr's run, which posts its findings and adds the
-            // local-reviewed label once no Important one is open, and Mark ready, the one to lead with once it has.
-            let status = PrePRStatus.of(pr)
-            let skill = model.state.reviewSkill(for: pr)
-            LabeledContent("/pre-pr") {
-                switch status {
-                case .notRun: Text("not run")
+            LabeledContent("Self-review") {
+                switch PrePRStatus.of(pr) {
+                case .notRun: Text("not yet")
                 case .passed: Text("passed").foregroundStyle(.green)
                 case .importantOpen: Text("finding open").foregroundStyle(.orange)
                 }
             }
-            LabeledContent("Ready for review", value: "no · asks \(model.config.reviewTeam)")
-            if status == .importantOpen {
-                // Ready without the label fails the local-review-evidence check from Enforce on.
-                Text("/pre-pr left an Important finding open, so there is no local-reviewed label. Settle it with the session, or resolve its thread as your decision, then run /pre-pr again.")
-                    .scaled(.caption).foregroundStyle(.orange)
-            }
-            if let skill, !skill.has(skill.selfReview) { ReviewSkillMark(skill: skill, showsText: true) }
-            let blocker = busy ? nil : model.prePRBlocker(pr)
-            HStack {
-                Spacer()
-                if busy { ProgressView().controlSize(.mini) }
-                // A /pre-pr run still going may push again: the PR goes ready only once the session is done.
-                Button("Mark ready") { if pr.isLocallyReviewed { model.markReady(pr) } else { confirmingReady = true } }
-                    .primaryStyle(status == .passed)
-                    .disabled(busy || session?.isBusy == true)
-                    .help("Marks the PR ready for review and asks \(model.config.reviewTeam) to review it")
-                RunPrePRButton(startsSession: session == nil) { model.runPrePR(pr) }
-                    .primaryStyle(status != .passed)
-                    .disabled(busy || blocker != nil)
-            }
-            .confirmationDialog(
-                // Verbatim: a localized title prints the number as "1,082".
-                Text(verbatim: "Mark #\(pr.number) ready without local-reviewed?"),
-                isPresented: $confirmingReady
-            ) {
-                Button("Mark it ready anyway") { model.markReady(pr) }
-            } message: {
-                Text("/pre-pr has not passed it. From Enforce on, the local-review-evidence check fails without its label.")
-            }
-            DisabledReason(text: blocker).frame(maxWidth: .infinity, alignment: .trailing)
+            Text("Its worker self-reviews it and fixes what you pick, on your word through the master. Ready for Review is in ⋯.")
+                .scaled(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
         case .inReview:
             // A change request or a red CI or conflict is yours to fix; otherwise the move is the reviewers'.
             let row = RowState.of(pr)
-            LabeledContent("Waiting on", value: row.move == .yoursToFix ? "you · \(row.title.lowercased())" : model.config.reviewTeam)
+            LabeledContent("Waiting on", value: row.move == .yoursToFix ? "you · \(row.title.lowercased())" : "reviewers")
         case .approved:
             Text(readiness).scaled(.caption).foregroundStyle(.secondary)
             Button { confirmingMerge = true } label: {
@@ -106,7 +68,7 @@ struct NextStepCard: View {
             .buttonStyle(.borderedProminent)
             .tint(.green)
             .controlSize(.large)
-            // A merge, or a flow press, holds the PR in `busyFlows` until it is done.
+            // A merge holds the PR in `busyFlows` until it is done.
             .disabled(pr.mergeBlocker != nil || busy)
             .confirmationDialog(
                 Text(verbatim: "Squash and merge #\(pr.number) into \(pr.baseRef)?"), isPresented: $confirmingMerge
@@ -127,6 +89,10 @@ struct NextStepCard: View {
         }
     }
 
+    private func problem(_ text: String) -> some View {
+        Text(text).scaled(.caption).foregroundStyle(.orange)
+    }
+
     /// What makes it ready, as GitHub's merge box would say it: "Approved by noa-r · checks passed · no conflicts with
     /// main". Ready to merge already rules out red CI and conflicts.
     private var readiness: String {
@@ -136,64 +102,10 @@ struct NextStepCard: View {
             .joined(separator: " · ")
     }
 
-    /// A problem the session can fix, with the press that sends it the fix.
-    private func fixRow(_ prompt: PromptID, problem: String) -> some View {
-        let blocker = model.sendBlocker(pr)
-        return HStack {
-            Text(problem).scaled(.caption).foregroundStyle(.orange)
-            Spacer()
-            DisabledReason(text: blocker)
-            Button("Fix it") { model.fix(prompt, for: pr) }
-                .disabled(blocker != nil)
-                .help("Sends the session \"\(prompt.title)\": it fixes and pushes, and asks you only for a decision it can't make")
-        }
-    }
-
     /// Ready to merge already rules out red CI and conflicts; CI still running is the one wait left.
     private var mergeHint: String {
         if pr.checks.isPending { return "CI is still running, so GitHub may refuse the merge until it passes." }
         return "Asks first. Its commits become one commit on \(pr.baseRef)."
-    }
-}
-
-/// Run /pre-pr with an ⓘ in its label: resting the pointer on it opens what /pre-pr does. A popover, not `.help`: the
-/// system tooltip comes late, or never, in this accessory app's window. AppKit draws the button, so the ⓘ inside it
-/// has no hover of its own; the whole button opens it.
-private struct RunPrePRButton: View {
-    var startsSession: Bool
-    var action: () -> Void
-    @State private var hovering = false
-    @State private var explaining = false
-
-    private var explanation: String {
-        "/pre-pr reviews the PR once and changes no code: its findings come back as threads on the PR, each with a "
-            + "suggested fix, and it adds the local-reviewed label once no Important finding is open. "
-            + (startsSession ? "The PR has no session, so this starts one on its branch." : "The PR's session runs it.")
-    }
-
-    var body: some View {
-        Button {
-            explaining = false
-            action()
-        } label: {
-            HStack(spacing: 4) {
-                Text("Run /pre-pr")
-                Image(systemName: "info.circle")
-            }
-        }
-        .onHover { hovering = $0 }
-        .task(id: hovering) {
-            // A short rest first, so crossing it on the way to Mark ready opens nothing.
-            guard hovering, (try? await Task.sleep(for: .milliseconds(350))) != nil else {
-                explaining = false
-                return
-            }
-            explaining = true
-        }
-        .popover(isPresented: $explaining, arrowEdge: .bottom) {
-            Text(explanation).scaled(.secondary).padding(12).frame(width: 300).fixedSize(horizontal: false, vertical: true)
-        }
-        .accessibilityHint(explanation)
     }
 }
 

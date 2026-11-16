@@ -1,7 +1,8 @@
 # Fhenix Desk
 
 A macOS menu bar app that tracks the Fhenix development cycle (Jira tickets, pull requests, reviews and Claude Code
-sessions) and carries your own work from a ticket to its merge. How it works: [docs/GUIDE.md](docs/GUIDE.md).
+sessions), with a master session you talk to that runs a worker session per task, from a ticket or an
+investigation to its merge. How it works: [docs/GUIDE.md](docs/GUIDE.md).
 
 ## Install
 

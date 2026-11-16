@@ -3,8 +3,6 @@ import Foundation
 public struct DeskConfig: Codable, Sendable, Equatable {
     public var repoRoots: [String] = ["~/Repos"]
     public var githubOrg: String = "FhenixProtocol"
-    /// The org team asked to review a PR when it leaves draft, and again after each round of fixes.
-    public var reviewTeam: String = "protocol-team"
     /// `owner/name` of the repositories to watch, picked in Settings from what GitHub lists for the org.
     /// Empty by default: the app tracks nothing until you say so.
     public var trackedRepos: [String] = []
@@ -32,9 +30,6 @@ public struct DeskConfig: Codable, Sendable, Equatable {
     public var claudePath: String = ""
     /// The Atlassian CLI. It owns the Jira credentials, the way `gh` owns the GitHub ones.
     public var acliPath: String = ""
-    /// Prompt texts edited in Settings, by `PromptID`. Only edits are kept: a prompt you never touched
-    /// follows the app's own text when that changes.
-    public var prompts: [String: String] = [:]
     /// Whether what Desk notifies you about also goes to the master session, as lines of `events.jsonl`.
     public var sendEvents: Bool = true
     /// The folders the master session can see besides its own. Nil follows `repoRoots`, so it starts as your repo roots
@@ -47,11 +42,11 @@ public struct DeskConfig: Codable, Sendable, Equatable {
     public init() {}
 
     private enum CodingKeys: String, CodingKey {
-        case repoRoots, githubOrg, reviewTeam, trackedRepos, ghPath, botLogins, automatedTitlePrefixes, jiraProjectKeys
+        case repoRoots, githubOrg, trackedRepos, ghPath, botLogins, automatedTitlePrefixes, jiraProjectKeys
         case jiraInProgressStatus, jiraReviewStatus, jiraDoneStatus
         case githubPollSeconds, gitPollSeconds, jiraPollSeconds
         case notificationsEnabled
-        case claudePath, acliPath, prompts
+        case claudePath, acliPath
         case sendEvents, masterFolders, pluginDir
     }
 
@@ -62,7 +57,6 @@ public struct DeskConfig: Codable, Sendable, Equatable {
         let d = DeskConfig()
         repoRoots = (try? c.decodeIfPresent([String].self, forKey: .repoRoots)) ?? d.repoRoots
         githubOrg = (try? c.decodeIfPresent(String.self, forKey: .githubOrg)) ?? d.githubOrg
-        reviewTeam = (try? c.decodeIfPresent(String.self, forKey: .reviewTeam)) ?? d.reviewTeam
         trackedRepos = (try? c.decodeIfPresent([String].self, forKey: .trackedRepos)) ?? d.trackedRepos
         ghPath = (try? c.decodeIfPresent(String.self, forKey: .ghPath)) ?? d.ghPath
         botLogins = (try? c.decodeIfPresent([String].self, forKey: .botLogins)) ?? d.botLogins
@@ -77,7 +71,6 @@ public struct DeskConfig: Codable, Sendable, Equatable {
         notificationsEnabled = (try? c.decodeIfPresent(Bool.self, forKey: .notificationsEnabled)) ?? d.notificationsEnabled
         claudePath = (try? c.decodeIfPresent(String.self, forKey: .claudePath)) ?? d.claudePath
         acliPath = (try? c.decodeIfPresent(String.self, forKey: .acliPath)) ?? d.acliPath
-        prompts = (try? c.decodeIfPresent([String: String].self, forKey: .prompts)) ?? d.prompts
         sendEvents = (try? c.decodeIfPresent(Bool.self, forKey: .sendEvents)) ?? d.sendEvents
         masterFolders = (try? c.decodeIfPresent([String].self, forKey: .masterFolders)) ?? d.masterFolders
         pluginDir = (try? c.decodeIfPresent(String.self, forKey: .pluginDir)) ?? d.pluginDir

@@ -285,12 +285,11 @@ struct RouteStack<Root: View>: View {
     @Binding var path: [Route]
     /// The tab, which a page's back link names.
     var back: String
-    var plan: (Ticket, RepoRef) -> Void = { _, _ in }
     @ViewBuilder var root: Root
 
     var body: some View {
         if let route = path.last {
-            RoutePage(route: route, back: back, path: $path, plan: plan)
+            RoutePage(route: route, back: back, path: $path)
         } else {
             root
         }
@@ -302,8 +301,6 @@ struct RoutePage: View {
     /// The tab it opened on, which the back link names.
     var back: String
     @Binding var path: [Route]
-    /// Start in… on a ticket's page, which asks the tab for the plan's note.
-    var plan: (Ticket, RepoRef) -> Void = { _, _ in }
     @Environment(AppModel.self) private var model
 
     var body: some View {
@@ -311,7 +308,7 @@ struct RoutePage: View {
             switch route {
             case .ticket(let key):
                 if let ticket = model.state.ticket(key) {
-                    TicketPage(ticket: ticket, model: model, back: back, plan: plan, onBack: pop)
+                    TicketPage(ticket: ticket, model: model, back: back, onBack: pop)
                 } else {
                     gone
                 }

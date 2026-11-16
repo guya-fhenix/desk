@@ -96,9 +96,9 @@ public enum NudgeEngine {
             switch stage {
             case .draft:
                 switch PrePRStatus.of(pr) {
-                case .notRun: title = "\(label) is a draft: run /pre-pr, or mark it ready"
-                case .passed: title = "\(label) passed /pre-pr: mark it ready" + (threads > 0 ? ", \(open) left" : "")
-                case .importantOpen: title = "\(label): /pre-pr left an Important finding open"
+                case .notRun: title = "\(label) is a draft: its self-review hasn't run"
+                case .passed: title = "\(label) passed its self-review: mark it ready" + (threads > 0 ? ", \(open) left" : "")
+                case .importantOpen: title = "\(label): its self-review left an Important finding open"
                 }
             case .approved: title = "\(label) is ready: merge it"
             default:
@@ -106,7 +106,7 @@ public enum NudgeEngine {
                 guard threads > 0 else { continue }
                 title = "\(label): \(open) to review"
             }
-            // A warning, not info: this is the press only you can make, so it is counted and coloured as one.
+            // A warning, not info: this is yours to decide, through the master, so it is counted and coloured as one.
             nudges.append(Nudge(
                 id: "flow:\(pr.url):\(stage.rawValue):\(pr.headSha)", kind: .flowWaiting, severity: .warning,
                 title: title, detail: pr.title, url: pr.url, jobId: session.id

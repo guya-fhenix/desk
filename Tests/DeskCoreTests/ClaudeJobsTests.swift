@@ -156,64 +156,41 @@ import Testing
         try write("\(repo)/.claude/settings.json", #"{"enabledPlugins": {"fhenix-workflow@fhenix": true}}"#)
         #expect(skill() == .notInstalled)
 
-        let old = "\(home)/plugins/cache/fhenix/fhenix-workflow/0.4.2"
-        let new = "\(home)/plugins/cache/fhenix/fhenix-workflow/0.5.0"
-        try write("\(new)/skills/reviewing-code/SKILL.md", "---\nname: reviewing-code\n---\n")
-        // Another repo's install of the new version does not count for this one.
-        try write("\(home)/plugins/installed_plugins.json", """
-            {"version": 2, "plugins": {"fhenix-workflow@fhenix": [
-              {"scope": "project", "projectPath": "\(repo)", "installPath": "\(old)", "version": "0.4.2"},
-              {"scope": "project", "projectPath": "/elsewhere", "installPath": "\(new)", "version": "0.5.0"}]}}
-            """)
-        #expect(ClaudePlugins.reviewSkill(repoRoot: repo, home: home)
-            == ReviewSkill(state: .noSkill, version: "0.4.2", missing: ["reviewing-code", "review-pr"]))
-
-        try write("\(home)/plugins/installed_plugins.json", """
-            {"version": 2, "plugins": {"fhenix-workflow@fhenix": [
-              {"scope": "project", "projectPath": "\(repo)/", "installPath": "\(new)", "version": "0.5.0"}]}}
-            """)
-        // The self-review's skill without review-pr: Approve works, Start review does not, and the note says what is missing.
-        let partial = ClaudePlugins.reviewSkill(repoRoot: repo, home: home)
-        #expect(partial == ReviewSkill(state: .noSkill, version: "0.5.0", missing: ["review-pr"]))
-        #expect(partial.has("reviewing-code") && !partial.has("review-pr"))
-        #expect(partial.text == "fhenix-workflow 0.5.0 has no review-pr — update the plugin")
-
-        try write("\(new)/skills/review-pr/SKILL.md", "---\nname: review-pr\n---\n")
-        let ready = ClaudePlugins.reviewSkill(repoRoot: repo, home: home)
-        #expect(ready == ReviewSkill(state: .ready, version: "0.5.0"))
-        #expect(ready.text == "fhenix-workflow 0.5.0 · reviewing-code, review-pr")
-        // A repo on the review flow self-reviews with /pre-pr, which this version lacks.
-        #expect(ClaudePlugins.reviewSkill(repoRoot: repo, adopted: true, home: home).missing == ["pre-pr"])
+        let old = "\(home)/plugins/cache/fhenix/fhenix-workflow/0.7.0"
+        let mid = "\(home)/plugins/cache/fhenix/fhenix-workflow/0.8.2"
+        let new = "\(home)/plugins/cache/fhenix/fhenix-workflow/1.0.0"
+        try write("\(mid)/skills/review-pr/SKILL.md", "---\nname: review-pr\n---\n")
+        try write("\(new)/skills/review-teammate-task/SKILL.md", "---\nname: review-teammate-task\n---\n")
+        func installed(_ path: String, _ version: String, for project: String = repo) throws {
+            try write("\(home)/plugins/installed_plugins.json", """
+                {"version": 2, "plugins": {"fhenix-workflow@fhenix": [
+                  {"scope": "project", "projectPath": "\(project)", "installPath": "\(path)", "version": "\(version)"}]}}
+                """)
+        }
+        // No review skill at all: Start review stays off, and the note says what to get.
+        try installed(old, "0.7.0")
+        let stale = ClaudePlugins.reviewSkill(repoRoot: repo, home: home)
+        #expect(stale == ReviewSkill(state: .noSkill, version: "0.7.0", missing: ["review-pr"]))
+        #expect(stale.text == "fhenix-workflow 0.7.0 has no review-pr — update the plugin")
+        // Another repo's install does not count for this one.
+        try installed(new, "1.0.0", for: "/elsewhere")
+        #expect(skill() == .notInstalled)
+        // review-pr: one PR at a time.
+        try installed(mid, "0.8.2", for: "\(repo)/")
+        let one = ClaudePlugins.reviewSkill(repoRoot: repo, home: home)
+        #expect(one == ReviewSkill(state: .ready, version: "0.8.2"))
+        #expect(one.reviewSkill == "review-pr" && one.text == "fhenix-workflow 0.8.2 · review-pr")
+        // review-teammate-task: any set of PRs, and nothing missing although review-pr is gone.
+        try installed(new, "1.0.0")
+        let group = ClaudePlugins.reviewSkill(repoRoot: repo, home: home)
+        #expect(group == ReviewSkill(state: .ready, version: "1.0.0", groupReview: true))
+        #expect(group.text == "fhenix-workflow 1.0.0 · review-teammate-task")
 
         // Local settings outrank the shared ones, the way they do in Claude Code.
         try write("\(repo)/.claude/settings.local.json", #"{"enabledPlugins": {"fhenix-workflow@fhenix": false}}"#)
         #expect(skill() == .notEnabled)
     }
 
-    /// A send stops the session, waits until it is listed no longer and its process is gone, then resumes it under its own
-    /// id. A resume that starts a copy instead stops and deletes the copy, and fails.
-    @Test func sendStopsWaitsThenResumes() async throws {
-        let job = ClaudeJob(id: "1a2b3c4d", name: "s", state: "done", cwd: "/r", prKeys: [], updatedAt: Fixtures.t0, sessionId: "sid")
-        func claude(_ calls: Calls, resumedAs id: String) -> ClaudeCLI {
-            ClaudeCLI(path: "/claude") { _, arguments, _, _, _, _ in
-                let call = arguments.joined(separator: " ")
-                let count = await calls.add(call)
-                switch arguments.first {
-                // Listed with a process no system has before the stop, still listed once after it, then gone.
-                case "agents": return .ok(count < 3 ? #"[{"id":"1a2b3c4d","pid":999999}]"# : "[]")
-                case "--bg": return .ok("backgrounded · \(id)\n")
-                default: return .ok("")
-                }
-            }
-        }
-        let calls = Calls()
-        try await claude(calls, resumedAs: "1a2b3c4d").send("go on", to: job, cwd: "/r")
-        #expect(await calls.list == ["agents --json", "stop 1a2b3c4d", "agents --json", "agents --json", "--bg --resume sid go on"])
-
-        let copied = Calls()
-        await #expect(throws: DeskError.self) { try await claude(copied, resumedAs: "deadbeef").send("go on", to: job, cwd: "/r") }
-        #expect(await copied.list.suffix(3) == ["--bg --resume sid go on", "stop deadbeef", "rm deadbeef"])
-    }
 
     @Test func startedIDIsReadOutOfTheColouredLine() {
         let output = "backgrounded · \u{1B}[36mc020ac7f\u{1B}[39m\n  claude attach c020ac7f    open in this terminal\n"

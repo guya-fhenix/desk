@@ -66,10 +66,4 @@ extension GitHubProvider {
     private func mutate(_ query: String, _ variables: [String: any Sendable]) async throws {
         try GitHubDecoding.throwErrors(in: try await graphQL(query: query, variables: variables, retrying: false))
     }
-
-    /// Asks a team of the org that owns the repo to review. Asking again after a team member has reviewed puts the
-    /// team back on the PR. The REST API, for the reason `editPull` gives.
-    public func requestTeamReview(repo: String, number: Int, team: String) async throws {
-        try await Shell.output(ghPath, ["api", "-X", "POST", "repos/\(repo)/pulls/\(number)/requested_reviewers", "-f", "team_reviewers[]=\(team)"], run: run)
-    }
 }

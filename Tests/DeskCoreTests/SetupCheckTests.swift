@@ -125,11 +125,18 @@ import Testing
         let found = Setup.workflowPlugin(marketplaces: marketplaces, installed: installed)
         #expect(found.ok)
         #expect(found.detail == "fhenix-workflow 0.7.0, 0.8.1")
-        // Installed, but no install has review-pr: Start review stays off, so it is flagged.
+        // Installed, but no install has a review skill: Start review stays off, so it is flagged.
         let old = Data(#"{"plugins":{"fhenix-workflow@fhenix":[{"scope":"user","version":"0.7.0","installPath":"/nonexistent"}]}}"#.utf8)
         let stale = Setup.workflowPlugin(marketplaces: marketplaces, installed: old)
         #expect(!stale.ok)
-        #expect(stale.detail.contains("review-pr"))
+        #expect(stale.detail.contains("without a review skill"))
+        // 1.0 has review-teammate-task and no review-pr: that is a review skill too.
+        let group = FileManager.default.temporaryDirectory.appending(path: "desk-plugin-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: group) }
+        try FileManager.default.createDirectory(at: group.appending(path: "skills/review-teammate-task"), withIntermediateDirectories: true)
+        try Data().write(to: group.appending(path: "skills/review-teammate-task/SKILL.md"))
+        let current = Data(#"{"plugins":{"fhenix-workflow@fhenix":[{"scope":"user","version":"1.0.0","installPath":"\#(group.path)"}]}}"#.utf8)
+        #expect(Setup.workflowPlugin(marketplaces: marketplaces, installed: current).ok)
         // Marketplace known: install from it by its local name. Unknown: add it first.
         #expect(Setup.workflowPlugin(marketplaces: marketplaces, installed: nil).fixes.first?.command == "claude plugin install fhenix-workflow@fhenix")
         #expect(Setup.workflowPlugin(marketplaces: nil, installed: nil).fixes.first?.command.hasPrefix("claude plugin marketplace add FhenixProtocol/claude-marketplace && ") == true)

@@ -77,20 +77,32 @@ enum Doctor {
         }
 
         section("Background sessions")
-        state.claudeJobs = await service.claudeJobs()
-        if state.claudeJobs.isEmpty { print("  no background Claude session mentions a pull request or a ticket") }
+        state.claudeJobs = await service.claudeJobs(keepIn: scan.repos.map(\.root))
+        if state.claudeJobs.isEmpty { print("  no background Claude session is about a PR, a ticket or a tracked clone") }
         for job in state.claudeJobs {
-            let about = job.prKeys.isEmpty ? job.ticketKey ?? "" : job.prKeys.sorted().joined(separator: " ")
-            print("  \(pad(job.id, 10)) \(pad(job.state, 8)) \(pad(about, 34)) \(job.name.prefix(40))")
+            let about = job.prKeys.isEmpty ? job.ticketKey ?? job.request ?? "" : job.prKeys.sorted().joined(separator: " ")
+            print("  \(pad(job.id, 10)) \(pad(job.state, 8)) \(pad(job.role.rawValue, 7)) \(pad(about, 34)) \(job.name.prefix(40))")
         }
 
+        let master = MasterFolder(support: support)
+        state.asks = master.asks()
         state.recompute(now: now)
 
-        // Worked out here as the app does on every refresh: nothing of it is saved.
-        section("Flow")
-        for pr in state.mine {
-            guard let stage = state.stage(for: pr) else { continue }
-            print("  \(pad("\(pr.repoName)#\(pr.number)", 22)) \(pad(stage.title, 18)) \(pr.approvalStatus ?? "no review gate")")
+        section("Master")
+        print("folder: \(master.path)")
+        print("session: \(state.master.map { "\($0.name) \($0.id), \($0.status)" } ?? "not started")  events: \(config.sendEvents ? "on" : "off")  plugins: \(config.pluginDir.isEmpty ? "installed" : config.pluginDir)")
+        print("sees: \(config.masterFolderList.joined(separator: ", "))")
+        print("\(state.asks.count) question\(state.asks.count == 1 ? "" : "s") open")
+        for ask in state.asks { print("  \(pad(ask.task, 26)) \(ask.text)") }
+
+        // Worked out here as the app does on every refresh, and as graph.json gets it: nothing of it is saved.
+        section("Tasks (\(state.tasks.count))")
+        for task in state.tasks {
+            let prs = task.pullRequests.map { "\($0.repoName)#\($0.number)" }.joined(separator: " ")
+            let waits = "waits on \(task.waitingOn(asked: state.askedTasks).rawValue)"
+            print("  \(pad(task.id, 28)) \(pad(task.origin.rawValue, 11)) \(pad(task.stage.title, 14)) \(pad(waits, 18)) \(prs)")
+            if let worker = task.worker { print("      worker \(worker.name), \(worker.status)\(worker.detail.map { ": \($0)" } ?? "")") }
+            if !task.dependsOn.isEmpty { print("      depends on \(task.dependsOn.joined(separator: ", "))") }
         }
 
         section("Waiting on your review (\(state.reviewsToDo.count))")

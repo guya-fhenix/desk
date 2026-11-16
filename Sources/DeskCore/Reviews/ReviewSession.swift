@@ -109,12 +109,9 @@ extension DeskService {
     /// The arguments of the regular `claude` a review runs in the terminal panel. The allowed `showHelper` is what
     /// lets the session move the diff without asking each time; the prompt goes last, because `--allowedTools` takes
     /// every argument after it up to the next option.
-    public static func reviewArguments(for pr: PullRequest, ticket: String?, config: DeskConfig = DeskConfig()) -> [String] {
-        let prompt = config.prompt(
-            .review,
-            ["repo": pr.repo, "number": "\(pr.number)", "title": pr.title, "url": pr.url, "baseRef": pr.baseRef, "ticket": ticket ?? ""],
-            when: ["ticket": ticket != nil]
-        )
+    /// For a clone whose sessions have no `review-teammate-task` yet: one PR on `review-pr`, and the ticket it is for.
+    public static func reviewArguments(for pr: PullRequest, ticket: String?) -> [String] {
+        let prompt = "/fhenix-workflow:\(ClaudePlugins.reviewPR) \(pr.url)" + (ticket.map { "\n\nThe ticket it is for:\n\n\($0)" } ?? "")
         return [
             "--allowedTools", "Bash(\(showHelper.path) *)",
             "--append-system-prompt", reviewLinkInstructions(for: pr),
