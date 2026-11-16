@@ -62,12 +62,14 @@ enum Snapshot {
     }
 
     /// The whole window, sidebar and screen, on a tab, Settings or Setup, once every source has answered. `open=<pr url>`
-    /// shows that PR's page, as Search would; `terminal` puts a tab in the terminal panel, which otherwise only shows with
-    /// a session in it; `pane=<github|jira|…>` picks Settings' page and `step=<accounts|…>` Setup's.
+    /// shows that PR's page, as Search would; `pane=<appearance|master|…>` picks Settings' page and `step=<accounts|…>`
+    /// Setup's. `menubar` draws the menu bar item's popover alone, 380 pt wide; `ghError=<text>` draws it, or any
+    /// screen, as if GitHub's last refresh had failed with that.
     private static func window(_ arguments: [String]) async {
         let screen = arguments.first ?? ""
-        guard arguments.count >= 2, screen == "settings" || screen == "setup" || screen == "master" || DeskWindow.Tab(rawValue: screen) != nil else {
-            print("usage: --snapshot window <upNext|pullRequests|reviews|tickets|master|settings|setup> <out.png> [height] [dark|light] [open=<pr url>] [pane=<pane>] [step=<step>] [update=<current>,<latest>]")
+        let screens = ["settings", "setup", "master", "menubar"]
+        guard arguments.count >= 2, screens.contains(screen) || DeskWindow.Tab(rawValue: screen) != nil else {
+            print("usage: --snapshot window <upNext|pullRequests|reviews|tickets|master|settings|setup|menubar> <out.png> [height] [dark|light] [open=<pr url>] [pane=<pane>] [step=<step>] [update=<current>,<latest>] [ghError=<text>]")
             return
         }
         func value(_ name: String) -> String? { arguments.first { $0.hasPrefix("\(name)=") }.map { String($0.dropFirst(name.count + 1)) } }
@@ -84,6 +86,7 @@ enum Snapshot {
         }
         if let open = arguments.first(where: { $0.hasPrefix("open=") }) { model.selectPullRequest = String(open.dropFirst(5)) }
         if let pane = value("pane").flatMap(SettingsPane.init(rawValue:)) { model.settings.pane = pane }
+        if let error = value("ghError") { model.state.errors[.github] = error }
         // `update=<current>,<latest>`: the sidebar's update notice, which an unbundled build never checks for.
         if let versions = value("update")?.split(separator: ","), versions.count == 2 {
             model.update = AppUpdate.Available(current: String(versions[0]), latest: String(versions[1]))
@@ -91,7 +94,10 @@ enum Snapshot {
         let size = NSSize(width: value("width").flatMap(Double.init).map { CGFloat($0) } ?? 1440, height: height)
         // Drawn off screen, the split view's sidebar column comes out blank: snapshots lay the sidebar beside the screen.
         DeskWindow.flat = true
-        if screen == "setup" {
+        if screen == "menubar" {
+            let popover = SettingsMenuBarPopover().environment(model).frame(maxHeight: .infinity, alignment: .top).background(Theme.panel)
+            await capture(popover, size: NSSize(width: 380, height: height), to: arguments[1])
+        } else if screen == "setup" {
             await capture(SetupView(step: value("step").flatMap(SetupStep.init(rawValue:)) ?? .tools).environment(model), size: size, to: arguments[1], titled: true)
         } else {
             await capture(DeskWindow().environment(model), size: size, to: arguments[1], titled: true)
@@ -163,7 +169,7 @@ enum Snapshot {
             space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
         ) else { return nil }
         context.scaleBy(x: scale, y: scale)
-        // A flipped view — the hosting view of a page drawn alone — would come out upside down.
+        // A flipped view — the hosting view of a page drawn alone — draws top-down; the bitmap is bottom-up.
         if view.isFlipped {
             context.translateBy(x: 0, y: size.height)
             context.scaleBy(x: 1, y: -1)

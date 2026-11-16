@@ -4,29 +4,32 @@ import ServiceManagement
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// The parts of Settings, each a page of its own in the Settings sidebar.
+/// The parts of Settings, each a page of its own in the Settings column.
 enum SettingsPane: String, CaseIterable, Identifiable {
-    case general, github, repos, jira, master
+    case appearance, github, repos, master, jira, general
 
     var id: Self { self }
 
     var title: String {
         switch self {
-        case .general: return "General"
+        case .appearance: return "Appearance"
         case .github: return "GitHub"
         case .repos: return "Repos"
-        case .jira: return "Jira"
         case .master: return "Master"
+        case .jira: return "Jira"
+        case .general: return "General"
         }
     }
 
-    var icon: String {
+    /// The quiet line beside the pane's title.
+    var summary: String {
         switch self {
-        case .general: return "slider.horizontal.3"
-        case .github: return "chevron.left.forwardslash.chevron.right"
-        case .repos: return "folder"
-        case .jira: return SidebarIcon.jira
-        case .master: return "bubble.left.and.bubble.right"
+        case .appearance: return "How Desk looks."
+        case .github: return "Desk uses gh's own sign-in and stores no token."
+        case .repos: return "Which of the org's repos Desk watches."
+        case .master: return "The one Claude session you talk to. It starts the workers."
+        case .jira: return "Which project Desk reads, and what its statuses are called."
+        case .general: return "How often Desk asks each source, and what reaches you."
         }
     }
 }
@@ -43,7 +46,7 @@ final class SettingsDraft {
     /// The folders the master sees besides its own; empty follows the repo roots.
     var masterFoldersText = ""
     var repoFilter = ""
-    var pane: SettingsPane = .general
+    var pane: SettingsPane = .appearance
     /// False until `load` has run, or the untouched default draft would read as an edit.
     private(set) var loaded = false
 
@@ -75,51 +78,37 @@ final class SettingsDraft {
     }
 }
 
-/// Settings, in the Desk window beside the workspace sidebar: a column of its parts, and one page per part. A change
-/// takes effect on its own, the way macOS settings do — there is no Save to forget.
+/// Settings, in the Desk window beside the workspace sidebar: a column of its panes, and the chosen pane's sections in
+/// one column of label and value rows. A change takes effect on its own, the way macOS settings do — there is no Save to
+/// forget.
 struct SettingsView: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
-        let draft = model.settings
+        @Bindable var draft = model.settings
         HStack(spacing: 0) {
-            PaneColumn(title: "Settings") {
-                ForEach(SettingsPane.allCases) { pane in
-                    SidebarItem(title: pane.title, icon: pane.icon, selected: draft.pane == pane) { draft.pane = pane }
+            SettingsPaneList(selection: $draft.pane)
+                // Esc goes back to the screen you came from; it closes Search first when Search is open over Settings.
+                .background {
+                    Button("Back") { model.showingSettings = false }
+                        .keyboardShortcut(model.showingFinder ? nil : .cancelAction)
+                        .opacity(0)
                 }
-            }
-            // Esc goes back to the screen you came from; it closes Search first when Search is open over Settings.
-            .background {
-                Button("Back") { model.showingSettings = false }
-                    .keyboardShortcut(model.showingFinder ? nil : .cancelAction)
-                    .opacity(0)
-            }
-            Rectangle().fill(Theme.line).frame(width: 1).ignoresSafeArea()
             VStack(spacing: 0) {
-                page(draft.pane)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                SettingsPage(pane: draft.pane)
                 if let error = model.configError {
-                    Hairline()
-                    Text(error).scaled(.caption).foregroundStyle(.red).lineLimit(2).textSelection(.enabled)
+                    Text(error).scaled(.secondary).foregroundStyle(Theme.danger).lineLimit(2).textSelection(.enabled)
                         .help(model.configErrorDetail ?? error)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, Theme.gutter)
+                        .padding(.horizontal, 40)
                         .padding(.vertical, 10)
+                        .overlay(alignment: .top) { Rectangle().fill(Theme.rule).frame(height: 1) }
                 }
             }
-            .background(Theme.background)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Theme.ground)
         }
         .savesSettingsDraft()
-    }
-
-    @ViewBuilder private func page(_ pane: SettingsPane) -> some View {
-        switch pane {
-        case .general: FormPage(title: pane.title) { GeneralSettings() }
-        case .github: FormPage(title: pane.title) { GitHubSettings() }
-        case .repos: ReposSettings()
-        case .jira: FormPage(title: pane.title) { JiraSettings() }
-        case .master: FormPage(title: pane.title) { MasterSettings() }
-        }
     }
 }
 
@@ -156,77 +145,145 @@ private struct SavesSettingsDraft: ViewModifier {
     }
 }
 
-/// The column of parts beside a Settings-like page: Settings' panes, setup's steps.
-struct PaneColumn<Content: View>: View {
-    var title: String
-    @ViewBuilder var content: Content
+/// The panes, down a 200 pt column on the panel colour under an uppercase "Settings".
+private struct SettingsPaneList: View {
+    @Binding var selection: SettingsPane
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            SidebarHeading(title: title)
-            content
-            Spacer()
-        }
-        .padding(.horizontal, Theme.Space.s)
-        .padding(.top, Theme.Space.xxl)
-        .frame(width: 168)
-        .frame(maxHeight: .infinity, alignment: .top)
-        .background(Theme.sidebar.ignoresSafeArea())
-    }
-}
-
-/// A page of fields: the title, then the groups, scrolling when they run long.
-struct FormPage<Content: View>: View {
-    var title: String
-    @ViewBuilder var content: Content
-
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
-                PageHeader(title: title) { EmptyView() }
-                content
+        VStack(alignment: .leading, spacing: 1) {
+            SectionLabel("Settings")
+                .frame(minHeight: 32, alignment: .leading)
+                .padding(EdgeInsets(top: 0, leading: 8, bottom: 14, trailing: 8))
+            ForEach(SettingsPane.allCases) { pane in
+                let chosen = pane == selection
+                Button { selection = pane } label: {
+                    Text(pane.title).scaled(chosen ? .body.weight(.medium) : .body)
+                        .padding(.horizontal, 8)
+                        .frame(maxWidth: .infinity, minHeight: 30, alignment: .leading)
+                        .background(chosen ? Theme.selected : .clear, in: RoundedRectangle(cornerRadius: 6))
+                        .hoverFill(enabled: !chosen)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(chosen ? .isSelected : [])
             }
-            .frame(maxWidth: 880, alignment: .leading)
-            .padding(.horizontal, Theme.gutter)
-            .padding(.top, 14)
-            .padding(.bottom, 24)
+            Spacer(minLength: 0)
+        }
+        .padding(EdgeInsets(top: 18, leading: 10, bottom: 14, trailing: 10))
+        .frame(width: 200)
+        .frame(maxHeight: .infinity, alignment: .top)
+        .background(Theme.panel)
+        .overlay(alignment: .trailing) { Rectangle().fill(Theme.rule).frame(width: 1) }
+    }
+}
+
+/// One pane: the page's title, the pane's own, then its sections, in a column at most 760 pt wide.
+private struct SettingsPage: View {
+    var pane: SettingsPane
+
+    var body: some View {
+        if pane == .repos {
+            // The org's repos scroll in a list of their own, under the header and the filter.
+            column { ReposSettings() }
+        } else {
+            ScrollView { column { content } }
+        }
+    }
+
+    private func column<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ScreenTitle(title: "Settings", subtitle: "Desk on this Mac. Only you see these.").padding(.bottom, 12)
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Text(pane.title).scaled(.headline)
+                Text(pane.summary).scaled(.secondary).foregroundStyle(Theme.quiet)
+            }
+            .padding(.top, 12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .overlay(alignment: .top) { Rectangle().fill(Theme.rule).frame(height: 1) }
+            content()
+        }
+        .frame(maxWidth: 760, maxHeight: pane == .repos ? .infinity : nil, alignment: .topLeading)
+        .padding(EdgeInsets(top: 18, leading: 40, bottom: 16, trailing: 40))
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    @ViewBuilder private var content: some View {
+        switch pane {
+        case .appearance: AppearanceSettings()
+        case .github: GitHubSettings()
+        case .repos: EmptyView()
+        case .master: MasterSettings()
+        case .jira: JiraSettings()
+        case .general: GeneralSettings()
         }
     }
 }
 
-/// A group of fields: a hairline, its name, then the fields two to a row, and a note under them.
-private struct FieldGroup<Content: View>: View {
+/// A section of a pane: its uppercase label, its rows with a hairline under each, and a note.
+private struct SettingsGroup<Content: View>: View {
     var title: String?
     var note: String?
     @ViewBuilder var content: Content
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Hairline().padding(.top, 20)
-            if let title { Text(title).scaled(.secondary).foregroundStyle(.secondary) }
-            LazyVGrid(
-                columns: [GridItem(.flexible(), spacing: 32, alignment: .topLeading), GridItem(.flexible(), alignment: .topLeading)],
-                alignment: .leading, spacing: 18
-            ) { content }
+        VStack(alignment: .leading, spacing: 0) {
+            if let title { SectionLabel(title).padding(.bottom, 2) }
+            content
             if let note {
-                Text(note).scaled(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                Text(note).scaled(.secondary).foregroundStyle(Theme.quiet).fixedSize(horizontal: false, vertical: true).padding(.top, 8)
             }
         }
+        .padding(.top, title == nil ? 8 : 22)
     }
 }
 
-/// One setting: its name above a boxed input.
+/// One setting: its name in a 136 pt column, the value beside it with a quiet note under it, and its press on the right.
+private struct SettingsRow<Value: View, Trailing: View>: View {
+    var label: String
+    var note: String?
+    @ViewBuilder var value: Value
+    @ViewBuilder var trailing: Trailing
+
+    init(_ label: String, note: String? = nil, @ViewBuilder value: () -> Value, @ViewBuilder trailing: () -> Trailing) {
+        self.label = label
+        self.note = note
+        self.value = value()
+        self.trailing = trailing()
+    }
+
+    var body: some View {
+        HStack(spacing: 16) {
+            Text(label).fontWeight(.medium).frame(width: 136, alignment: .leading)
+            VStack(alignment: .leading, spacing: 4) {
+                value
+                if let note {
+                    Text(note).scaled(.secondary).foregroundStyle(Theme.quiet).fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            trailing
+        }
+        .padding(.vertical, 8)
+        .frame(minHeight: 44)
+        .overlay(alignment: .bottom) { Rectangle().fill(Theme.ruleSoft).frame(height: 1) }
+    }
+}
+
+extension SettingsRow where Trailing == EmptyView {
+    init(_ label: String, note: String? = nil, @ViewBuilder value: () -> Value) {
+        self.init(label, note: note, value: value) { EmptyView() }
+    }
+}
+
+/// An input's name above it, for the few inputs that sit together in one row: a token's site, email and token.
 private struct Field<Input: View>: View {
     var label: String
-    /// How to fill it in, under the input: a placeholder says it only until the first key is typed.
-    var hint: String?
     @ViewBuilder var input: Input
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(label).scaled(.body.weight(.medium))
+        VStack(alignment: .leading, spacing: 4) {
+            Text(label).scaled(.secondary).foregroundStyle(Theme.quiet)
             input
-            if let hint { Text(hint).scaled(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }
         }
     }
 }
@@ -237,26 +294,28 @@ private func interval(_ seconds: Int) -> String {
     return seconds % 60 == 0 ? "\(seconds / 60) min" : "\(seconds / 60) min \(seconds % 60) s"
 }
 
-/// The boxed look every input on these pages shares.
+/// The boxed look every input on these pages shares: 28 pt, white, in the control colour's outline.
 private struct InputBox: ViewModifier {
     func body(content: Content) -> some View {
         content
-            .padding(.horizontal, 10)
-            .padding(.vertical, 8)
-            .frame(maxWidth: 300, alignment: .leading)
-            .background(Theme.background, in: RoundedRectangle(cornerRadius: 6))
-            .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Theme.controlBorder))
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .frame(maxWidth: .infinity, minHeight: 28, alignment: .leading)
+            .background(Theme.surface, in: RoundedRectangle(cornerRadius: 6))
+            .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Theme.control))
     }
 }
 
 private struct BoxedText: View {
     var placeholder: String
     @Binding var text: String
+    /// DM Mono for paths and names; a status name reads as words.
+    var mono = true
 
     var body: some View {
         TextField(placeholder, text: $text)
             .textFieldStyle(.plain)
-            .scaled(.secondary.monospaced())
+            .scaled(mono ? .code : .body)
             .modifier(InputBox())
     }
 }
@@ -271,17 +330,21 @@ private struct BoxedStepper<Value: Strideable>: View where Value.Stride: SignedN
     var text: String
 
     var body: some View {
-        HStack {
-            Text(text).scaled(.secondary.monospaced())
-            Spacer()
+        HStack(spacing: 8) {
+            Text(text).scaled(.code).frame(minWidth: 64, alignment: .leading)
             Stepper(label, value: $value, in: range, step: step).labelsHidden()
         }
-        .modifier(InputBox())
+        .padding(.leading, 8)
+        .padding(.trailing, 2)
+        .frame(height: 28)
+        .background(Theme.surface, in: RoundedRectangle(cornerRadius: 6))
+        .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Theme.control))
+        .fixedSize()
     }
 }
 
-/// A list kept as comma-separated text in the draft, edited one entry per line: each entry with its own remove button
-/// and its own problem, if it has one, so a typo in one cannot run into the next.
+/// A list kept as comma-separated text in the draft, shown as chips: each entry with its own remove button and its own
+/// problem, if it has one, so a typo in one cannot run into the next. A new one is typed under them.
 private struct TokenField: View {
     var placeholder: String
     @Binding var text: String
@@ -295,30 +358,36 @@ private struct TokenField: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            VStack(alignment: .leading, spacing: 6) {
-                ForEach(tokens, id: \.self) { token in
-                    HStack(spacing: 6) {
-                        Text(token).scaled(.secondary.monospaced())
-                        if problem(token) != nil { Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange) }
-                        Spacer(minLength: 4)
-                        Button { set(tokens.filter { $0 != token }) } label: {
-                            Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+            if !tokens.isEmpty {
+                Flow(spacing: 6) {
+                    ForEach(tokens, id: \.self) { token in
+                        HStack(spacing: 5) {
+                            if problem(token) != nil {
+                                Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 9)).foregroundStyle(Theme.warn)
+                            }
+                            Text(token).scaled(.caption.monospaced())
+                            Button { set(tokens.filter { $0 != token }) } label: {
+                                Image(systemName: "xmark").font(.system(size: 8, weight: .semibold)).foregroundStyle(Theme.quiet)
+                                    .frame(width: 12, height: 12).contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("Remove \(token)")
                         }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Remove \(token)")
+                        .padding(.leading, 6).padding(.trailing, 3).padding(.vertical, 2)
+                        .background(Theme.chip, in: RoundedRectangle(cornerRadius: 4))
                     }
                 }
-                TextField(placeholder, text: $entry)
-                    .textFieldStyle(.plain)
-                    .scaled(.secondary.monospaced())
-                    .onSubmit {
-                        let new = entry.trimmingCharacters(in: .whitespaces)
-                        if !new.isEmpty, !tokens.contains(new) { set(tokens + [new]) }
-                        entry = ""
-                    }
             }
-            .modifier(InputBox())
-            ForEach(tokens.compactMap(problem), id: \.self) { Text($0).scaled(.caption).foregroundStyle(.red) }
+            TextField(placeholder, text: $entry)
+                .textFieldStyle(.plain)
+                .scaled(.code)
+                .onSubmit {
+                    let new = entry.trimmingCharacters(in: .whitespaces)
+                    if !new.isEmpty, !tokens.contains(new) { set(tokens + [new]) }
+                    entry = ""
+                }
+                .modifier(InputBox())
+            ForEach(tokens.compactMap(problem), id: \.self) { Text($0).scaled(.secondary).foregroundStyle(Theme.danger) }
         }
     }
 
@@ -334,9 +403,9 @@ private struct StatusField: View {
     var known: [String]
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 6) {
-                BoxedText(placeholder: placeholder, text: $text)
+                BoxedText(placeholder: placeholder, text: $text, mono: false)
                 if !known.isEmpty {
                     Menu {
                         ForEach(known, id: \.self) { status in Button(status) { text = status } }
@@ -349,7 +418,7 @@ private struct StatusField: View {
                 }
             }
             if text != text.trimmingCharacters(in: .whitespaces) {
-                Text("“\(text)” has a space at the start or end; Jira's status names do not.").scaled(.caption).foregroundStyle(.red)
+                Text("“\(text)” has a space at the start or end; Jira's status names do not.").scaled(.secondary).foregroundStyle(Theme.danger)
             }
         }
     }
@@ -361,13 +430,13 @@ private struct RepoRootsField: View {
     @State private var picking = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            TokenField(placeholder: "~/Repos", text: $text) { root in
+        HStack(alignment: .top, spacing: 12) {
+            TokenField(placeholder: "Add a path", text: $text) { root in
                 var isFolder: ObjCBool = false
                 let path = (root as NSString).expandingTildeInPath
                 return FileManager.default.fileExists(atPath: path, isDirectory: &isFolder) && isFolder.boolValue ? nil : "No folder at \(root)."
             }
-            Button("Add folder…") { picking = true }.controlSize(.small)
+            Button("Add folder") { picking = true }.buttonStyle(.desk(.secondary, .small))
         }
         .fileImporter(isPresented: $picking, allowedContentTypes: [.folder]) { result in
             guard case .success(let url) = result else { return }
@@ -377,46 +446,131 @@ private struct RepoRootsField: View {
     }
 }
 
-/// The master session: whether it runs, where, what it sees, whether Desk tells it what happens on GitHub, and where its
-/// plugins load from while skills are being tried.
+/// System, Light or Dark, and the accent. Both apply on the press, not after the draft's pause: what Desk looks like is
+/// the answer to it.
+private struct AppearanceSettings: View {
+    @Environment(AppModel.self) private var model
+    /// Names for `DeskConfig.accents`, in its order, for VoiceOver and the tooltip.
+    private static let accentNames = ["Indigo", "Teal", "Violet", "Graphite"]
+
+    var body: some View {
+        let config = model.settings.config
+        SettingsGroup {
+            SettingsRow("Theme") {
+                HStack(spacing: 14) {
+                    Segmented(
+                        options: [.init(value: .system, title: "System"), .init(value: .light, title: "Light"), .init(value: .dark, title: "Dark")],
+                        selection: Binding(get: { config.appearance }, set: { value in apply { $0.appearance = value } })
+                    )
+                    Text("System follows macOS. Light and Dark keep Desk on one.").scaled(.secondary).foregroundStyle(Theme.quiet)
+                }
+            }
+            SettingsRow("Accent") {
+                HStack(spacing: 4) {
+                    ForEach(Array(zip(DeskConfig.accents, Self.accentNames)), id: \.0) { hex, name in
+                        swatch(hex: hex, name: name, chosen: config.accent == hex)
+                    }
+                }
+            }
+        }
+    }
+
+    /// A 22 pt disc of the accent; the chosen one ringed in it, two points out.
+    private func swatch(hex: String, name: String, chosen: Bool) -> some View {
+        Button { apply { $0.accent = hex } } label: {
+            Circle().fill(Color(nsColor: NSColor(hex: hex)))
+                .frame(width: 22, height: 22)
+                .overlay {
+                    if chosen {
+                        Circle().strokeBorder(Theme.accentInk, lineWidth: 1.5).padding(-3.5)
+                    } else {
+                        Circle().strokeBorder(Theme.control, lineWidth: 1).padding(-1)
+                    }
+                }
+                .padding(4)
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .help(name)
+        .accessibilityLabel(name)
+        .accessibilityAddTraits(chosen ? .isSelected : [])
+    }
+
+    /// Writes the change now, with whatever else the draft holds, as the draft's own save would; `saveConfig` applies the
+    /// appearance and the accent.
+    private func apply(_ change: (inout DeskConfig) -> Void) {
+        change(&model.settings.config)
+        model.config = model.settings.pending
+        model.saveConfig()
+    }
+}
+
+/// The master session: whether it runs, where, the terminal it shows in, what it sees, whether Desk tells it what happens
+/// on GitHub, and where its plugins load from while skills are being tried.
 private struct MasterSettings: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
         @Bindable var draft = model.settings
         let folder = model.masterFolder
-        FieldGroup(title: "Session") {
-            Field(label: "Master session", hint: model.masterError) {
-                HStack(spacing: 10) {
-                    Text(model.masterStatus).scaled(.secondary.monospaced()).foregroundStyle(.secondary)
-                    Button(model.state.master == nil ? "Start" : "Open") {
-                        model.openMaster()
-                        model.showingSettings = false
-                    }
-                    .controlSize(.small)
+        let master = model.state.master
+        let app = draft.config.terminalApp
+        SettingsGroup(title: "Session") {
+            SettingsRow("Session") {
+                HStack(spacing: 6) {
+                    Circle().fill(master == nil ? Theme.control : master!.isAsking || !model.state.asks.isEmpty ? Theme.warn : Theme.ok)
+                        .frame(width: 6, height: 6)
+                    Text(model.masterStatus)
                 }
+                if let error = model.masterError { Text(error).scaled(.secondary).foregroundStyle(Theme.danger).textSelection(.enabled) }
+            } trailing: {
+                // Running, Open is Desk's Master screen; Start starts it and shows it in the terminal.
+                Button(master == nil ? "Start" : "Open") {
+                    if master == nil { model.openMaster() } else { model.showMasterScreen() }
+                }
+                .buttonStyle(.desk(.secondary, .small))
+                .disabled(model.startingMaster)
             }
-            Field(label: "Runs in", hint: "graph.json and events.jsonl are Desk's, asks.json is the master's.") {
+            SettingsRow("Runs in", note: "graph.json and events.jsonl are Desk's, asks.json is the master's.") {
+                Text((folder.path as NSString).abbreviatingWithTildeInPath).scaled(.code).lineLimit(1).truncationMode(.middle)
+                    .textSelection(.enabled)
+            } trailing: {
+                Button("Show in Finder") { NSWorkspace.shared.open(folder.url) }.buttonStyle(.desk(.secondary, .small))
+            }
+            SettingsRow("Terminal") {
                 HStack(spacing: 10) {
-                    Text((folder.path as NSString).abbreviatingWithTildeInPath).scaled(.secondary.monospaced()).lineLimit(1).truncationMode(.middle)
-                    Button("Show in Finder") { NSWorkspace.shared.open(folder.url) }.controlSize(.small)
+                    Segmented(options: [.init(value: .iTerm, title: "iTerm2"), .init(value: .terminal, title: "Terminal")],
+                              selection: $draft.config.terminalApp)
+                    HStack(alignment: .firstTextBaseline, spacing: 4) {
+                        Text("through the tmux session").foregroundStyle(Theme.quiet)
+                        Text(TmuxLayout.session).scaled(.code)
+                    }
                 }
+                Text("The master on the left, a pane per running session on the right. Desk opens no terminal of its own.")
+                    .scaled(.secondary).foregroundStyle(Theme.quiet).fixedSize(horizontal: false, vertical: true)
+            } trailing: {
+                Button(app == .iTerm ? "Open in iTerm" : "Open in Terminal") { model.openMaster() }
+                    .buttonStyle(.desk(.secondary, .small))
+                    .disabled(model.startingMaster)
             }
         }
-        FieldGroup(
+        SettingsGroup(
             title: "What it sees and hears",
             note: "The folders go into the master folder's .claude/settings.json and apply the next time the master starts."
         ) {
-            Field(label: "Also sees", hint: "Empty sees your repo roots.") { RepoRootsField(text: $draft.masterFoldersText) }
-            Field(label: "Events", hint: "What Desk notifies you about on GitHub, as lines of events.jsonl for the master to route.") {
-                Toggle("Send events to the master", isOn: $draft.config.sendEvents).toggleStyle(.switch).controlSize(.small)
+            SettingsRow("Also sees", note: "Empty sees your repo roots.") { RepoRootsField(text: $draft.masterFoldersText) }
+            SettingsRow("Events to the master") {
+                Text("What Desk notifies you about on GitHub, as lines of events.jsonl for the master to route.")
+                    .foregroundStyle(Theme.quiet).fixedSize(horizontal: false, vertical: true)
+            } trailing: {
+                Toggle("Send events to the master", isOn: $draft.config.sendEvents).toggleStyle(.switch).controlSize(.mini).labelsHidden()
             }
         }
-        FieldGroup(
+        SettingsGroup(
             title: "Plugins",
             note: "Passed as --plugin-dir to the master, which passes it to every worker. Takes effect for sessions started after it changes."
         ) {
-            Field(label: "Load plugins from", hint: "A folder of plugins, such as a claude-marketplace branch's plugins. Empty uses the installed ones.") {
+            SettingsRow("Plugin folder", note: "A folder of plugins, such as a claude-marketplace branch's plugins. Empty uses the installed ones.") {
                 BoxedText(placeholder: "Installed plugins", text: $draft.config.pluginDir)
             }
         }
@@ -428,30 +582,31 @@ private struct GeneralSettings: View {
 
     var body: some View {
         @Bindable var draft = model.settings
-        FieldGroup(title: "Polling") {
-            Field(label: "GitHub poll interval") {
+        SettingsGroup(title: "Polling") {
+            SettingsRow("GitHub") {
                 BoxedStepper(label: "GitHub poll interval", value: $draft.config.githubPollSeconds, range: 30...3_600, step: 30, text: interval(draft.config.githubPollSeconds))
             }
-            Field(label: "Git poll interval") {
+            SettingsRow("Git") {
                 BoxedStepper(label: "Git poll interval", value: $draft.config.gitPollSeconds, range: 15...3_600, step: 15, text: interval(draft.config.gitPollSeconds))
             }
-            Field(label: "Jira poll interval") {
+            SettingsRow("Jira") {
                 BoxedStepper(label: "Jira poll interval", value: $draft.config.jiraPollSeconds, range: 60...3_600, step: 60, text: interval(draft.config.jiraPollSeconds))
             }
         }
-        FieldGroup(title: "Alerts") {
-            Field(label: "macOS notifications") {
-                Toggle("Notify me", isOn: $draft.config.notificationsEnabled).toggleStyle(.switch).controlSize(.small)
+        SettingsGroup(title: "Notifications") {
+            SettingsRow("Notifications") {
+                Text("Failed CI, review requests and the rest, as macOS notifications.").foregroundStyle(Theme.quiet)
+            } trailing: {
+                Toggle("Notify me", isOn: $draft.config.notificationsEnabled).toggleStyle(.switch).controlSize(.mini).labelsHidden()
             }
-            Field(
-                label: "Startup",
-                hint: Bundle.main.bundleIdentifier == nil ? "Only for the installed app: a build run with swift run has no bundle to register." : nil
-            ) { OpenAtLogin() }
+            OpenAtLogin()
         }
-        FieldGroup(title: "About") {
-            Field(label: "Version") { Text(Bundle.main.versionText).scaled(.secondary.monospaced()).foregroundStyle(.secondary).textSelection(.enabled) }
-            Field(label: "Setup", hint: "Checks the tools and sign-ins again, and walks the settings it needs.") {
-                Button("Run setup again") { model.showingSetup = true }.controlSize(.small)
+        SettingsGroup(title: "About") {
+            SettingsRow("Version") { Text(Bundle.main.versionText).scaled(.code).textSelection(.enabled) }
+            SettingsRow("Setup") {
+                Text("Checks the tools and sign-ins again, and walks the settings it needs.").foregroundStyle(Theme.quiet)
+            } trailing: {
+                Button("Run setup again") { model.showingSetup = true }.buttonStyle(.desk(.secondary, .small))
             }
         }
     }
@@ -464,14 +619,19 @@ private struct OpenAtLogin: View {
     @State private var error: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Toggle("Open at login", isOn: Binding(get: { status == .enabled }, set: { set($0) }))
-                .toggleStyle(.switch).controlSize(.small)
-                .disabled(Bundle.main.bundleIdentifier == nil)
+        SettingsRow(
+            "Open at login",
+            note: Bundle.main.bundleIdentifier == nil ? "Only for the installed app: a build run with swift run has no bundle to register." : nil
+        ) {
+            Text("Desk starts with your Mac, so its notifications come back after a restart.").foregroundStyle(Theme.quiet)
             if status == .requiresApproval {
-                Button("Allow it in Login Items…") { SMAppService.openSystemSettingsLoginItems() }.controlSize(.small)
+                Button("Allow it in Login Items…") { SMAppService.openSystemSettingsLoginItems() }.buttonStyle(.desk(.secondary, .small))
             }
-            if let error { Text(error).scaled(.caption).foregroundStyle(.red).textSelection(.enabled) }
+            if let error { Text(error).scaled(.secondary).foregroundStyle(Theme.danger).textSelection(.enabled) }
+        } trailing: {
+            Toggle("Open at login", isOn: Binding(get: { status == .enabled }, set: { set($0) }))
+                .toggleStyle(.switch).controlSize(.mini).labelsHidden()
+                .disabled(Bundle.main.bundleIdentifier == nil)
         }
         .onAppear { status = SMAppService.mainApp.status }
     }
@@ -495,38 +655,46 @@ struct GitHubSettings: View {
 
     var body: some View {
         @Bindable var draft = model.settings
-        FieldGroup(title: "Account") {
-            Field(label: "GitHub org") { BoxedText(placeholder: "FhenixProtocol", text: $draft.config.githubOrg) }
-            Field(label: "gh path", hint: "Leave empty to find gh on your PATH.") { BoxedText(placeholder: "Automatic", text: $draft.config.ghPath) }
-            VStack(alignment: .leading, spacing: 8) {
-                Text(signIn?.detail ?? "Checking…").scaled(.caption)
-                    .foregroundStyle(signIn.map { $0.ok ? Color.green : .red } ?? .secondary)
-                    .fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
-                HStack {
-                    Button("Recheck") { Task { await readSignIn() } }
-                    if signIn?.ok == true, !newToken { Button("Sign in with a token") { newToken = true } }
+        SettingsGroup(title: "Account") {
+            SettingsRow("Sign-in") {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    if let signIn {
+                        Image(systemName: signIn.ok ? "checkmark" : "xmark").font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(signIn.ok ? Theme.ok : Theme.danger)
+                    }
+                    Text(signIn?.detail ?? "Checking…")
+                        .foregroundStyle(signIn.map { $0.ok ? Theme.ink : Theme.danger } ?? Theme.quiet)
+                        .fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
                 }
-                .controlSize(.small)
+            } trailing: {
+                HStack(spacing: 6) {
+                    if signIn?.ok == true, !newToken { Button("Sign in with a token") { newToken = true } }
+                    Button("Recheck") { Task { await readSignIn() } }
+                }
+                .buttonStyle(.desk(.secondary, .small))
             }
-        }
-        if signIn?.asksForToken == true || newToken {
-            TokenSignIn(.github) {
-                newToken = false
-                model.loadRepositories(force: true)
-                Task { await readSignIn() }
+            if signIn?.asksForToken == true || newToken {
+                SettingsRow("Token") {
+                    TokenSignIn(.github) {
+                        newToken = false
+                        model.loadRepositories(force: true)
+                        Task { await readSignIn() }
+                    }
+                }
             }
-            .padding(.top, 14)
+            SettingsRow("GitHub org") { BoxedText(placeholder: "FhenixProtocol", text: $draft.config.githubOrg) }
+            SettingsRow("gh path", note: "Leave empty to find gh on your PATH.") { BoxedText(placeholder: "Automatic", text: $draft.config.ghPath) }
         }
-        FieldGroup(
+        SettingsGroup(
             title: "Local clones",
             note: "Where your clones live: sessions start in them, and their worktrees show as your work. The list of repos comes from GitHub."
         ) {
-            Field(label: "Repo roots", hint: "One folder per line; type a path and press Return, or add one with the folder dialog.") {
+            SettingsRow("Repo roots", note: "Type a path and press Return, or pick one with Add folder.") {
                 RepoRootsField(text: $draft.repoRootsText)
             }
         }
-        FieldGroup(title: "Noise", note: "PRs by these authors stay out of the review queue.") {
-            Field(label: "Bot logins", hint: "One GitHub login per line; type it and press Return.") {
+        SettingsGroup(title: "Noise", note: "PRs by these authors stay out of the review queue.") {
+            SettingsRow("Bot logins", note: "Type a GitHub login and press Return.") {
                 TokenField(placeholder: "Add a login", text: $draft.botLoginsText)
             }
         }
@@ -542,58 +710,59 @@ struct JiraSettings: View {
 
     var body: some View {
         @Bindable var draft = model.settings
-        FieldGroup(
+        let account = model.jiraAccount
+        SettingsGroup(
             title: "Account",
             note: "acli holds the sign-in: Desk hands it your token and keeps none, and only ever runs `acli jira`."
         ) {
             // Plain text, not input boxes: nothing here can be typed into.
-            if let account = model.jiraAccount {
-                Field(label: "Site") { Text(account.site).scaled(.secondary.monospaced()).foregroundStyle(.secondary).textSelection(.enabled) }
-                Field(label: "Signed in as") {
-                    Text(account.email ?? "—").scaled(.secondary.monospaced()).foregroundStyle(.secondary).textSelection(.enabled)
-                }
+            if let account {
+                SettingsRow("Site") { Text(account.site).scaled(.code).textSelection(.enabled) }
+                SettingsRow("Signed in as") { Text(account.email ?? "—").scaled(.code).textSelection(.enabled) }
             }
-            VStack(alignment: .leading, spacing: 8) {
-                // Green only on the one word that is good news; the note itself is just a note.
-                if let account = model.jiraAccount {
-                    Label(account.signedInWithBrowser ? "Signed in through the browser" : "Signed in with an API token",
-                          systemImage: "checkmark.circle.fill")
-                        .scaled(.caption).foregroundStyle(.green)
+            SettingsRow("Sign-in") {
+                // Green only on the mark that is good news; the words are just words.
+                if let account {
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Image(systemName: "checkmark").font(.system(size: 10, weight: .semibold)).foregroundStyle(Theme.ok)
+                        Text(account.signedInWithBrowser ? "Signed in through the browser" : "Signed in with an API token")
+                    }
                 } else {
-                    Text(signedOutText).scaled(.caption).foregroundStyle(.red).fixedSize(horizontal: false, vertical: true)
+                    Text(signedOutText).foregroundStyle(Theme.danger).fixedSize(horizontal: false, vertical: true)
                 }
-                HStack {
-                    Button("Recheck") { model.refreshJiraAccount() }
+            } trailing: {
+                HStack(spacing: 6) {
                     // A token runs out after at most a year; a new one replaces it here.
-                    if model.jiraAccount?.signedInWithBrowser == false, !newToken { Button("Use a new token") { newToken = true } }
+                    if account?.signedInWithBrowser == false, !newToken { Button("Use a new token") { newToken = true } }
+                    Button("Recheck") { model.refreshJiraAccount() }
                 }
-                .controlSize(.small)
+                .buttonStyle(.desk(.secondary, .small))
+            }
+            if draft.config.resolvedAcliPath != nil, account?.signedInWithBrowser != false || newToken {
+                SettingsRow("Token") { TokenSignIn(.jira) { newToken = false } }
             }
         }
-        if model.settings.config.resolvedAcliPath != nil, model.jiraAccount?.signedInWithBrowser != false || newToken {
-            TokenSignIn(.jira) { newToken = false }.padding(.top, 14)
-        }
-        FieldGroup(
+        SettingsGroup(
             title: "Tickets",
             note: "Status names exactly as Jira spells them, emoji and all; empty turns that half off. Desk suggests moving a ticket of yours once its pull requests say it has fallen behind, never backwards; it moves when you press Move."
         ) {
-            Field(label: "Project keys", hint: "One Jira project key per line, such as PRO; type it and press Return.") {
+            SettingsRow("Project keys", note: "Type a Jira project key, such as PRO, and press Return.") {
                 TokenField(placeholder: "Add a key", text: $draft.projectKeysText) { key in
                     key.range(of: #"^[A-Za-z][A-Za-z0-9_]*$"#, options: .regularExpression) == nil ? "“\(key)” is not a Jira project key." : nil
                 }
             }
-            Field(label: "Status while work is under way") {
+            SettingsRow("In progress status", note: "While work is under way.") {
                 StatusField(placeholder: "In Progress", text: $draft.config.jiraInProgressStatus, known: knownStatuses)
             }
-            Field(label: "Status while a PR is open for review") {
+            SettingsRow("Review status", note: "While a PR is open for review.") {
                 StatusField(placeholder: "👀 Review Ready", text: $draft.config.jiraReviewStatus, known: knownStatuses)
             }
-            Field(label: "Status once every PR has merged") {
+            SettingsRow("Done status", note: "Once every PR has merged.") {
                 StatusField(placeholder: "Done", text: $draft.config.jiraDoneStatus, known: knownStatuses)
             }
         }
-        FieldGroup(title: "Tool") {
-            Field(label: "acli path", hint: "Leave empty to find acli on your PATH.") { BoxedText(placeholder: "Automatic", text: $draft.config.acliPath) }
+        SettingsGroup(title: "Tool") {
+            SettingsRow("acli path", note: "Leave empty to find acli on your PATH.") { BoxedText(placeholder: "Automatic", text: $draft.config.acliPath) }
         }
     }
 
@@ -639,26 +808,26 @@ struct TokenSignIn: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(why).scaled(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+        VStack(alignment: .leading, spacing: 10) {
+            Text(why).scaled(.secondary).foregroundStyle(Theme.quiet).fixedSize(horizontal: false, vertical: true)
             if service == .jira {
-                HStack(alignment: .top, spacing: 16) {
+                HStack(alignment: .top, spacing: 12) {
                     Field(label: "Site") { BoxedText(placeholder: "fhenix.atlassian.net", text: $site) }
                     Field(label: "Email") { BoxedText(placeholder: "you@fhenix.io", text: $email) }
                 }
             }
             Field(label: service == .jira ? "API token" : "Token") {
                 SecureField("Paste it here", text: $token)
-                    .textFieldStyle(.plain).scaled(.secondary.monospaced()).modifier(InputBox())
+                    .textFieldStyle(.plain).scaled(.code).modifier(InputBox())
                     .onSubmit(send)
             }
             HStack(spacing: 8) {
                 Button("Create a token…") { NSWorkspace.shared.open(service == .jira ? Setup.jiraTokenPage : Setup.githubTokenPage) }
-                Button("Sign in with the token", action: send).disabled(!ready)
+                    .buttonStyle(.desk(.secondary, .small))
+                Button("Sign in with the token", action: send).buttonStyle(.desk(.primary, .small)).disabled(!ready)
                 if sending { ProgressView().controlSize(.small) }
             }
-            .controlSize(.small)
-            if let failure { Text(failure).scaled(.caption).foregroundStyle(.red).textSelection(.enabled) }
+            if let failure { Text(failure).scaled(.secondary).foregroundStyle(Theme.danger).textSelection(.enabled) }
         }
         .onAppear {
             // The account acli has now, if any: the token replaces its browser sign-in.
@@ -715,63 +884,60 @@ struct TokenSignIn: View {
     }
 }
 
-/// A page of its own: the org runs to hundreds of repos, which no field group can hold.
+/// The org's repos to watch, ticked off a list of its own: the org runs to hundreds of repos, which no row can hold.
 struct ReposSettings: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
         @Bindable var draft = model.settings
         VStack(alignment: .leading, spacing: 0) {
-            PageHeader(title: "Repos") { EmptyView() }
             // Untrack all sits with the count it empties, away from the harmless Reload.
             FilterBar {
                 SearchBox(prompt: "Filter", text: $draft.repoFilter)
                 Text("\(draft.config.trackedRepos.count) tracked of \(model.repositories.count)")
-                    .scaled(.caption).foregroundStyle(.secondary).monospacedDigit()
+                    .scaled(.secondary).foregroundStyle(Theme.quiet).monospacedDigit()
                 if !draft.config.trackedRepos.isEmpty {
-                    Button("Untrack all") { draft.config.trackedRepos = [] }.controlSize(.small)
+                    Button("Untrack all") { draft.config.trackedRepos = [] }.buttonStyle(.desk(.secondary, .small))
                 }
             } trailing: {
                 if model.loadingRepositories { ProgressView().controlSize(.small) }
-                Button("Track my clones") { model.trackClones() }.controlSize(.small)
+                Button("Track my clones") { model.trackClones() }.buttonStyle(.desk(.secondary, .small))
                     .disabled(model.repositories.isEmpty)
                     .help("Track every repo here that has a clone under your repo roots")
-                Button("Reload") { model.loadRepositories(force: true) }.controlSize(.small)
+                Button("Reload") { model.loadRepositories(force: true) }.buttonStyle(.desk(.secondary, .small))
             }
             if let error = model.repositoriesError {
-                EmptyState(text: error).padding(.vertical)
+                EmptyState(text: error).padding(.bottom, 12)
             } else if model.repositories.isEmpty {
                 EmptyState(text: model.loadingRepositories ? "Asking GitHub…" : "No repositories found for \(draft.config.githubOrg).")
-                    .padding(.vertical)
+                    .padding(.bottom, 12)
             } else if draft.config.trackedRepos.isEmpty {
                 Text("Nothing is tracked, so the app is watching nothing. Pick the repos you work in.")
-                    .scaled(.caption).foregroundStyle(.secondary).padding(.bottom, 8)
+                    .scaled(.secondary).foregroundStyle(Theme.quiet).padding(.bottom, 8)
             }
-            Hairline()
             ScrollView {
                 LazyVStack(spacing: 0) {
                     ForEach(visibleRepos) { repo in
-                        ListRow {
+                        RuledRow(minHeight: 38) {
                             Toggle(isOn: binding(for: repo)) {
                                 HStack(spacing: 8) {
-                                    Text(repo.name)
-                                    if repo.isArchived { Chip(text: "Archived", color: .secondary) }
+                                    Text(repo.name).scaled(.code)
+                                    if repo.isArchived { StageChip2(text: "Archived") }
                                     if draft.config.trackedRepoSlugs.contains(repo.slug), let skill = model.state.reviewSkill(forSlug: repo.slug) {
                                         // The reason in words: nine identical triangles said nothing without a hover.
                                         ReviewSkillMark(skill: skill, showsText: true)
                                     }
                                     Spacer()
-                                    Text(Format.age(repo.pushedAt)).scaled(.caption.monospaced()).foregroundStyle(.secondary)
+                                    AgeText(date: repo.pushedAt)
                                 }
                             }
                             .toggleStyle(.checkbox)
                         }
                     }
                 }
+                .overlay(alignment: .bottom) { Rectangle().fill(Theme.ruleSoft).frame(height: 1) }
             }
         }
-        .padding(.horizontal, Theme.gutter)
-        .padding(.top, 14)
     }
 
     /// Tracked repos first so a pick never scrolls out of reach, then the rest by most recent push.
