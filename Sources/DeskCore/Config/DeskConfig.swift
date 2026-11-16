@@ -35,6 +35,14 @@ public struct DeskConfig: Codable, Sendable, Equatable {
     /// Prompt texts edited in Settings, by `PromptID`. Only edits are kept: a prompt you never touched
     /// follows the app's own text when that changes.
     public var prompts: [String: String] = [:]
+    /// Whether what Desk notifies you about also goes to the master session, as lines of `events.jsonl`.
+    public var sendEvents: Bool = true
+    /// The folders the master session can see besides its own. Nil follows `repoRoots`, so it starts as your repo roots
+    /// and keeps up with them until you edit the list.
+    public var masterFolders: [String]?
+    /// A folder of plugins the master and review sessions load in place of the installed ones (`--plugin-dir`), and the
+    /// master passes on to every worker: for trying skill changes before they ship. Empty uses the installed plugins.
+    public var pluginDir: String = ""
 
     public init() {}
 
@@ -44,6 +52,7 @@ public struct DeskConfig: Codable, Sendable, Equatable {
         case githubPollSeconds, gitPollSeconds, jiraPollSeconds
         case notificationsEnabled
         case claudePath, acliPath, prompts
+        case sendEvents, masterFolders, pluginDir
     }
 
     /// Every key is optional and read on its own, so a config.json written before a field existed, or edited by hand to
@@ -69,6 +78,17 @@ public struct DeskConfig: Codable, Sendable, Equatable {
         claudePath = (try? c.decodeIfPresent(String.self, forKey: .claudePath)) ?? d.claudePath
         acliPath = (try? c.decodeIfPresent(String.self, forKey: .acliPath)) ?? d.acliPath
         prompts = (try? c.decodeIfPresent([String: String].self, forKey: .prompts)) ?? d.prompts
+        sendEvents = (try? c.decodeIfPresent(Bool.self, forKey: .sendEvents)) ?? d.sendEvents
+        masterFolders = (try? c.decodeIfPresent([String].self, forKey: .masterFolders)) ?? d.masterFolders
+        pluginDir = (try? c.decodeIfPresent(String.self, forKey: .pluginDir)) ?? d.pluginDir
+    }
+
+    /// The folders the master can see: the ones you listed, or your repo roots.
+    public var masterFolderList: [String] { masterFolders ?? repoRoots }
+    /// `--plugin-dir <folder>` when plugins load from a folder, else nothing.
+    public var pluginDirFlags: [String] {
+        let folder = pluginDir.trimmingCharacters(in: .whitespaces)
+        return folder.isEmpty ? [] : ["--plugin-dir", (folder as NSString).expandingTildeInPath]
     }
 
     /// Lowercased `owner/name`, which is how remotes and search qualifiers are compared.

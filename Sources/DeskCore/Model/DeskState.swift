@@ -80,6 +80,10 @@ public struct DeskState: Sendable {
     public var dismissedMoves: Set<String> = []
     /// Which queued PRs wait on your review, and why.
     public private(set) var reviewNeeds: [String: ReviewNeed] = [:]
+    /// The questions the master session has open for you, read off its `asks.json` with the local scan.
+    public var asks: [MasterAsk] = []
+    /// Your work by task: ticket, session started without one, or a stack with neither. See `Linker.tasks`.
+    public private(set) var tasks: [WorkTask] = []
 
     public init(config: DeskConfig) {
         self.config = config
@@ -243,6 +247,31 @@ public struct DeskState: Sendable {
             now: now, login: login, config: config, mine: mine, reviewRequests: reviewRequests,
             mergedHeadsByRepo: Linker.mergedHeadsByRepo(merged), sessions: claudeJobs, ticketKeys: ticketKeys
         ))
+        tasks = Linker.tasks(
+            mine: mine, allOpen: openAll, merged: merged, ticketKeys: ticketKeys, tickets: tickets, sessions: claudeJobs,
+            trackedRoots: gitScan?.repos.map(\.root) ?? [], keep: askedTasks, now: now
+        )
+    }
+
+    /// The tasks the master has a question open on.
+    public var askedTasks: Set<String> { Set(asks.map(\.task)) }
+
+    /// The task one of your PRs belongs to.
+    public func task(for pr: PullRequest) -> WorkTask? { tasks.first { $0.pullRequests.contains { $0.url == pr.url } } }
+
+    /// The master session, when one runs or ran: the one Desk's Master tab attaches to.
+    public var master: ClaudeJob? { claudeJobs.first { $0.role == .master } }
+
+    /// What `graph.json` gets on this refresh.
+    public func taskGraph(now: Date = Date()) -> TaskGraph { TaskGraph(tasks: tasks, tickets: tickets, asked: askedTasks, now: now) }
+
+    /// The `events.jsonl` lines for nudges Desk just notified you about: each one that names a PR, with its task.
+    public func masterEvents(for nudges: [Nudge], now: Date = Date()) -> [MasterEvent] {
+        nudges.compactMap { nudge in
+            guard let url = nudge.url, let key = ClaudeJobs.prKey(url) else { return nil }
+            let task = tasks.first { $0.pullRequests.contains { $0.url == url } }?.id
+            return MasterEvent(kind: nudge.kind.rawValue, pr: key, task: task, title: nudge.title, at: now)
+        }
     }
 
     /// My open PRs with each stack contiguous, children beneath their root; `order` sorts the stacks by their roots.

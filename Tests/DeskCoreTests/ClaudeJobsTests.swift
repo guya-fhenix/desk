@@ -63,6 +63,42 @@ import Testing
         #expect(jobs.first?.ticketKey == "PRO-9")
     }
 
+    /// The master, workers and reviews are kept by the skill their prompt names, and any session in a tracked clone by
+    /// where it runs: a session started there with no ticket is still a task. Each brings its live status line, and a
+    /// worker started on what the person asked brings the ask.
+    @Test func scanKeepsDeskRolesAndSessionsInTrackedClones() throws {
+        let home = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: home) }
+        try job(home, id: "aaaaaaaa", body: """
+            {"state": "working", "name": "master", "cwd": "/support/master", "intent": "Use the coordinate-tasks skill.",
+             "updatedAt": "2026-11-16T09:00:00Z"}
+            """)
+        try job(home, id: "bbbbbbbb", body: """
+            {"state": "working", "name": "testnet-decrypt-errors", "cwd": "/support/master", "updatedAt": "2026-11-16T08:00:00Z",
+             "intent": "Use the fhenix-workflow:work-on-task skill: find why decrypt requests fail on testnet. Report to master.",
+             "detail": "searching Cloud Logging since 06:00 "}
+            """)
+        try job(home, id: "cccccccc", body: """
+            {"state": "done", "name": "a question", "cwd": "/r/powershot/sub", "intent": "how does X work", "updatedAt": "2026-11-16T07:00:00Z"}
+            """)
+        try job(home, id: "dddddddd", body: #"{"state": "done", "name": "openclaw", "cwd": "/r/openclaw", "intent": "server"}"#)
+
+        let jobs = ClaudeJobs.scan(home: home.path, keepIn: ["/r/powershot"])
+        #expect(jobs.map(\.id) == ["aaaaaaaa", "bbbbbbbb", "cccccccc"])
+        #expect(jobs.map(\.role) == [.master, .worker, .other])
+        #expect(jobs[1].detail == "searching Cloud Logging since 06:00")
+        #expect(jobs[1].request == "find why decrypt requests fail on testnet")
+        #expect(jobs[0].request == nil)
+        #expect(ClaudeJobs.scan(home: home.path).map(\.id) == ["aaaaaaaa", "bbbbbbbb"])
+    }
+
+    @Test func theRequestIsWhatFollowsTheSkill() {
+        #expect(ClaudeJobs.request(in: "Use the work-on-task skill: look at the logs") == "look at the logs")
+        #expect(ClaudeJobs.request(in: "Use the fhenix-workflow:work-on-task skill for PRO-650. Report to master.") == "for PRO-650")
+        #expect(ClaudeJobs.request(in: "Use the work-on-task skill. Report to master.") == nil)
+        #expect(ClaudeJobs.request(in: "Plan PRO-9") == nil)
+    }
+
     /// A session started on the PR or its ticket carries it; failing one, the earliest of those that link to it, which is the
     /// one that opened it. A later session that only mentioned it never does.
     @Test func theCarrierIsTheSessionThatBeganThePullRequest() {
