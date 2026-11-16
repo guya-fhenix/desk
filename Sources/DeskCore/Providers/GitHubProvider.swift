@@ -324,7 +324,7 @@ public enum GitHubQueries {
       author { __typename login }
       repository { nameWithOwner defaultBranchRef { name } }
       reviewDecision
-      mergeStateStatus
+      mergeStateStatus mergeable
       baseRef { rules(first: 20) { nodes { type parameters { ... on PullRequestParameters { requiredApprovingReviewCount requireCodeOwnerReview } } } } }
       commits(last: 1) { nodes { commit {
         oid statusCheckRollup { state contexts(first: 100) { totalCount nodes {
@@ -513,6 +513,7 @@ public enum GitHubDecoding {
             author: node.author?.name ?? "ghost",
             reviewDecision: node.reviewDecision.flatMap(ReviewDecision.init) ?? decision(from: reviews, required: node.baseRef?.requiredApprovals ?? 0),
             mergeState: node.mergeStateStatus.flatMap(MergeState.init) ?? .unknown,
+            conflicting: node.mergeable == "CONFLICTING",
             checks: runs.map { CheckState(newest: $0) } ?? commit?.statusCheckRollup.flatMap { CheckState(rawValue: $0.state) } ?? .none,
             checkCount: runs?.count ?? commit?.statusCheckRollup?.contexts.totalCount ?? 0,
             reviews: reviews,
@@ -715,6 +716,7 @@ public enum GitHubDecoding {
         var repository: Repository
         var reviewDecision: String?
         var mergeStateStatus: String?
+        var mergeable: String?
         var baseRef: BaseRef?
         var commits: Commits
         var reviews: Reviews

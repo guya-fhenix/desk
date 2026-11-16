@@ -62,7 +62,8 @@ PRs and the reviews that need you, each opening its page. A nudge also comes as 
 ## Up Next
 
 The window opens on Up Next: what waits on you, under the section that says what to do. Ready to merge, Your move
-(CI failed, conflicts, changes requested, needs a rebase, or a flow or session waits on you), Drafts to submit (reviews
+(CI failed, conflicts, changes requested, a review thread open, needs a rebase, or a flow or session waits on you;
+conflicts by GitHub's own `mergeable`, whatever its merge state sums up), Drafts to submit (reviews
 you started on GitHub and have not sent), To review, Jira moves (the moves Desk suggests), Ready to start (sprint
 tickets of yours nothing has started), and Waiting (your PRs that wait on someone else). The rows are the other
 screens' own, and open their pages here.
@@ -77,7 +78,7 @@ Open lists your open PRs, and Recently merged the ones merged in the last month.
 from the list or the search box; Tab moves focus. Each row leads with the title. Under it is a line with the checks,
 number, repo, branches, size, open threads and ticket. On the right is one pill for what the PR waits on, coloured by
 whose move it is: Conflicts, CI failed, Changes requested, Ready to merge, Draft · run /pre-pr (or · finding open, or ·
-mark ready), Waiting on review. Then the session's mark (a spinner while it works, a bubble while it asks you
+mark ready), N open threads (a draft keeps its own pill), Waiting on review. Then the session's mark (a spinner while it works, a bubble while it asks you
 something, red when your last press on it failed) and when the PR last moved. A PR stacked on another sits indented
 under it.
 

@@ -36,7 +36,7 @@ struct NextStepCard: View {
                         .scaled(.caption).foregroundStyle(.secondary)
                 }
             }
-            if pr.mergeState == .dirty { fixRow(.fixConflict, problem: "It conflicts with \(pr.baseRef).") }
+            if pr.hasConflicts { fixRow(.fixConflict, problem: "It conflicts with \(pr.baseRef).") }
             if pr.checks.isRed { fixRow(.fixChecks, problem: "CI failed.") }
             if let reason = model.state.rebaseReason(pr) {
                 Text("Needs a rebase: \(reason.text)").scaled(.caption).foregroundStyle(.orange)

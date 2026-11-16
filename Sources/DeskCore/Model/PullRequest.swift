@@ -125,6 +125,8 @@ public struct PullRequest: Codable, Sendable, Hashable, Identifiable {
     public var author: String
     public var reviewDecision: ReviewDecision
     public var mergeState: MergeState
+    /// GitHub's `mergeable` says CONFLICTING: the branch conflicts with its base, whatever `mergeState` sums up.
+    public var conflicting: Bool
     public var checks: CheckState
     public var checkCount: Int
     public var reviews: [Review]
@@ -165,7 +167,7 @@ public struct PullRequest: Codable, Sendable, Hashable, Identifiable {
         state: PullRequestState = .open, createdAt: Date, updatedAt: Date, mergedAt: Date? = nil,
         baseRef: String, headRef: String, isCrossRepository: Bool = false, defaultBranch: String = "", headSha: String = "",
         additions: Int = 0, deletions: Int = 0,
-        author: String, reviewDecision: ReviewDecision = .none, mergeState: MergeState = .unknown,
+        author: String, reviewDecision: ReviewDecision = .none, mergeState: MergeState = .unknown, conflicting: Bool = false,
         checks: CheckState = .none, checkCount: Int = 0, reviews: [Review] = [],
         requestedReviewers: [String] = [], reviewRequestEvents: [ReviewRequestEvent] = [], unresolvedThreads: Int = 0,
         pendingReview: PendingReview? = nil, labels: [String] = [], threads: [ReviewThread] = [], evidence: String? = nil,
@@ -191,6 +193,7 @@ public struct PullRequest: Codable, Sendable, Hashable, Identifiable {
         self.author = author
         self.reviewDecision = reviewDecision
         self.mergeState = mergeState
+        self.conflicting = conflicting
         self.checks = checks
         self.checkCount = checkCount
         self.reviews = reviews
@@ -206,6 +209,10 @@ public struct PullRequest: Codable, Sendable, Hashable, Identifiable {
 
     public var repoName: String { repo.split(separator: "/").last.map(String.init) ?? repo }
     public var size: Int { additions + deletions }
+
+    /// It conflicts with its base: `mergeable` CONFLICTING, or `mergeStateStatus` DIRTY. The status sums up one reason
+    /// among several and can name another while the branch conflicts, so the conflict itself is read too.
+    public var hasConflicts: Bool { conflicting || mergeState == .dirty }
 
     /// Whether every word of a search appears in the PR's `repo#number`, title or branch, ignoring case — so
     /// "#1082", "1082", "cofhe#10" and "slim head" all find the PR they name.
@@ -353,6 +360,7 @@ extension PullRequest {
     /// take one. Clean, unstable (a check that is not required failed) and hooks-pending all merge.
     public var mergeBlocker: String? {
         if isDraft || mergeState == .draft { return "A draft: mark it ready for review first" }
+        if hasConflicts { return "Conflicts with \(baseRef)" }
         switch mergeState {
         case .clean, .unstable, .hasHooks: return nil
         case .dirty: return "Conflicts with \(baseRef)"
