@@ -14,22 +14,25 @@ struct AppTextStyle: Equatable {
     var weight: Font.Weight = .regular
     var design: Font.Design = .default
 
-    // Five roles, as they render at `scale`: title 24, headline 15, body 14, secondary 12, caption 11 — so a view
-    // has a few sizes to choose from rather than ten. A different weight is set where it is used.
+    // Instrument's roles, in Instrument Sans with identifiers in DM Mono: title 20, heading 17 (the details column's
+    // title), headline 15, body 13.5, secondary 12, caption 11 — the sizes the redesign's boards use. A different weight
+    // is set where it is used.
 
-    /// Page titles and the big numbers.
-    static let title = AppTextStyle(size: 22.25, weight: .medium)
+    /// Page titles.
+    static let title = AppTextStyle(size: 20, weight: .semibold)
+    /// The details column's title.
+    static let heading = AppTextStyle(size: 17, weight: .semibold)
     /// Section and panel titles.
-    static let headline = AppTextStyle(size: 14, weight: .semibold)
-    static let body = AppTextStyle(size: 13)
+    static let headline = AppTextStyle(size: 15, weight: .semibold)
+    static let body = AppTextStyle(size: 13.5)
     /// A list row's title: body size, medium, so it leads the line of facts under it.
-    static let rowTitle = AppTextStyle(size: 13, weight: .medium)
-    /// Secondary text: group headers, notes, counts.
-    static let secondary = AppTextStyle(size: 11)
-    /// The smallest text, key caps included.
-    static let caption = AppTextStyle(size: 10)
-    /// Code, at the secondary size. A diff's row height scales with it, or the lines would overlap.
-    static let code = AppTextStyle(size: 11, design: .monospaced)
+    static let rowTitle = AppTextStyle(size: 13.5, weight: .medium)
+    /// Secondary text: notes, counts, the line under a row's title.
+    static let secondary = AppTextStyle(size: 12)
+    /// The smallest text: key caps, chips, section labels.
+    static let caption = AppTextStyle(size: 11)
+    /// Code and identifiers. A diff's row height scales with it, or the lines would overlap.
+    static let code = AppTextStyle(size: 12, design: .monospaced)
 
     func weight(_ weight: Font.Weight) -> Self {
         var copy = self
@@ -43,15 +46,18 @@ struct AppTextStyle: Equatable {
         return copy
     }
 
-    /// Rounded to a whole point: a fractional size (15.6, 14.4) puts glyph edges between pixels, which reads as
-    /// soft text on a 1× display such as an external monitor without Retina scaling.
-    func font(scale: CGFloat) -> Font { .system(size: (size * scale).rounded(), weight: weight, design: design) }
+    /// Instrument Sans, or DM Mono for the monospaced design, at half-point steps: 13.5 is the boards' body size. A face
+    /// that did not register falls back to the system's.
+    func font(scale: CGFloat) -> Font {
+        let points = (size * scale * 2).rounded() / 2
+        let family = design == .monospaced ? AppFonts.mono : AppFonts.sans
+        return .custom(family, fixedSize: points).weight(weight)
+    }
 }
 
 extension EnvironmentValues {
-    /// The app's text, and the few widths and heights that hold text, at this multiple of macOS's own sizes: 14 pt
-    /// body text.
-    @Entry var textScale: CGFloat = 1.08
+    /// The app's text, and the few widths and heights that hold text, at this multiple of the boards' sizes.
+    @Entry var textScale: CGFloat = 1
 }
 
 private struct ScaledFont: ViewModifier {

@@ -1,43 +1,80 @@
 import DeskCore
 import SwiftUI
 
-/// The app's look: a workspace in the system's appearance — a sidebar a shade off the content, hairlines instead of
-/// boxes, large page titles, pill tabs, and two-line rows whose second line is monospaced. Every colour has a light,
-/// a dark, and an Increase Contrast version of each, so the app follows System Settings rather than overriding it.
+/// The app's look: Nightshift's Instrument — a warm off-white ground (or a warm near-black one), a panel-coloured sidebar,
+/// hairlines instead of boxes, white cards and a white details column, small uppercase section labels, and identifiers
+/// in DM Mono. Every colour has a light and a dark value, taken from the redesign's boards; Settings → Appearance picks
+/// System, Light or Dark, and the accent.
 enum Theme {
-    static let background = gray(light: 0.98, dark: 0.105, lightContrast: 1, darkContrast: 0)
-    static let sidebar = gray(light: 0.94, dark: 0.135, lightContrast: 0.96, darkContrast: 0.08)
-    /// Pills, cards, inputs and key caps.
-    static let raised = gray(light: 0.92, dark: 0.165, lightContrast: 0.9, darkContrast: 0.2)
-    /// The chosen sidebar item and pill.
-    static let selected = gray(light: 0.86, dark: 0.205, lightContrast: 0.8, darkContrast: 0.3)
-    static let line = gray(light: 0.85, dark: 0.2, lightContrast: 0.55, darkContrast: 0.45)
-    /// The edge of a control — an input, a menu box, a tile — at 3:1 against the background, where a hairline would
-    /// leave the control's shape to guesswork.
-    static let controlBorder = gray(light: 0.55, dark: 0.42, lightContrast: 0.3, darkContrast: 0.65)
-    /// Dark enough that white text on it clears 4.5:1, for the filled buttons — in either appearance.
-    static let accent = Color(red: 0.16, green: 0.42, blue: 0.85)
-    /// The selected list row, with an accent bar down its left edge.
-    static let rowSelected = Color(nsColor: NSColor(name: nil) { appearance in
-        appearance.isDark
-            ? NSColor(red: 0.09, green: 0.14, blue: 0.23, alpha: 1)
-            : NSColor(red: 0.86, green: 0.91, blue: 0.98, alpha: 1)
+    // MARK: Instrument tokens
+
+    /// The window's ground.
+    static let ground = dynamic(0xFBFBFA, 0x161615)
+    /// The sidebar and secondary columns.
+    static let panel = dynamic(0xF4F4F2, 0x1B1B19)
+    /// The details column, cards and inputs on the panel.
+    static let surface = dynamic(0xFFFFFF, 0x1F1F1D)
+    /// The chosen sidebar item and the pressed segment.
+    static let selected = dynamic(0xE8E8E5, 0x2B2B28)
+    /// Segmented tracks, code blocks and quiet fills.
+    static let inset = dynamic(0xEFEFEC, 0x262624)
+    static let rule = dynamic(0xE7E6E3, 0x2D2D2A)
+    static let ruleSoft = dynamic(0xEFEFEC, 0x262624)
+    static let ruleStrong = dynamic(0xE1E0DC, 0x363632)
+    /// Button and input borders, meter tracks.
+    static let control = dynamic(0xD9D8D4, 0x45443F)
+    static let ink = dynamic(0x1B1B19, 0xEDEDEA)
+    static let quiet = dynamic(0x5C5B57, 0xA6A59F)
+    static let danger = dynamic(0xB42318, 0xF07F6E)
+    static let ok = dynamic(0x1A7F37, 0x57C27A)
+    static let warn = dynamic(0xB54708, 0xF2A65A)
+    /// Diff lines added and removed.
+    static let add = dynamic(0xE6F4EA, 0x18301F)
+    static let del = dynamic(0xFBE9E7, 0x3A1F1B)
+    /// A stage chip on the ground, and on a tinted row.
+    static let chip = dynamic(0xEFEFEC, 0x2A2A27)
+    static let chipOn = dynamic(0xFFFFFF, 0x3A3A36)
+    /// Behind a sheet or the search palette.
+    static let scrim = Color(nsColor: NSColor(name: nil) { $0.isDark ? NSColor(white: 0, alpha: 0.55) : NSColor(red: 0.106, green: 0.106, blue: 0.098, alpha: 0.28) })
+
+    /// The accent, `#RRGGBB`, set from the config before the window draws; white text on every offered accent clears 4.5:1.
+    nonisolated(unsafe) static var accentHex = DeskConfig.accents[0]
+    /// The primary button's fill and the app's mark.
+    static let accent = Color(nsColor: NSColor(name: nil) { _ in NSColor(hex: Theme.accentHex) })
+    /// The accent as text, a dot or a stroke: the accent itself in light, lifted toward white in dark so it reads there.
+    static let accentInk = Color(nsColor: NSColor(name: nil) { appearance in
+        let accent = NSColor(hex: Theme.accentHex)
+        return appearance.isDark ? accent.blended(withFraction: 0.38, of: .white) ?? accent : accent
     })
+    /// The selected row's fill and its outline: the accent mixed into the ground.
+    static let tint = mix(light: 0.09, dark: 0.20)
+    static let tintLine = mix(light: 0.24, dark: 0.45)
+
+    // MARK: The names the screens were written against
+
+    static let background = ground
+    static let sidebar = panel
+    /// Pills, chips, inputs and key caps.
+    static let raised = inset
+    static let line = rule
+    static let controlBorder = control
+    /// The selected list row, with an accent bar down its left edge.
+    static let rowSelected = tint
 
     /// GitHub's purple for a merged PR (#8250DF) and its red for one closed unmerged (#CF222E): the light-mode shades in
     /// both appearances, the ones white text clears 4.5:1 on.
     static let merged = Color(red: 0.51, green: 0.31, blue: 0.87)
     static let closed = Color(red: 0.81, green: 0.13, blue: 0.18)
 
-    /// A grey that resolves per appearance: light, dark, and each with Increase Contrast on.
-    private static func gray(light: CGFloat, dark: CGFloat, lightContrast: CGFloat, darkContrast: CGFloat) -> Color {
+    private static func dynamic(_ light: UInt32, _ dark: UInt32) -> Color {
+        Color(nsColor: NSColor(name: nil) { $0.isDark ? NSColor(rgb: dark) : NSColor(rgb: light) })
+    }
+
+    private static func mix(light: CGFloat, dark: CGFloat) -> Color {
         Color(nsColor: NSColor(name: nil) { appearance in
-            switch appearance.bestMatch(from: [.aqua, .darkAqua, .accessibilityHighContrastAqua, .accessibilityHighContrastDarkAqua]) {
-            case .darkAqua?: return NSColor(white: dark, alpha: 1)
-            case .accessibilityHighContrastDarkAqua?: return NSColor(white: darkContrast, alpha: 1)
-            case .accessibilityHighContrastAqua?: return NSColor(white: lightContrast, alpha: 1)
-            default: return NSColor(white: light, alpha: 1)
-            }
+            let accent = NSColor(hex: Theme.accentHex)
+            let ground = appearance.isDark ? NSColor(rgb: 0x161615) : NSColor(rgb: 0xFBFBFA)
+            return ground.blended(withFraction: appearance.isDark ? dark : light, of: accent) ?? ground
         })
     }
     /// The spacing scale, on a 4 pt grid: every gap and padding in the shared components is one of these.
@@ -50,7 +87,7 @@ enum Theme {
         static let xxl: CGFloat = 32
     }
 
-    static let sidebarWidth: CGFloat = 212
+    static let sidebarWidth: CGFloat = 224
     /// The content's side margins.
     static let gutter = Space.xxl
 }
@@ -722,9 +759,9 @@ struct UpdateNotice: View {
     }
 }
 
-/// Over the sync status: the master session as one press, a session rather than a screen. Its state sits under its name —
-/// not running, starting, working, listening, waiting for you — with the questions it has open for you; the press starts it
-/// when none runs and opens it in the terminal panel either way.
+/// Over the sync status: the master session, a session rather than a screen in the list. Its state sits under its name —
+/// not running, starting, working, listening, waiting for you — with the questions it has open for you. A press shows the
+/// Master screen; with no master running, it starts one and shows it in iTerm.
 struct MasterStatus: View {
     @Environment(AppModel.self) private var model
 
@@ -732,42 +769,56 @@ struct MasterStatus: View {
         let master = model.state.master
         let failed = model.masterError != nil
         let status = failed ? (master == nil ? "Couldn't start" : "Couldn't open") : model.masterStatus
-        Button { model.openMaster() } label: {
-            HStack(spacing: Theme.Space.s) {
-                Image(systemName: "bubble.left.and.bubble.right.fill")
-                    .foregroundStyle(master == nil ? Color.secondary : Theme.accent)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Master").scaled(.secondary.weight(.medium))
+        Button {
+            if master == nil { model.openMaster() } else { model.showMasterScreen() }
+        } label: {
+            HStack(spacing: 8) {
+                MasterIcon().frame(width: 20)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Master").scaled(.body.weight(.semibold)).foregroundStyle(Theme.ink)
                     HStack(spacing: 5) {
-                        if model.startingMaster || master?.isRunning == true {
+                        if model.startingMaster {
                             ProgressView().controlSize(.mini)
                         } else {
-                            StatusDot(color: failed ? .red : master == nil ? .gray : master!.isAsking || !model.state.asks.isEmpty ? .orange : .green)
+                            Circle().fill(failed ? Theme.danger : master == nil ? Theme.control
+                                          : master!.isAsking || !model.state.asks.isEmpty ? Theme.warn : Theme.ok)
+                                .frame(width: 6, height: 6)
                         }
                         Text(status).lineLimit(1)
                     }
-                    .scaled(.caption)
-                    .foregroundStyle(failed ? Color.red : .secondary)
+                    .scaled(.secondary)
+                    .foregroundStyle(failed ? Theme.danger : Theme.quiet)
                 }
-                Spacer(minLength: Theme.Space.xs)
+                Spacer(minLength: 4)
                 Text(master == nil ? "Start" : "Open")
-                    .scaled(.caption.weight(.medium))
-                    .foregroundStyle(Theme.accent)
-                    .padding(.horizontal, 8).padding(.vertical, 3)
-                    .background(Theme.accent.opacity(0.15), in: Capsule())
+                    .scaled(.secondary.weight(.medium))
+                    .foregroundStyle(Theme.accentInk)
+                    .padding(.horizontal, 8).padding(.vertical, 2)
+                    .background(Theme.tint, in: Capsule())
             }
             .padding(.horizontal, 10)
-            .padding(.vertical, 8)
+            .padding(.vertical, 9)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Theme.raised, in: RoundedRectangle(cornerRadius: 8))
+            .background(Theme.surface, in: RoundedRectangle(cornerRadius: 8))
+            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(model.showingMaster ? Theme.tintLine : Theme.ruleStrong))
             .contentShape(RoundedRectangle(cornerRadius: 8))
         }
         .buttonStyle(.plain)
         .handCursor()
         .disabled(model.startingMaster)
-        .help(model.masterError ?? (master == nil ? "Start the master session and open it in the terminal panel"
-                                                  : "Open the master session in the terminal panel"))
+        .help(model.masterError ?? (master == nil ? "Start the master session and show it in iTerm"
+                                                  : "The master and its workers: their panes in iTerm, and what the master asked you"))
         .accessibilityLabel("Master session: \(status)")
+    }
+}
+
+/// Two speech bubbles in the accent, the master's mark in the sidebar and on its screen.
+struct MasterIcon: View {
+    var body: some View {
+        Image(systemName: "bubble.left.and.bubble.right")
+            .font(.system(size: 13, weight: .medium))
+            .foregroundStyle(Theme.accentInk)
+            .accessibilityHidden(true)
     }
 }
 
@@ -783,10 +834,10 @@ struct SidebarStatus: View {
         let failed = Source.allCases.filter { model.state.errors[$0] != nil && !model.refreshing.contains($0) }
         let limits = model.state.claudeLimits.prefix(2)
         VStack(alignment: .leading, spacing: 7) {
-            HStack(spacing: Theme.Space.s) {
+            HStack(spacing: 6) {
                 if !failed.isEmpty {
-                    StatusDot(color: .red)
-                    Text("\(Source.names(failed)) didn't answer").lineLimit(1)
+                    Circle().fill(Theme.danger).frame(width: 6, height: 6)
+                    Text("\(Source.names(failed)) didn't answer").lineLimit(1).foregroundStyle(Theme.danger)
                     Spacer(minLength: Theme.Space.xs)
                     Button("Retry") { for source in failed { Task { await model.refresh(source) } } }
                         .buttonStyle(.link).handCursor()
@@ -795,41 +846,56 @@ struct SidebarStatus: View {
                     Text("Syncing \(Source.names(Source.allCases.filter(model.refreshing.contains)))…").lineLimit(1)
                     Spacer(minLength: Theme.Space.xs)
                 } else {
-                    StatusDot(color: model.state.lastRefresh.isEmpty ? .gray : .green)
+                    Circle().fill(model.state.lastRefresh.isEmpty ? Theme.control : Theme.ok).frame(width: 6, height: 6)
                     Text(model.state.lastRefresh.isEmpty ? "Not synced yet" : "Synced \(Format.ago(model.state.lastRefresh.values.min()))")
                         .lineLimit(1)
                     Spacer(minLength: Theme.Space.xs)
                     Button { model.refreshAll() } label: {
-                        Image(systemName: "arrow.clockwise").frame(width: 20, height: 16).contentShape(Rectangle())
+                        Image(systemName: "arrow.clockwise").font(.system(size: 11, weight: .medium))
+                            .frame(width: 22, height: 22).contentShape(Rectangle())
                     }
-                    .buttonStyle(.plain).foregroundStyle(.secondary)
-                    .help("Sync GitHub, Git and Jira now")
+                    .buttonStyle(.plain).foregroundStyle(Theme.quiet)
+                    .help("Sync now (⌘R)")
                     .accessibilityLabel("Sync now")
                 }
             }
-            .scaled(.secondary)
             if !limits.isEmpty {
                 HStack(spacing: 6) {
-                    Text("Claude").scaled(.caption).foregroundStyle(.secondary)
+                    Text("Claude")
                     ForEach(limits) { limit in
-                        ProgressView(value: Double(min(limit.percent, 100)), total: 100)
-                            .tint(limit.color)
-                            .controlSize(.small)
+                        Meter(fraction: Double(min(limit.percent, 100)) / 100, fill: limit.percent >= 90 ? Theme.warn : Theme.quiet)
                             .help("\(limit.name): \(limit.percent)% used")
                             .accessibilityLabel("\(limit.name): \(limit.percent)% used")
                     }
                 }
             }
         }
+        .scaled(.secondary)
+        .foregroundStyle(Theme.quiet)
         .padding(.horizontal, 10)
         .padding(.vertical, 9)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Theme.raised, in: RoundedRectangle(cornerRadius: 8))
+        .background(Theme.inset, in: RoundedRectangle(cornerRadius: 8))
         .contentShape(RoundedRectangle(cornerRadius: 8))
         .onTapGesture { showingDetail = true }
         .accessibilityElement(children: .contain)
         .accessibilityAction(named: "Show sync details") { showingDetail = true }
         .popover(isPresented: $showingDetail, arrowEdge: .trailing) { SyncDetail() }
+    }
+}
+
+/// A thin meter: a 4 pt track in the control colour, filled from the left.
+struct Meter: View {
+    var fraction: Double
+    var fill: Color = Theme.quiet
+
+    var body: some View {
+        Capsule().fill(Theme.control)
+            .frame(height: 4)
+            .overlay(alignment: .leading) {
+                GeometryReader { proxy in Capsule().fill(fill).frame(width: proxy.size.width * max(0, min(fraction, 1))) }
+            }
+            .frame(maxWidth: .infinity)
     }
 }
 
@@ -1104,4 +1170,18 @@ private struct HandCursor: ViewModifier {
 extension NSAppearance {
     /// Dark Aqua, with or without Increase Contrast.
     var isDark: Bool { bestMatch(from: [.aqua, .darkAqua]) == .darkAqua }
+}
+
+extension NSColor {
+    /// `0xRRGGBB` in sRGB.
+    convenience init(rgb: UInt32) {
+        self.init(srgbRed: CGFloat((rgb >> 16) & 0xFF) / 255, green: CGFloat((rgb >> 8) & 0xFF) / 255,
+                  blue: CGFloat(rgb & 0xFF) / 255, alpha: 1)
+    }
+
+    /// `#RRGGBB`; anything else is the default accent.
+    convenience init(hex: String) {
+        let valid = DeskConfig.validAccent(hex) ?? DeskConfig.accents[0]
+        self.init(rgb: UInt32(valid.dropFirst(), radix: 16) ?? 0x4453D6)
+    }
 }

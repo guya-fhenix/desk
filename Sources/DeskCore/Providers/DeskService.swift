@@ -6,10 +6,12 @@ public enum DeskError: Error, CustomStringConvertible, Sendable {
     case jiraNotConfigured
     case jiraSignedOut
     case claudeNotFound
+    case tmuxNotFound
     case sessionNotStarted(String)
 
     public var description: String {
         switch self {
+        case .tmuxNotFound: return "tmux not found. Install it with Homebrew (brew install tmux): the master and its workers run in its desk session."
         case .ghNotFound: return "gh CLI not found. Install it or set the path in Settings."
         case .jiraNotConfigured: return "acli not found. Install it or set its path in Settings → Jira."
         case .jiraSignedOut: return "Not signed in to Jira. Run `acli jira auth login --web` in a terminal, then press Recheck in Settings → Jira."
@@ -151,6 +153,9 @@ public actor DeskService {
         )
         return ClaudeJob(id: id, name: "master", state: "working", cwd: folder, prKeys: [], updatedAt: Date(), role: .master)
     }
+
+    /// Stops the master. Its workers run on; a new master picks them up from the graph.
+    public func stopMaster(_ id: String) async throws { try await claude().stop(id) }
 
     public func markReady(_ pr: PullRequest) async throws {
         try await gh().markReady(repo: pr.repo, number: pr.number)

@@ -61,9 +61,9 @@ struct SetupView: View {
         }
         .savesSettingsDraft()
         .task { await recheck() }
-        // A fix's tab ending (or being closed) is the moment its check may have changed.
-        .onChange(of: runningFixes) { old, new in
-            if new.count < old.count { Task { await recheck() } }
+        // A fix runs in your terminal app: coming back to Desk is the moment its check may have changed.
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            Task { await recheck() }
         }
     }
 
@@ -109,14 +109,9 @@ struct SetupView: View {
         return missing
     }
 
-    /// The setup tabs still running in the terminal panel.
-    private var runningFixes: [String] {
-        model.terminals.tabs.filter { $0.id.hasPrefix("setup.") && $0.running }.map(\.id)
-    }
-
+    /// In your terminal app, in a login shell, so Homebrew's PATH and your own profile are there.
     private func run(_ fix: SetupFix, for kind: SetupCheck.Kind) {
-        // A login shell, so Homebrew's PATH and the user's own profile are there as in Terminal.
-        model.terminals.open(id: "setup.\(kind.rawValue)", title: "\(fix.label): \(kind.title)", executable: "/bin/zsh", arguments: ["-lc", fix.command])
+        model.runInTerminal(fix.command, name: "setup-\(kind.rawValue)")
     }
 
     private func recheck() async {

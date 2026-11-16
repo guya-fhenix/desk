@@ -59,6 +59,16 @@ import Testing
         #expect(config.githubPollSeconds == DeskConfig().githubPollSeconds)
     }
 
+    /// Appearance, accent and terminal read back; an accent that is not `#RRGGBB` and an unknown appearance fall back alone.
+    @Test func appearanceAccentAndTerminal() throws {
+        let json = ##"{"appearance":"dark","accent":"#0f766e","terminalApp":"terminal"}"##
+        let config = try JSON.decoder().decode(DeskConfig.self, from: Data(json.utf8))
+        #expect(config.appearance == .dark && config.accent == "#0F766E" && config.terminalApp == .terminal)
+        let bad = try JSON.decoder().decode(DeskConfig.self, from: Data(##"{"appearance":"dim","accent":"teal"}"##.utf8))
+        #expect(bad.appearance == .system && bad.accent == "#4453D6" && bad.terminalApp == .iTerm)
+        #expect(DeskConfig.validAccent(" #7c3aed ") == "#7C3AED" && DeskConfig.validAccent("#12345") == nil)
+    }
+
     /// A file that is not JSON at all is kept as config.json.bad and left alone, and the error says so; no file is no error.
     @Test func anUnreadableFileIsKeptAside() throws {
         let support = AppSupport(directory: URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent(UUID().uuidString))

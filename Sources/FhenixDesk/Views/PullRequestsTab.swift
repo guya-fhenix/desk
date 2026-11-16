@@ -314,7 +314,7 @@ private struct TaskCard: View {
                 }
                 if let worker = task.worker {
                     LabeledContent("Worker") {
-                        Button("\(worker.name) · \(worker.status)") { model.attach(jobId: worker.id, errorKey: pr.url) }
+                        Button("\(worker.name) · \(worker.status)") { model.show(jobId: worker.id) }
                             .buttonStyle(.link).handCursor()
                     }
                     if let detail = worker.detail, !detail.isEmpty {
@@ -398,7 +398,7 @@ struct TaskHeader: View {
                 Spacer(minLength: 8)
                 if let waits { Chip(text: waits.text, color: waits.color).fixedSize() }
                 if let worker = task.worker {
-                    Button { model.attach(jobId: worker.id, errorKey: task.id) } label: {
+                    Button { model.show(jobId: worker.id) } label: {
                         Label(worker.status, systemImage: "terminal").scaled(.caption)
                     }
                     .buttonStyle(.borderless)

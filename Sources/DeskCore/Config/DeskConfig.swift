@@ -38,6 +38,23 @@ public struct DeskConfig: Codable, Sendable, Equatable {
     /// A folder of plugins the master and review sessions load in place of the installed ones (`--plugin-dir`), and the
     /// master passes on to every worker: for trying skill changes before they ship. Empty uses the installed plugins.
     public var pluginDir: String = ""
+    /// Light, Dark, or whatever macOS is set to.
+    public var appearance: Appearance = .system
+    /// The accent as `#RRGGBB`: the primary buttons, the selected row, the app's mark.
+    public var accent: String = DeskConfig.accents[0]
+    /// Where the master and its workers show: iTerm2, through tmux's control mode, or Terminal.app.
+    public var terminalApp: TerminalApp = .iTerm
+
+    /// The accents Settings offers: Instrument's indigo first, then teal, violet and graphite.
+    public static let accents = ["#4453D6", "#0F766E", "#7C3AED", "#1F2937"]
+
+    public enum Appearance: String, Codable, Sendable, CaseIterable {
+        case system, light, dark
+    }
+
+    public enum TerminalApp: String, Codable, Sendable, CaseIterable {
+        case iTerm, terminal
+    }
 
     public init() {}
 
@@ -48,6 +65,7 @@ public struct DeskConfig: Codable, Sendable, Equatable {
         case notificationsEnabled
         case claudePath, acliPath
         case sendEvents, masterFolders, pluginDir
+        case appearance, accent, terminalApp
     }
 
     /// Every key is optional and read on its own, so a config.json written before a field existed, or edited by hand to
@@ -74,6 +92,16 @@ public struct DeskConfig: Codable, Sendable, Equatable {
         sendEvents = (try? c.decodeIfPresent(Bool.self, forKey: .sendEvents)) ?? d.sendEvents
         masterFolders = (try? c.decodeIfPresent([String].self, forKey: .masterFolders)) ?? d.masterFolders
         pluginDir = (try? c.decodeIfPresent(String.self, forKey: .pluginDir)) ?? d.pluginDir
+        appearance = (try? c.decodeIfPresent(Appearance.self, forKey: .appearance)) ?? d.appearance
+        accent = (try? c.decodeIfPresent(String.self, forKey: .accent)).flatMap { $0 }.flatMap(Self.validAccent) ?? d.accent
+        terminalApp = (try? c.decodeIfPresent(TerminalApp.self, forKey: .terminalApp)) ?? d.terminalApp
+    }
+
+    /// `#RRGGBB`, upper-cased, or nil for anything else: a hand-edited accent that isn't a colour falls back to the default.
+    public static func validAccent(_ value: String) -> String? {
+        let hex = value.trimmingCharacters(in: .whitespaces).uppercased()
+        guard hex.count == 7, hex.first == "#", hex.dropFirst().allSatisfy(\.isHexDigit) else { return nil }
+        return hex
     }
 
     /// The folders the master can see: the ones you listed, or your repo roots.

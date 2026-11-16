@@ -237,7 +237,7 @@ struct PullRequestMenu: View {
         if pr.state != .merged {
             Divider()
             if let job = model.state.claudeJobs(for: pr).first {
-                Button("Attach to Session") { model.attach(job, for: pr) }
+                Button("Show Session in iTerm") { model.show(jobId: job.id) }
             }
         }
     }
@@ -347,22 +347,22 @@ struct ClaudeSessionButton: View {
         if jobs.count > 1, let newest = jobs.first {
             Menu {
                 ForEach(jobs) { job in
-                    Button("\(job.name) — \(job.status)") { model.attach(job, for: pr) }
+                    Button("\(job.name) — \(job.status)") { model.show(jobId: job.id) }
                 }
             } label: {
-                Label { Text("Attach") } icon: { icon("terminal.fill", newest.isRunning ? .green : .accentColor) }
+                Label { Text("Show in iTerm") } icon: { icon("terminal.fill", newest.isRunning ? .green : .accentColor) }
             }
             .menuIndicator(.hidden).fixedSize()
             .sessionStyle(prominent, menu: true)
             .labelStyle(.titleAndIcon)
             .help(failure ?? "\(jobs.count) background sessions on this PR")
         } else if let job = jobs.first {
-            Button { model.attach(job, for: pr) } label: {
-                Label { Text("Attach") } icon: { icon("terminal.fill", job.isRunning ? .green : .accentColor) }
+            Button { model.show(jobId: job.id) } label: {
+                Label { Text("Show in iTerm") } icon: { icon("terminal.fill", job.isRunning ? .green : .accentColor) }
             }
             .sessionStyle(prominent)
             .labelStyle(.titleAndIcon)
-            .help(failure ?? "Attach to “\(job.name)” (\(job.status)) in Desk’s terminal panel")
+            .help(failure ?? "Show “\(job.name)” (\(job.status)) in its pane in iTerm")
         }
     }
 
@@ -910,16 +910,16 @@ struct SessionStatus: View {
                 if jobs.count > 1 {
                     Menu {
                         ForEach(jobs) { job in
-                            Button("Attach to \(job.name) — \(job.status)") { model.attach(job, for: pr) }
+                            Button("Show \(job.name) — \(job.status) in iTerm") { model.show(jobId: job.id) }
                         }
                     } label: {
                         label
                     } primaryAction: {
-                        model.attach(newest, for: pr)
+                        model.show(jobId: newest.id)
                     }
                     .menuStyle(.button)
                 } else {
-                    Button { model.attach(newest, for: pr) } label: { label }
+                    Button { model.show(jobId: newest.id) } label: { label }
                 }
             }
             .fixedSize()

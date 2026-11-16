@@ -312,7 +312,7 @@ struct CommentBox: View {
                     .focused($focused)
                 Button(submit) { Task { await send() } }
                     .buttonStyle(.borderedProminent)
-                    // Only from this box: the review diff's Ask Claude has ⌘↩ too.
+                    // Only from this box.
                     .keyboardShortcut(focused ? KeyboardShortcut(.return, modifiers: .command) : nil)
                     .disabled(posting || empty)
                     .help("Posts it to GitHub as you (⌘↩)")

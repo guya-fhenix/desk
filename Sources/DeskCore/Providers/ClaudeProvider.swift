@@ -228,6 +228,11 @@ public struct ClaudeCLI: Sendable {
         guard let id = ClaudeJobs.startedID(in: output) else { throw DeskError.sessionNotStarted(output) }
         return id
     }
+
+    /// Stops a background session: `claude stop <id>`. Its transcript stays; `claude attach` still opens it.
+    public func stop(_ id: String) async throws {
+        try await Shell.output(path, ["stop", id], timeout: 30, run: run)
+    }
 }
 
 /// Whether a repository's review sessions can start: `fhenix-workflow` enabled for the repo and installed at a version

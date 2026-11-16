@@ -32,6 +32,13 @@ final class AppModel {
     var pendingTab: DeskWindow.Tab?
     /// True while the Desk window shows Settings in place of the workspace.
     var showingSettings = false
+    /// True while the window shows the Master screen: the iTerm layout, the master's questions, what Desk told it.
+    var showingMaster = false
+
+    func showMasterScreen() {
+        showingSettings = false
+        showingMaster = true
+    }
     /// True while the window shows first-run setup in place of everything else: on every launch until it is finished
     /// once, and again from Settings → General.
     var showingSetup = !UserDefaults.standard.bool(forKey: AppModel.setupDoneKey)
@@ -71,8 +78,18 @@ final class AppModel {
     /// Why the session button last failed, per PR url or ticket key. It is the button's own tooltip: a press that
     /// does nothing is the one thing this must not be.
     var sessionErrors: [String: String] = [:]
-    /// The terminal panel on the right: attached sessions and review sessions.
-    let terminals = TerminalPanel()
+    /// The keys of the panes the `desk` tmux layout has, as of the last sync: which sessions show there, and which review
+    /// sessions run.
+    var panes: Set<String> = []
+    /// Why the last Show in iTerm failed, in a sentence; nil once one works.
+    var terminalError: String?
+    /// Sessions Desk tagged a pane for, as of the last sync; one of them gone while still wanted was closed by hand.
+    private var tmuxMade: Set<String> = []
+    /// Sessions whose pane you closed by hand: they stay out until you show them or they start waiting for you.
+    private var tmuxDismissed: Set<String> = []
+    /// Sessions you showed although they are past their turn: they keep a pane until you close it.
+    private var tmuxShown: Set<String> = []
+    private var syncingTerminals = false
     /// The PR whose diff the Reviews screen shows in place of its page, by url; nil shows the page.
     var reviewing: String?
     /// Each reviewed PR's diff, by url, and why fetching one failed.
@@ -108,6 +125,7 @@ final class AppModel {
         state.dismissedMoves = Set(UserDefaults.standard.stringArray(forKey: Self.dismissedMovesKey) ?? [])
         try? masterFolder.trimEvents()
         writeMasterSettings()
+        applyAppearance()
         Task { await self.start() }
         Notifier.onShow = { [weak self] url in self?.show(url) }
         // Settings is where the sentence shows.
@@ -237,6 +255,9 @@ final class AppModel {
         state.recompute()
         let posted = notifier.deliver(state.nudges, post: config.notificationsEnabled && allSourcesReported)
         writeMasterFiles(posted: posted)
+        // The sessions were just scanned: the iTerm layout follows them. Only once every source answered, so the tasks'
+        // workers are known, and never before you opened the layout.
+        if source == .git, allSourcesReported { await syncTerminals() }
     }
 
     private var allSourcesReported: Bool {
@@ -287,8 +308,20 @@ final class AppModel {
         }
     }
 
+    /// Light, Dark or the system's, for every window, menu and popover, and the accent. The accent is read when a colour
+    /// draws, so the window is rebuilt on its change (`DeskWindow` keys its content by it).
+    func applyAppearance() {
+        Theme.accentHex = config.accent
+        NSApplication.shared.appearance = switch config.appearance {
+        case .system: nil
+        case .light: NSAppearance(named: .aqua)
+        case .dark: NSAppearance(named: .darkAqua)
+        }
+    }
+
     /// Writes the config when it changed and hands it to the sources, which a recheck after a sign-in wants either way.
     func saveConfig() {
+        applyAppearance()
         do {
             if config != savedConfig {
                 try support.save(config, to: DeskService.configFile)
@@ -531,7 +564,6 @@ final class AppModel {
 
     // MARK: Master
 
-    static let masterTab = "master"
     /// Why the Master tab last failed to open, until it opens.
     var masterError: String?
     private(set) var startingMaster = false
@@ -546,19 +578,16 @@ final class AppModel {
         return asks == 0 ? now : "\(now) · \(asks) question\(asks == 1 ? "" : "s")"
     }
 
-    /// The Master tab: attached to the master session, first among the tabs. With none running, it starts one in the
-    /// master folder and attaches to that. Closing the tab only detaches; the master keeps running.
+    /// Shows the master's pane in iTerm. With no master running, it starts one in the master folder first. Closing
+    /// iTerm, or the pane, leaves the master running.
     func openMaster() {
-        guard let claude = config.resolvedClaudePath else {
+        guard config.resolvedClaudePath != nil else {
             masterError = DeskError.claudeNotFound.description
             return
         }
         masterError = nil
-        let attach = { (id: String) in
-            self.terminals.open(id: Self.masterTab, title: "Master", executable: claude, arguments: ["attach", id], pinned: true)
-        }
         if let master = state.master {
-            attach(master.id)
+            show(jobId: master.id)
             return
         }
         guard !startingMaster else { return }
@@ -569,7 +598,7 @@ final class AppModel {
                 let master = try await service.startMaster(in: masterFolder.path)
                 // Held until the next scan reads it off disk.
                 state.claudeJobs.insert(master, at: 0)
-                attach(master.id)
+                show(jobId: master.id)
             } catch {
                 masterError = "\(error)"
                 Self.log.error("master: \(String(describing: error), privacy: .public)")
@@ -577,26 +606,123 @@ final class AppModel {
         }
     }
 
-    /// Opens a background Claude session in the terminal panel. A background session is a daemon rather than a
-    /// shell, so `claude attach` is the only way into one — and it works whether it is still running or
-    /// has already finished. Closing the tab only detaches.
-    func attach(_ job: ClaudeJob, for pr: PullRequest) { attach(jobId: job.id, errorKey: pr.url) }
+    /// Stops the master, on your press on the Master screen; its pane closes at the next sync.
+    func stopMaster() {
+        guard let master = state.master else { return }
+        Task {
+            do {
+                try await service.stopMaster(master.id)
+                masterError = nil
+                await refresh(.git)
+            } catch {
+                masterError = "Couldn't stop the master: \(error)"
+            }
+        }
+    }
 
-    /// `errorKey` is the PR url or ticket key whose button pressed it, which is where a failure is shown.
-    func attach(jobId: String, errorKey: String) {
-        guard let claude = config.resolvedClaudePath else {
-            sessionErrors[errorKey] = DeskError.claudeNotFound.description
+    // MARK: Terminals
+
+    /// The panes the layout has, or would have once opened: what the Master screen draws.
+    var layoutPanes: [PaneSpec] { wantedPanes }
+
+    /// tmux, where it is installed.
+    var tmux: Tmux? { Shell.which("tmux").map { Tmux(path: $0) } }
+
+    /// The panes the layout should have: the master, the open tasks' workers and the review sessions that are at work,
+    /// and any you showed.
+    private var wantedPanes: [PaneSpec] {
+        let sessions = state.tasks.compactMap(\.worker) + state.claudeJobs.filter { $0.role == .review || tmuxShown.contains($0.id) }
+        var specs = TmuxLayout.desired(master: state.master, sessions: sessions)
+        for job in state.claudeJobs where tmuxShown.contains(job.id) && !specs.contains(where: { $0.key == job.id }) {
+            specs.append(PaneSpec(key: job.id, name: job.name, isMaster: job.role == .master))
+        }
+        return specs
+    }
+
+    /// Keeps the `desk` layout in step with the sessions, once it exists: Desk makes it only when you ask to see a
+    /// session. Closes the panes of sessions past their turn, opens panes for new ones, and leaves alone what you closed.
+    func syncTerminals() async {
+        guard !syncingTerminals, let tmux, let claude = config.resolvedClaudePath else { return }
+        syncingTerminals = true
+        defer { syncingTerminals = false }
+        guard await tmux.hasSession() else {
+            panes = []
             return
         }
-        sessionErrors[errorKey] = nil
-        let name = state.claudeJobs.first { $0.id == jobId }?.name ?? jobId
-        terminals.open(id: "attach:\(jobId)", title: name, executable: claude, arguments: ["attach", jobId])
+        for job in state.claudeJobs where job.isAsking { tmuxDismissed.remove(job.id) }
+        do {
+            let current = try await tmux.panes()
+            let change = TmuxLayout.change(current: current, desired: wantedPanes, made: tmuxMade, dismissed: tmuxDismissed)
+            tmuxDismissed = change.dismissed
+            tmuxShown.subtract(change.dismissed)
+            for pane in change.close { try? await tmux.close(pane) }
+            for spec in change.open { try await tmux.open(spec, command: TmuxLayout.attachCommand(claude: claude, id: spec.key)) }
+            if !change.close.isEmpty || !change.open.isEmpty, await tmux.hasSession() { try? await tmux.arrange() }
+            let after = (try? await tmux.panes()) ?? []
+            panes = Set(after.map(\.key))
+            tmuxMade = Set(after.map(\.key).filter { !$0.isEmpty && !$0.hasPrefix("review:") })
+        } catch {
+            Self.log.error("tmux: \(String(describing: error), privacy: .public)")
+        }
+    }
+
+    /// A background session's pane, in front: the layout made or brought up to date, the pane focused, and a terminal
+    /// opened on it when none is attached.
+    func show(jobId: String) {
+        guard let claude = config.resolvedClaudePath else {
+            terminalError = DeskError.claudeNotFound.description
+            return
+        }
+        let job = state.claudeJobs.first { $0.id == jobId }
+        let spec = PaneSpec(key: jobId, name: job?.role == .master ? "master" : job?.name ?? jobId, isMaster: job?.role == .master)
+        tmuxShown.insert(jobId)
+        present(spec, command: TmuxLayout.attachCommand(claude: claude, id: jobId))
+    }
+
+    /// A command run in your terminal app, in a window of its own: Setup's installs and sign-ins.
+    func runInTerminal(_ command: String, name: String) {
+        Task {
+            do {
+                let script = try TerminalOpener.writeScript(TerminalOpener.commandScript(command), in: support.directory, name: name)
+                try await Shell.output("/usr/bin/open", TerminalOpener.openArguments(app: config.terminalApp, script: script))
+                terminalError = nil
+            } catch {
+                terminalError = "Couldn't open \(config.terminalApp == .iTerm ? "iTerm" : "Terminal"): \(error)"
+            }
+        }
+    }
+
+    /// `spec`'s pane in front, opening it with `command` when it isn't there.
+    private func present(_ spec: PaneSpec, command: String) {
+        Task {
+            do {
+                guard let tmux else { throw DeskError.tmuxNotFound }
+                tmuxDismissed.remove(spec.key)
+                if !(await tmux.hasSession()) {
+                    try await tmux.create(spec, command: command)
+                } else if !(try await tmux.panes()).contains(where: { $0.key == spec.key }) {
+                    try await tmux.open(spec, command: command)
+                }
+                tmuxMade.insert(spec.key)
+                await syncTerminals()
+                try? await tmux.arrange()
+                _ = try await tmux.focus(spec.key)
+                let script = await tmux.clients() > 0 ? nil : try TerminalOpener.writeScript(
+                    TerminalOpener.script(app: config.terminalApp, tmux: tmux.path), in: support.directory)
+                try await Shell.output("/usr/bin/open", TerminalOpener.openArguments(app: config.terminalApp, script: script))
+                terminalError = nil
+            } catch {
+                terminalError = "Couldn't show it in \(config.terminalApp == .iTerm ? "iTerm" : "Terminal"): \(error)"
+                Self.log.error("terminal: \(String(describing: error), privacy: .public)")
+            }
+        }
     }
 
     // MARK: Reviews
 
-    private static func reviewTab(_ pr: PullRequest) -> String { "review:\(pr.url)" }
-    private static func groupTab(_ group: ReviewGroup) -> String { "review:group:\(group.id)" }
+    /// The pane a review session runs in, keyed by its group, or by the one PR it reviews.
+    private static func reviewTab(_ pr: PullRequest) -> String { PaneSpec.reviewKey(pr.url) }
+    private static func groupTab(_ group: ReviewGroup) -> String { PaneSpec.reviewKey("group:\(group.id)") }
 
     /// The PRs reviewed together, newest last, each group with its own review session.
     var reviewGroups: [ReviewGroup] = []
@@ -604,10 +730,26 @@ final class AppModel {
     /// The newest group a PR is reviewed in.
     func reviewGroup(for pr: PullRequest) -> ReviewGroup? { reviewGroups.last { $0.contains(pr.url) } }
 
-    /// The tab where this PR's review session runs: its group's, or its own.
+    /// The pane where this PR's review session runs: its group's, or its own.
     private func runningReviewTab(_ pr: PullRequest) -> String? {
         let tabs = [reviewGroup(for: pr).map(Self.groupTab), Self.reviewTab(pr)].compactMap { $0 }
-        return tabs.first { terminals.tab($0)?.running == true }
+        return tabs.first { panes.contains($0) }
+    }
+
+    /// The review session's pane in front.
+    func showReview(_ pr: PullRequest) {
+        guard let key = runningReviewTab(pr) else { return }
+        showPane(key)
+    }
+
+    /// A pane already in the layout, in front: a review session's, whose command is its own.
+    func showPane(_ key: String) {
+        present(PaneSpec(key: key, name: "review"), command: "true")
+    }
+
+    /// A review session's own pane: it runs there, in its clone, until you quit it.
+    private func openReview(key: String, name: String, claude: String, arguments: [String], directory: String) {
+        present(PaneSpec(key: key, name: name), command: TmuxLayout.reviewCommand(claude: claude, arguments: arguments, directory: directory))
     }
 
     func reviewRunning(_ pr: PullRequest) -> Bool { runningReviewTab(pr) != nil }
@@ -641,8 +783,8 @@ final class AppModel {
         reviewGroups.append(group)
         showInReview(first)
         let tab = Self.groupTab(group)
-        if terminals.tab(tab)?.running == true {
-            terminals.select(tab)
+        if panes.contains(tab) {
+            present(PaneSpec(key: tab, name: "review"), command: "true")
             return
         }
         guard let claude = config.resolvedClaudePath else {
@@ -673,8 +815,8 @@ final class AppModel {
             if let ticket = DeskService.reviewTicket(for: pr, tickets: state.tickets, projectKeys: config.jiraProjectKeys),
                !tickets.contains(ticket) { tickets.append(ticket) }
         }
-        terminals.open(
-            id: tab, title: prs.count == 1 ? "Review \(first.repoName)#\(first.number)" : "Review \(prs.count) PRs", executable: claude,
+        openReview(
+            key: tab, name: prs.count == 1 ? "review \(first.repoName)#\(first.number)" : "review \(prs.count) PRs", claude: claude,
             arguments: DeskService.groupReviewArguments(group, tickets: tickets, otherClones: others, config: config), directory: repo.root
         )
     }
@@ -687,8 +829,8 @@ final class AppModel {
         sessionErrors[pr.url] = nil
         reviewing = pr.url
         loadDiff(pr)
-        if let tab = runningReviewTab(pr) {
-            terminals.select(tab)
+        if runningReviewTab(pr) != nil {
+            showReview(pr)
             return
         }
         // Where review-teammate-task is there, one PR is a group of one: review-pr may not be there any more.
@@ -717,8 +859,8 @@ final class AppModel {
             return
         }
         let ticket = DeskService.reviewTicket(for: pr, tickets: state.tickets, projectKeys: config.jiraProjectKeys)
-        terminals.open(
-            id: Self.reviewTab(pr), title: "Review \(pr.repoName)#\(pr.number)", executable: claude,
+        openReview(
+            key: Self.reviewTab(pr), name: "review \(pr.repoName)#\(pr.number)", claude: claude,
             arguments: DeskService.reviewArguments(for: pr, ticket: ticket), directory: repo.root
         )
     }
@@ -734,14 +876,6 @@ final class AppModel {
                 diffErrors[pr.url] = "\(error)"
             }
         }
-    }
-
-    /// The selected lines into the review session's input, for you to ask about.
-    func askClaude(_ pr: PullRequest, _ text: String) {
-        // In a group, the session reviews several PRs: the lines say which one they are from.
-        let inGroup = reviewGroup(for: pr).map { $0.pullRequests.count > 1 } == true
-        let pasted = runningReviewTab(pr).map { terminals.paste(inGroup ? "\(pr.repoName)#\(pr.number) \(text)" : text, into: $0) } == true
-        sessionErrors[pr.url] = pasted ? nil : "No review session is running: press Start review."
     }
 
     /// A review session's `fhenixdesk://show/…`: that PR's diff, at that line. A PR Desk does not know is ignored —

@@ -69,12 +69,12 @@ struct ReviewDiffScreen: View {
             HStack(spacing: 8) {
                 BackLink(title: "\(pr.repoName)#\(pr.number)", action: onBack)
                 Spacer(minLength: Theme.Space.m)
-                Button("Ask Claude") { askClaude() }
-                    .keyboardShortcut(.return, modifiers: .command)
+                Button("Copy lines") { copyLines() }
+                    .keyboardShortcut("c", modifiers: [.command, .shift])
                     .disabled(selection == nil)
-                    .help("Pastes the selected lines into the review session, for you to ask about. Click a line, shift-click to extend, or move with ↑↓ and extend with ⇧↑↓. ⌘↩")
-                Button(model.reviewRunning(pr) ? "Review session" : "Start review") { model.startReview(pr) }
-                    .help("The review session in the terminal panel")
+                    .help("Copies the selected lines with their path and numbers, to paste into the review session's pane in iTerm. Click a line, shift-click to extend, or move with ↑↓ and extend with ⇧↑↓. ⇧⌘C")
+                Button(model.reviewRunning(pr) ? "Show in iTerm" : "Start review") { model.startReview(pr) }
+                    .help(model.reviewRunning(pr) ? "The review session's pane in iTerm" : "Starts a review session in a pane of its own in iTerm")
                 Button("Review on GitHub") { model.openDraft(pr) }
             }
             .padding(.horizontal, Theme.gutter)
@@ -314,8 +314,8 @@ struct ReviewDiffScreen: View {
         }
     }
 
-    /// The selected lines, with their path and numbers, into the session's input — not sent.
-    private func askClaude() {
+    /// The selected lines, with their path and numbers, on the clipboard: Desk sends nothing to a session, you paste them.
+    private func copyLines() {
         guard let selection, let rows = model.diffs[pr.url]?.rows[selection.path] else { return }
         let lines = selection.range.compactMap { index -> DiffLine? in
             if case .line(let line) = rows[index] { return line }
@@ -324,7 +324,7 @@ struct ReviewDiffScreen: View {
         guard let first = lines.first, let last = lines.last else { return }
         let number = { (line: DiffLine) in line.newLine ?? line.oldLine ?? 0 }
         let body = lines.map { $0.marker + $0.text }.joined(separator: "\n")
-        model.askClaude(pr, "\(selection.path) lines \(number(first))–\(number(last)):\n```diff\n\(body)\n```\n")
+        Clipboard.copy("\(pr.repoName)#\(pr.number) \(selection.path) lines \(number(first))–\(number(last)):\n```diff\n\(body)\n```\n")
     }
 }
 

@@ -520,7 +520,7 @@ private struct SessionRow: View {
     var body: some View {
         let pr = model.state.pullRequest(of: session)
         LabeledContent {
-            Button("Attach") { model.attach(jobId: session.id, errorKey: session.ticketKey ?? session.id) }.controlSize(.small)
+            Button("Attach") { model.show(jobId: session.id) }.controlSize(.small)
         } label: {
             HStack(spacing: 6) {
                 StageChip(stage: model.state.stage(of: session), sessionBusy: session.isBusy).fixedSize()

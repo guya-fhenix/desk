@@ -33,6 +33,7 @@ enum Snapshot {
         let height = arguments.count > 3 ? CGFloat(Double(arguments[3]) ?? 2400) : 2400
         appearance(arguments)
         let model = AppModel()
+        appearance(arguments)
         var found: PullRequest?
         for _ in 0..<120 where found == nil {
             try? await Task.sleep(for: .milliseconds(500))
@@ -57,7 +58,7 @@ enum Snapshot {
         } else {
             view = AnyView(ReviewPage(pr: pr, model: model, onMe: false) {})
         }
-        await capture(view, size: NSSize(width: 1180, height: height), to: out)
+        await capture(view, size: NSSize(width: 1440, height: height), to: out)
     }
 
     /// The whole window, sidebar and screen, on a tab, Settings or Setup, once every source has answered. `open=<pr url>`
@@ -65,42 +66,31 @@ enum Snapshot {
     /// a session in it; `pane=<github|jira|…>` picks Settings' page and `step=<accounts|…>` Setup's.
     private static func window(_ arguments: [String]) async {
         let screen = arguments.first ?? ""
-        guard arguments.count >= 2, screen == "settings" || screen == "setup" || DeskWindow.Tab(rawValue: screen) != nil else {
-            print("usage: --snapshot window <upNext|pullRequests|reviews|tickets|settings|setup> <out.png> [height] [dark] [open=<pr url>] [terminal [expand [collapse]] [font=<pt>]] [pane=<pane>] [step=<step>] [update=<current>,<latest>]")
+        guard arguments.count >= 2, screen == "settings" || screen == "setup" || screen == "master" || DeskWindow.Tab(rawValue: screen) != nil else {
+            print("usage: --snapshot window <upNext|pullRequests|reviews|tickets|master|settings|setup> <out.png> [height] [dark|light] [open=<pr url>] [pane=<pane>] [step=<step>] [update=<current>,<latest>]")
             return
         }
         func value(_ name: String) -> String? { arguments.first { $0.hasPrefix("\(name)=") }.map { String($0.dropFirst(name.count + 1)) } }
         let height = arguments.count > 2 ? CGFloat(Double(arguments[2]) ?? 720) : 720
         appearance(arguments)
         let model = AppModel()
+        appearance(arguments)
         model.showingSetup = false
         model.showingSettings = screen == "settings"
+        model.showingMaster = screen == "master"
         model.pendingTab = DeskWindow.Tab(rawValue: screen)
         for _ in 0..<120 where Set(model.state.lastRefresh.keys).union(model.state.errors.keys).count < Source.allCases.count {
             try? await Task.sleep(for: .milliseconds(500))
         }
         if let open = arguments.first(where: { $0.hasPrefix("open=") }) { model.selectPullRequest = String(open.dropFirst(5)) }
-        if arguments.contains("terminal") {
-            model.terminals.open(id: "snapshot", title: "Session", executable: "/bin/sh", arguments: ["-c", "echo a session; sleep 30"])
-            if let size = value("font").flatMap(Double.init) { model.terminals.fontSize = size }
-            // After the window has opened on its screen, which puts an expanded terminal back beside it.
-            if arguments.contains("expand") {
-                Task {
-                    try? await Task.sleep(for: .seconds(1))
-                    model.terminals.expanded = true
-                    // `collapse` puts it back a second later: the snapshot shows the terminal survived the round trip.
-                    guard arguments.contains("collapse") else { return }
-                    try? await Task.sleep(for: .seconds(1))
-                    model.terminals.expanded = false
-                }
-            }
-        }
         if let pane = value("pane").flatMap(SettingsPane.init(rawValue:)) { model.settings.pane = pane }
         // `update=<current>,<latest>`: the sidebar's update notice, which an unbundled build never checks for.
         if let versions = value("update")?.split(separator: ","), versions.count == 2 {
             model.update = AppUpdate.Available(current: String(versions[0]), latest: String(versions[1]))
         }
-        let size = NSSize(width: 1180, height: height)
+        let size = NSSize(width: value("width").flatMap(Double.init).map { CGFloat($0) } ?? 1440, height: height)
+        // Drawn off screen, the split view's sidebar column comes out blank: snapshots lay the sidebar beside the screen.
+        DeskWindow.flat = true
         if screen == "setup" {
             await capture(SetupView(step: value("step").flatMap(SetupStep.init(rawValue:)) ?? .tools).environment(model), size: size, to: arguments[1], titled: true)
         } else {
@@ -147,9 +137,13 @@ enum Snapshot {
             if titled {
                 print("can't capture the window (is the screen locked?): drawing its views, without the system's materials or forms")
             }
-            let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds)
-            rep.map { view.cacheDisplay(in: view.bounds, to: $0) }
-            image = rep?.cgImage
+            // The layer tree, which holds what SwiftUI draws into layers — a scroll view's content, the sidebar — that
+            // `cacheDisplay` leaves blank; `cacheDisplay` where a view has no layer.
+            image = layerImage(of: view) ?? {
+                let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds)
+                rep.map { view.cacheDisplay(in: view.bounds, to: $0) }
+                return rep?.cgImage
+            }()
         }
         guard let png = image.flatMap({ NSBitmapImageRep(cgImage: $0).representation(using: .png, properties: [:]) }),
               (try? png.write(to: URL(fileURLWithPath: out))) != nil else {
@@ -157,6 +151,20 @@ enum Snapshot {
             return
         }
         print("wrote \(out)")
+    }
+
+    /// The view's layer tree drawn into a bitmap at the screen's scale, upright.
+    private static func layerImage(of view: NSView) -> CGImage? {
+        guard let layer = view.layer else { return nil }
+        let scale = view.window?.backingScaleFactor ?? 2
+        let size = view.bounds.size
+        guard let context = CGContext(
+            data: nil, width: Int(size.width * scale), height: Int(size.height * scale), bitsPerComponent: 8, bytesPerRow: 0,
+            space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else { return nil }
+        context.scaleBy(x: scale, y: scale)
+        layer.render(in: context)
+        return context.makeImage()
     }
 
     /// The window as the window server composites it, from wherever it is.
