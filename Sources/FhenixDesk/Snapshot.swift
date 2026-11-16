@@ -163,6 +163,11 @@ enum Snapshot {
             space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
         ) else { return nil }
         context.scaleBy(x: scale, y: scale)
+        // A flipped view — the hosting view of a page drawn alone — would come out upside down.
+        if view.isFlipped {
+            context.translateBy(x: 0, y: size.height)
+            context.scaleBy(x: 1, y: -1)
+        }
         layer.render(in: context)
         return context.makeImage()
     }
