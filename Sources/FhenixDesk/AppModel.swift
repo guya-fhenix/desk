@@ -536,7 +536,17 @@ final class AppModel {
     static let masterTab = "master"
     /// Why the Master tab last failed to open, until it opens.
     var masterError: String?
-    private var startingMaster = false
+    private(set) var startingMaster = false
+
+    /// The master in a few words, for the sidebar and Settings: what it does now, and the questions it has open for you.
+    var masterStatus: String {
+        if startingMaster { return "Starting…" }
+        guard let master = state.master else { return "Not running" }
+        // Blocked is where a master rests between your instructions, so it waits for you rather than asks you something.
+        let now = master.isAsking ? "Waiting for you" : master.isRunning ? "Working" : master.isIdle ? "Listening" : master.state.capitalized
+        let asks = state.asks.count
+        return asks == 0 ? now : "\(now) · \(asks) question\(asks == 1 ? "" : "s")"
+    }
 
     /// The Master tab: attached to the master session, first among the tabs. With none running, it starts one in the
     /// master folder and attaches to that. Closing the tab only detaches; the master keeps running.

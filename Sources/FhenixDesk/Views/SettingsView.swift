@@ -382,20 +382,13 @@ private struct RepoRootsField: View {
 private struct MasterSettings: View {
     @Environment(AppModel.self) private var model
 
-    private var status: String {
-        guard let master = model.state.master else { return "Not started" }
-        let state = master.isAsking ? "asking you" : master.isRunning ? "working" : "listening"
-        let asks = model.state.asks.count
-        return asks == 0 ? state : "\(state) · \(asks) question\(asks == 1 ? "" : "s") for you"
-    }
-
     var body: some View {
         @Bindable var draft = model.settings
         let folder = model.masterFolder
         FieldGroup(title: "Session") {
             Field(label: "Master session", hint: model.masterError) {
                 HStack(spacing: 10) {
-                    Text(status).scaled(.secondary.monospaced()).foregroundStyle(.secondary)
+                    Text(model.masterStatus).scaled(.secondary.monospaced()).foregroundStyle(.secondary)
                     Button(model.state.master == nil ? "Start" : "Open") {
                         model.openMaster()
                         model.showingSettings = false

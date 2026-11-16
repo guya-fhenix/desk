@@ -124,8 +124,8 @@ struct DeskWindow: View {
         }
     }
 
-    /// Search, which opens over the window rather than being chosen, the tabs with their counts, and Settings; the sync
-    /// status pinned under them.
+    /// Search, which opens over the window rather than being chosen, the tabs with their counts, and Settings; the master
+    /// session and the sync status pinned under them.
     private var sidebar: some View {
         List(selection: choice) {
             Button { model.showingFinder = true } label: {
@@ -140,13 +140,6 @@ struct DeskWindow: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            Button { model.openMaster() } label: {
-                Label { Text("Master") } icon: { Image(systemName: "bubble.left.and.bubble.right") }
-                    .badge(model.state.asks.count)
-                    .help(model.masterError ?? masterHelp)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
             ForEach(Tab.allCases) { item in
                 Label { Text(item.title) } icon: { SidebarIcon(name: item.icon) }
                     .badge(badge(for: item))
@@ -158,6 +151,7 @@ struct DeskWindow: View {
         .safeAreaInset(edge: .bottom) {
             VStack(spacing: Theme.Space.s) {
                 UpdateNotice()
+                MasterStatus()
                 SidebarStatus()
             }
             .padding(.horizontal, Theme.Space.s).padding(.bottom, Theme.Space.m)
@@ -165,14 +159,6 @@ struct DeskWindow: View {
         .toolbar(removing: model.showingSetup ? .sidebarToggle : nil)
         // Outermost, or the split view does not see it.
         .navigationSplitViewColumnWidth(min: 200, ideal: Theme.sidebarWidth, max: 320)
-    }
-
-    /// What the Master entry does, and the master's state: the badge counts the questions it has open for you.
-    private var masterHelp: String {
-        guard let master = model.state.master else { return "Start the master session and open it in the terminal panel" }
-        let asks = model.state.asks.count
-        return "The master session \(master.isAsking ? "is asking you something" : master.isRunning ? "is working" : "is listening")"
-            + (asks == 0 ? "" : ", with \(asks) question\(asks == 1 ? "" : "s") for you") + ". Open it in the terminal panel."
     }
 
     /// A review diff wants the window's width for its code: the first on screen folds the sidebar away, the last to go
