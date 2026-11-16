@@ -36,6 +36,33 @@ public struct DeskLink: Equatable, Sendable {
     public var prKey: String { "\(repo.lowercased())#\(number)" }
 }
 
+/// PRs reviewed together in one session, any repos and authors — a stack, a ticket's PRs, or ones picked by hand — with
+/// what the reviewer wants looked at.
+public struct ReviewGroup: Sendable, Equatable, Identifiable {
+    public var pullRequests: [PullRequest]
+    public var notes: String
+
+    public init(pullRequests: [PullRequest], notes: String = "") {
+        self.pullRequests = pullRequests
+        self.notes = notes.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// The same PRs are the same group, whatever order they were picked in.
+    public var id: String { pullRequests.map(\.url).sorted().joined(separator: " ") }
+
+    public func contains(_ url: String) -> Bool { pullRequests.contains { $0.url == url } }
+
+    /// The group's PRs base first within each repo's stacks, the repos in the order their first PR was picked.
+    public static func ordered(_ pullRequests: [PullRequest], parents: [String: String]) -> [PullRequest] {
+        var repos: [String] = []
+        for pr in pullRequests where !repos.contains(pr.repo) { repos.append(pr.repo) }
+        let byNumber = [KeyPathComparator(\StackedPullRequest.pullRequest.number)]
+        return repos.flatMap { repo in
+            Linker.stacked(pullRequests.filter { $0.repo == repo }, parents: parents, order: byNumber).map(\.pullRequest)
+        }
+    }
+}
+
 extension DeskState {
     /// The open PR a show link names, out of every search; nil for one Desk does not know.
     public func pullRequest(for link: DeskLink) -> PullRequest? {
@@ -92,6 +119,40 @@ extension DeskService {
             "--allowedTools", "Bash(\(showHelper.path) *)",
             "--append-system-prompt", reviewLinkInstructions(for: pr),
             prompt,
+        ]
+    }
+
+    /// How a session reviewing several PRs moves the diff: the same link, naming the PR the line belongs to.
+    public static func groupLinkInstructions(for pullRequests: [PullRequest]) -> String {
+        """
+        Fhenix Desk shows the diff of the PR you are on beside you: \(pullRequests.map(\.url).joined(separator: ", ")). \
+        That is how the reviewer moves through the code. Whenever you point at a specific line, also move their view \
+        there by running exactly this command, without quotes: \(showHelper.path) \
+        \(DeskLink.scheme)://show/<owner>/<repo>/<number>/<side>/<line>/<path> — <owner>/<repo>/<number> names the PR \
+        the line belongs to; <side> is new for an added or unchanged line (its number in the new file) and old for a \
+        removed line (its number in the old file); <path> is the file's path as the diff shows it. Lines the reviewer \
+        selects in the diff arrive pasted into your input, with their PR, path and line numbers.
+        """
+    }
+
+    /// What a group review starts on: the skill, every PR's link, then the reviewer's notes and the tickets, each
+    /// only when there is one.
+    public static func groupReviewPrompt(_ group: ReviewGroup, tickets: [String]) -> String {
+        var parts = ["Review these together with the fhenix-workflow:\(ClaudePlugins.reviewTeammateTask) skill:\n"
+            + group.pullRequests.map(\.url).joined(separator: "\n")]
+        if !group.notes.isEmpty { parts.append("My notes: \(group.notes)") }
+        if !tickets.isEmpty { parts.append("The tickets they are for:\n\n" + tickets.joined(separator: "\n\n")) }
+        return parts.joined(separator: "\n\n")
+    }
+
+    /// The arguments of a group review's `claude`: the plugin folder and the other PRs' clones first, then the one allowed
+    /// command and the instructions, and the prompt last, because `--allowedTools` takes every argument after it up to
+    /// the next option.
+    public static func groupReviewArguments(_ group: ReviewGroup, tickets: [String], otherClones: [String], config: DeskConfig) -> [String] {
+        config.pluginDirFlags + otherClones.flatMap { ["--add-dir", $0] } + [
+            "--allowedTools", "Bash(\(showHelper.path) *)",
+            "--append-system-prompt", groupLinkInstructions(for: group.pullRequests),
+            groupReviewPrompt(group, tickets: tickets),
         ]
     }
 

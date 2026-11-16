@@ -85,6 +85,17 @@ struct ReviewDiffScreen: View {
                     Spacer(minLength: 0)
                     if let diff = model.diffs[pr.url], !diff.files.isEmpty { jumpMenu(diff) }
                 }
+                if let group = model.reviewGroup(for: pr) {
+                    if group.pullRequests.count > 1 { partStrip(group) }
+                    if !group.notes.isEmpty {
+                        Text("Your notes: \(group.notes)")
+                            .scaled(.caption)
+                            .textSelection(.enabled)
+                            .padding(.horizontal, 10).padding(.vertical, 6)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(Color.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 6))
+                    }
+                }
                 if let error = model.sessionErrors[pr.url] {
                     Text(error).scaled(.caption).foregroundStyle(.red).textSelection(.enabled)
                 }
@@ -121,6 +132,23 @@ struct ReviewDiffScreen: View {
     }
 
     private func folded(_ path: String, in diff: LoadedDiff) -> Bool { diff.foldedAtFirst.contains(path) != flipped.contains(path) }
+
+    /// The PRs reviewed together, repo by repo and each stack base first, this one tinted: a click shows that one's
+    /// diff, as the session's links do.
+    private func partStrip(_ group: ReviewGroup) -> some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                ForEach(group.pullRequests, id: \.url) { part in
+                    Button { model.showInReview(part) } label: {
+                        Text(verbatim: "\(part.repoName)#\(part.number)").scaled(.caption.monospaced())
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(part.url == pr.url ? .accentColor : nil)
+                    .help(part.title)
+                }
+            }
+        }
+    }
 
     /// The file at the top of the scroll.
     private func topFile(_ diff: LoadedDiff) -> Int { diff.files.lastIndex { atTop.contains($0.path) } ?? 0 }

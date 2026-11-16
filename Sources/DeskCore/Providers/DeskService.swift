@@ -111,7 +111,9 @@ public actor DeskService {
     public func reviewSkills(repos: [RepoRef]) async -> [String: ReviewSkill] {
         var skills: [String: ReviewSkill] = [:]
         for repo in repos where skills[repo.root] == nil {
-            skills[repo.root] = ClaudePlugins.reviewSkill(repoRoot: repo.root, adopted: await adoptedReviewFlow(repoRoot: repo.root))
+            skills[repo.root] = ClaudePlugins.reviewSkill(
+                repoRoot: repo.root, adopted: await adoptedReviewFlow(repoRoot: repo.root), pluginDir: config.pluginDir
+            )
         }
         return skills
     }

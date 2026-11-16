@@ -668,8 +668,88 @@ final class AppModel {
     // MARK: Reviews
 
     private static func reviewTab(_ pr: PullRequest) -> String { "review:\(pr.url)" }
+    private static func groupTab(_ group: ReviewGroup) -> String { "review:group:\(group.id)" }
 
-    func reviewRunning(_ pr: PullRequest) -> Bool { terminals.tab(Self.reviewTab(pr))?.running == true }
+    /// The PRs reviewed together, newest last, each group with its own review session.
+    var reviewGroups: [ReviewGroup] = []
+
+    /// The newest group a PR is reviewed in.
+    func reviewGroup(for pr: PullRequest) -> ReviewGroup? { reviewGroups.last { $0.contains(pr.url) } }
+
+    /// The tab where this PR's review session runs: its group's, or its own.
+    private func runningReviewTab(_ pr: PullRequest) -> String? {
+        let tabs = [reviewGroup(for: pr).map(Self.groupTab), Self.reviewTab(pr)].compactMap { $0 }
+        return tabs.first { terminals.tab($0)?.running == true }
+    }
+
+    func reviewRunning(_ pr: PullRequest) -> Bool { runningReviewTab(pr) != nil }
+
+    /// Whether a review of this PR can take others with it, and your notes: its clone's sessions have
+    /// `review-teammate-task`.
+    func canReviewTogether(_ pr: PullRequest) -> Bool { state.reviewSkill(for: pr)?.groupReview == true }
+
+    /// Shows a PR's diff on the Reviews screen, as a review session's link does: how the review screen moves between
+    /// the PRs of a group.
+    func showInReview(_ pr: PullRequest) {
+        reviewing = pr.url
+        loadDiff(pr)
+        showingSettings = false
+        pendingTab = .reviews
+        selectPullRequest = pr.url
+    }
+
+    /// Review together: one regular Claude session on `review-teammate-task` for every PR picked, from any repos and
+    /// authors, told your notes, and the first one's diff beside it. It starts in the first PR's clone with the others'
+    /// clones added, on the plugin folder when one is set; the same PRs again open the session already running.
+    func startReview(_ picked: [PullRequest], notes: String) {
+        let prs = ReviewGroup.ordered(picked, parents: state.stackParents)
+        guard let first = prs.first else { return }
+        let group = ReviewGroup(pullRequests: prs, notes: notes)
+        for pr in prs {
+            sessionErrors[pr.url] = nil
+            loadDiff(pr)
+        }
+        reviewGroups.removeAll { $0.id == group.id }
+        reviewGroups.append(group)
+        showInReview(first)
+        let tab = Self.groupTab(group)
+        if terminals.tab(tab)?.running == true {
+            terminals.select(tab)
+            return
+        }
+        guard let claude = config.resolvedClaudePath else {
+            sessionErrors[first.url] = DeskError.claudeNotFound.description
+            return
+        }
+        guard let repo = state.localRepo(for: first) else {
+            sessionErrors[first.url] = "No clone of \(first.repo) here: the review session starts in the repository's checkout."
+            return
+        }
+        guard canReviewTogether(first) else {
+            sessionErrors[first.url] = "Reviewing together needs the \(ClaudePlugins.reviewTeammateTask) skill: fhenix-workflow 1.0, "
+                + "or a plugin folder that has it in Settings → Master → Load plugins from."
+            return
+        }
+        do {
+            try DeskService.installShowHelper()
+        } catch {
+            sessionErrors[first.url] = "Can't start the review session: couldn't write \(DeskService.showHelper.path): \(error)"
+            return
+        }
+        var others: [String] = []
+        for pr in prs.dropFirst() {
+            if let root = state.localRepo(for: pr)?.root, root != repo.root, !others.contains(root) { others.append(root) }
+        }
+        var tickets: [String] = []
+        for pr in prs {
+            if let ticket = DeskService.reviewTicket(for: pr, tickets: state.tickets, projectKeys: config.jiraProjectKeys),
+               !tickets.contains(ticket) { tickets.append(ticket) }
+        }
+        terminals.open(
+            id: tab, title: prs.count == 1 ? "Review \(first.repoName)#\(first.number)" : "Review \(prs.count) PRs", executable: claude,
+            arguments: DeskService.groupReviewArguments(group, tickets: tickets, otherClones: others, config: config), directory: repo.root
+        )
+    }
 
     /// Start review on a teammate's PR: its diff on the Reviews screen, and a regular Claude session on the
     /// review-pr skill in the terminal panel — or the one already running there. Not a background session: Claude's
@@ -679,8 +759,8 @@ final class AppModel {
         sessionErrors[pr.url] = nil
         reviewing = pr.url
         loadDiff(pr)
-        if reviewRunning(pr) {
-            terminals.select(Self.reviewTab(pr))
+        if let tab = runningReviewTab(pr) {
+            terminals.select(tab)
             return
         }
         guard let claude = config.resolvedClaudePath else {
@@ -725,7 +805,10 @@ final class AppModel {
 
     /// The selected lines into the review session's input, for you to ask about.
     func askClaude(_ pr: PullRequest, _ text: String) {
-        sessionErrors[pr.url] = terminals.paste(text, into: Self.reviewTab(pr)) ? nil : "No review session is running: press Start review."
+        // In a group, the session reviews several PRs: the lines say which one they are from.
+        let inGroup = reviewGroup(for: pr).map { $0.pullRequests.count > 1 } == true
+        let pasted = runningReviewTab(pr).map { terminals.paste(inGroup ? "\(pr.repoName)#\(pr.number) \(text)" : text, into: $0) } == true
+        sessionErrors[pr.url] = pasted ? nil : "No review session is running: press Start review."
     }
 
     /// A review session's `fhenixdesk://show/…`: that PR's diff, at that line. A PR Desk does not know is ignored —
