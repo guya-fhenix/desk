@@ -20,21 +20,22 @@ enum SetupStep: String, CaseIterable, Identifiable {
         }
     }
 
-    var icon: String {
+    /// The sentence under the step's title; Finish says its own.
+    var summary: String {
         switch self {
-        case .tools: return "wrench.and.screwdriver"
-        case .accounts: return "person.badge.key"
-        case .github: return SettingsPane.github.icon
-        case .repos: return SettingsPane.repos.icon
-        case .jira: return SettingsPane.jira.icon
-        case .finish: return "checkmark.seal"
+        case .tools: return "Desk drives these command-line tools and keeps no token of its own."
+        case .accounts: return "Each tool holds its own sign-in. GitHub and Jira ask for a token, which Desk hands to the tool and keeps none of."
+        case .github: return "The org Desk reads, where your clones live, and whose pull requests stay out of the queue."
+        case .repos: return "The repos you work in. Desk watches these and nothing else."
+        case .jira: return SettingsPane.jira.summary
+        case .finish: return ""
         }
     }
 }
 
-/// Setup, in the Desk window in place of everything else: the tools Desk drives, the accounts they are signed in to,
-/// then the settings it cannot guess. A fix runs in the terminal panel, where you can follow it and type a password,
-/// and the checks run again when it ends.
+/// Setup, in the Desk window in place of everything else, sidebar and all: the steps across the top, and the step's
+/// checks or settings in one column under them. A fix runs in your terminal app, where you can follow it and type a
+/// password, and the checks run again when you come back to Desk.
 struct SetupView: View {
     @Environment(AppModel.self) private var model
     @State private var step: SetupStep
@@ -45,20 +46,18 @@ struct SetupView: View {
     init(step: SetupStep = .tools) { _step = State(initialValue: step) }
 
     var body: some View {
-        HStack(spacing: 0) {
-            PaneColumn(title: "Setup") {
-                ForEach(SetupStep.allCases) { item in
-                    SidebarItem(title: item.title, icon: item.icon, selected: step == item) { step = item }
-                }
+        VStack(spacing: 0) {
+            header
+            if step == .repos {
+                // The org's repos scroll in a list of their own.
+                column { ReposSettings() }
+            } else {
+                ScrollView { column { page } }
             }
-            Rectangle().fill(Theme.line).frame(width: 1).ignoresSafeArea()
-            VStack(spacing: 0) {
-                page.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                Hairline()
-                footer
-            }
-            .background(Theme.background)
         }
+        .padding(EdgeInsets(top: 18, leading: 28, bottom: 24, trailing: 28))
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background(Theme.ground)
         .savesSettingsDraft()
         .task { await recheck() }
         // A fix runs in your terminal app: coming back to Desk is the moment its check may have changed.
@@ -67,39 +66,96 @@ struct SetupView: View {
         }
     }
 
+    /// The app's mark, the steps, and where you are in them.
+    private var header: some View {
+        let index = SetupStep.allCases.firstIndex(of: step) ?? 0
+        return HStack(spacing: 12) {
+            HStack(spacing: 8) {
+                AppMark()
+                Text("Fhenix Desk").scaled(.body.weight(.semibold)).lineLimit(1)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            SetupStepper(step: $step)
+            Text("Step \(index + 1) of \(SetupStep.allCases.count)").scaled(.secondary).foregroundStyle(Theme.quiet).lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+        }
+        .frame(minHeight: 32)
+    }
+
+    /// The step in a centred column at most 760 pt wide: its title and sentence, its body, and Back and Continue under it.
+    private func column<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 20) {
+            HStack(alignment: .bottom, spacing: 12) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(step.title).scaled(.title).tracking(-0.3)
+                    Text(summary).foregroundStyle(step == .finish && !missingRequired.isEmpty ? Theme.danger : Theme.quiet)
+                        .frame(maxWidth: 620, alignment: .leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 8)
+                if step == .tools || step == .accounts || step == .finish {
+                    if checking { ProgressView().controlSize(.small) }
+                    Button("Check again") { Task { await recheck() } }.buttonStyle(.desk(.secondary, .small)).disabled(checking)
+                }
+            }
+            content()
+            footer
+        }
+        .frame(maxWidth: 760, maxHeight: step == .repos ? .infinity : nil, alignment: .topLeading)
+        .padding(.top, 40)
+        .frame(maxWidth: .infinity)
+    }
+
+    private var summary: String {
+        guard step == .finish else { return step.summary }
+        return missingRequired.isEmpty
+            ? "Desk has what it needs. Anything still open below can be set up later from Settings → General → Run setup again."
+            : "Still needed before Desk can show anything: \(missingRequired.joined(separator: ", "))."
+    }
+
     @ViewBuilder private var page: some View {
         switch step {
-        case .tools:
-            ChecksPage(title: "Tools", note: "Desk drives these command-line tools and keeps no token of its own.", kinds: SetupCheck.Kind.tools,
-                       checks: checks, checking: checking, run: run, recheck: { Task { await recheck() } })
-        case .accounts:
-            ChecksPage(title: "Sign in", note: "Each tool holds its own sign-in. GitHub and Jira ask for a token, which Desk hands to the tool and keeps none of.",
-                       kinds: SetupCheck.Kind.accounts,
-                       checks: checks, checking: checking, run: run, recheck: { Task { await recheck() } })
-        case .github: FormPage(title: "GitHub") { GitHubSettings() }
-        case .repos: ReposSettings()
-        case .jira: FormPage(title: "Jira") { JiraSettings() }
-        case .finish: FinishPage(checks: checks, missing: missingRequired)
+        case .tools: checksCard(SetupCheck.Kind.tools)
+        case .accounts: checksCard(SetupCheck.Kind.accounts)
+        case .github: VStack(alignment: .leading, spacing: 0) { GitHubSettings() }
+        case .repos: EmptyView()
+        case .jira: VStack(alignment: .leading, spacing: 0) { JiraSettings() }
+        case .finish: SetupFinish(checks: checks)
+        }
+    }
+
+    /// The Tools and Sign in steps: a row per check, and under a sign-in that wants one, the token box.
+    private func checksCard(_ kinds: [SetupCheck.Kind]) -> some View {
+        SetupCard {
+            ForEach(kinds, id: \.self) { kind in
+                SetupCheckRow(kind: kind, check: checks[kind]) { run($0, for: kind) }
+                if checks[kind]?.asksForToken == true, let service = TokenSignIn.Service(kind) {
+                    TokenSignIn(service) { Task { await recheck() } }.padding(EdgeInsets(top: 12, leading: 30, bottom: 14, trailing: 0))
+                }
+            }
         }
     }
 
     private var footer: some View {
-        HStack {
+        HStack(spacing: 8) {
+            Text("Desk never stores a token: gh, acli and Claude Code keep their own.").scaled(.secondary).foregroundStyle(Theme.quiet)
+            Spacer(minLength: 16)
             Button("Later") { model.showingSetup = false }
+                .buttonStyle(.desk(.quiet, .large))
                 .help("Close setup for now. It opens again on the next launch until you finish it.")
-            Spacer()
-            if let previous = SetupStep.allCases.before(step) { Button("Back") { step = previous } }
+            if let previous = SetupStep.allCases.before(step) {
+                Button("Back") { step = previous }.buttonStyle(.desk(.secondary, .large))
+            }
             if let next = SetupStep.allCases.after(step) {
-                Button("Next") { step = next }.keyboardShortcut(.defaultAction)
+                Button("Continue") { step = next }.buttonStyle(.desk(.primary, .large)).keyboardShortcut(.defaultAction)
             } else {
                 Button("Finish") { model.completeSetup() }
+                    .buttonStyle(.desk(.primary, .large))
                     .keyboardShortcut(.defaultAction)
                     .disabled(!missingRequired.isEmpty)
             }
         }
-        .controlSize(.large)
-        .padding(.horizontal, Theme.gutter)
-        .padding(.vertical, 12)
+        .padding(.top, 4)
     }
 
     /// What has to be there before Desk can show anything: git, gh signed in, and a repo to watch.
@@ -138,141 +194,199 @@ private extension Array where Element: Equatable {
     func after(_ element: Element) -> Element? { firstIndex(of: element).flatMap { $0 + 1 < count ? self[$0 + 1] : nil } }
 }
 
-/// The Tools and Sign in steps: a row per check.
-private struct ChecksPage: View {
-    var title: String
-    var note: String
-    var kinds: [SetupCheck.Kind]
-    var checks: [SetupCheck.Kind: SetupCheck]
-    var checking: Bool
-    var run: (SetupFix, SetupCheck.Kind) -> Void
-    var recheck: () -> Void
+/// The steps across the top: those behind you ticked, yours numbered on the accent's tint, the rest numbered quietly,
+/// with a hairline between each. Any of them is a press away.
+private struct SetupStepper: View {
+    @Binding var step: SetupStep
 
     var body: some View {
-        FormPage(title: title) {
-            HStack {
-                Text(note).scaled(.secondary).foregroundStyle(.secondary)
-                Spacer()
-                if checking { ProgressView().controlSize(.small) }
-                Button("Check again", action: recheck).controlSize(.small).disabled(checking)
-            }
-            .padding(.bottom, 8)
-            ForEach(kinds, id: \.self) { kind in
-                Hairline()
-                CheckRow(kind: kind, check: checks[kind]) { run($0, kind) }
-                if checks[kind]?.asksForToken == true, let service = TokenSignIn.Service(kind) {
-                    TokenSignIn(service, signedIn: recheck).padding(.leading, 26).padding(.bottom, 14)
+        let current = SetupStep.allCases.firstIndex(of: step) ?? 0
+        HStack(spacing: 10) {
+            ForEach(Array(SetupStep.allCases.enumerated()), id: \.element) { index, item in
+                if index > 0 { Rectangle().fill(Theme.control).frame(width: 32, height: 1).accessibilityHidden(true) }
+                Button { step = item } label: {
+                    HStack(spacing: 8) {
+                        mark(index + 1, done: index < current, here: index == current)
+                        Text(item.title)
+                            .scaled(.secondary.weight(index == current ? .semibold : .regular))
+                            .foregroundStyle(index == current ? Theme.ink : Theme.quiet)
+                    }
+                    .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Step \(index + 1), \(item.title)\(index < current ? ", done" : "")")
+                .accessibilityAddTraits(index == current ? .isSelected : [])
             }
         }
+        .fixedSize()
+    }
+
+    private func mark(_ number: Int, done: Bool, here: Bool) -> some View {
+        ZStack {
+            if done {
+                Circle().strokeBorder(Theme.quiet, lineWidth: 1.5)
+                Image(systemName: "checkmark").font(.system(size: 8, weight: .bold)).foregroundStyle(Theme.quiet)
+            } else {
+                Circle().fill(here ? Theme.tint : Theme.surface)
+                Circle().strokeBorder(here ? Theme.tintLine : Theme.control)
+                Text("\(number)").scaled(AppTextStyle(size: 10, weight: .medium, design: .monospaced))
+                    .foregroundStyle(here ? Theme.accentInk : Theme.quiet)
+            }
+        }
+        .frame(width: 18, height: 18)
     }
 }
 
-private struct CheckRow: View {
+/// The white card the checks sit in.
+private struct SetupCard<Content: View>: View {
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) { content }
+            .padding(.horizontal, 16)
+            .background(Theme.surface)
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Theme.rule))
+    }
+}
+
+/// One row of a setup card: a tick, a dot when it needs you or a spinner while it is read; its name and what was found;
+/// and on the right its state or the press that fixes it. A row that needs you is tinted edge to edge.
+private struct SetupRow<Detail: View, Trailing: View>: View {
+    var title: String
+    /// Nil while it is being checked.
+    var ok: Bool?
+    var required = false
+    @ViewBuilder var detail: Detail
+    @ViewBuilder var trailing: Trailing
+
+    var body: some View {
+        let needsYou = ok == false
+        HStack(spacing: 12) {
+            Group {
+                switch ok {
+                case nil: ProgressView().controlSize(.mini)
+                case true?: Image(systemName: "checkmark").font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.ok)
+                case false?: Circle().fill(Theme.accentInk).frame(width: 10, height: 10)
+                }
+            }
+            .frame(width: 18)
+            .accessibilityLabel(ok == nil ? "Checking" : ok == true ? "Done" : "Needs you")
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text(title).fontWeight(.semibold)
+                    if required { StageChip2(text: "Required", onTint: needsYou) }
+                }
+                detail
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            trailing.fixedSize()
+        }
+        .padding(.vertical, needsYou ? 12 : 8)
+        .padding(.horizontal, needsYou ? 16 : 0)
+        .frame(minHeight: 56)
+        .background(needsYou ? Theme.tint : .clear)
+        .overlay(alignment: .top) { if needsYou { Rectangle().fill(Theme.tintLine).frame(height: 1) } }
+        .overlay(alignment: .bottom) { if needsYou { Rectangle().fill(Theme.tintLine).frame(height: 1) } }
+        .padding(.horizontal, needsYou ? -16 : 0)
+    }
+}
+
+/// A check as a setup row: what Desk ran to read it in DM Mono and what came back, what stays off while it fails, and
+/// its fixes, each opening your terminal app on its command.
+private struct SetupCheckRow: View {
     var kind: SetupCheck.Kind
     var check: SetupCheck?
     var run: ((SetupFix) -> Void)?
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 10) {
-            Image(systemName: symbol).foregroundStyle(color)
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 6) {
-                    Text(kind.title).scaled(.body.weight(.medium))
-                    if kind.isRequired { Chip(text: "Required") }
-                }
-                Text(check?.detail ?? "Checking…").scaled(.caption).foregroundStyle(.secondary).textSelection(.enabled)
-                if check?.ok == false {
-                    Text(kind.without).scaled(.caption).foregroundStyle(kind.isRequired ? .red : .orange)
-                }
-                // What a fix's press brings up that Desk does not choose, such as GitHub CLI's own permissions.
-                if run != nil {
-                    ForEach(Array(Set((check?.fixes ?? []).compactMap(\.note))).sorted(), id: \.self) { note in
-                        Text(note).scaled(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                    }
+        SetupRow(title: kind.title, ok: check?.ok, required: kind.isRequired) {
+            Text("\(Text(command).font(AppTextStyle.code.font(scale: 1)).foregroundStyle(Theme.ink)) · \(check?.detail ?? "Checking…")")
+                .foregroundStyle(Theme.quiet).fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
+            if check?.ok == false {
+                Text(kind.without).scaled(.secondary).foregroundStyle(kind.isRequired ? Theme.danger : Theme.warn)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            // What a fix's press brings up that Desk does not choose, such as GitHub CLI's own permissions.
+            if run != nil {
+                ForEach(Array(Set((check?.fixes ?? []).compactMap(\.note))).sorted(), id: \.self) { note in
+                    Text(note).scaled(.secondary).foregroundStyle(Theme.quiet).fixedSize(horizontal: false, vertical: true)
                 }
             }
-            Spacer()
-            if let run {
-                ForEach(check?.fixes ?? [], id: \.self) { fix in
-                    Button(fix.label) { run(fix) }.controlSize(.small).help(fix.command)
+        } trailing: {
+            HStack(spacing: 8) {
+                let fixes = run == nil ? [] : check?.fixes ?? []
+                if let check, check.ok || fixes.isEmpty { Text(state(check.ok)).foregroundStyle(Theme.quiet) }
+                ForEach(fixes, id: \.self) { fix in
+                    Button(fix.label) { run?(fix) }.buttonStyle(.desk(.secondary, check?.ok == true ? .small : .regular)).help(fix.command)
                 }
             }
         }
-        .padding(.vertical, 10)
     }
 
-    private var symbol: String {
-        guard let check else { return "circle.dotted" }
-        if check.ok { return "checkmark.circle.fill" }
-        return kind.isRequired ? "xmark.circle.fill" : "exclamationmark.circle.fill"
+    /// "Signed in" for an account, "Installed" for a tool.
+    private func state(_ ok: Bool) -> String {
+        switch kind {
+        case .github, .jira, .claudeAccount: return ok ? "Signed in" : "Not signed in"
+        default: return ok ? "Installed" : "Missing"
+        }
     }
 
-    private var color: Color {
-        guard let check else { return .secondary }
-        if check.ok { return .green }
-        return kind.isRequired ? .red : .orange
+    /// What `Setup.check` runs, or reads, to say how this one stands.
+    private var command: String {
+        switch kind {
+        case .homebrew: return "brew --version"
+        case .commandLineTools: return "xcode-select -p"
+        case .gh: return "gh --version"
+        case .acli: return "acli --version"
+        case .claude: return "claude --version"
+        case .tmux: return "tmux -V"
+        case .github: return "gh auth status"
+        case .jira: return "acli jira auth status"
+        case .claudeAccount: return "claude auth status"
+        case .workflowPlugin: return "~/.claude/plugins"
+        }
     }
 }
 
 /// Where everything stands, what stays off for each thing skipped, and notifications.
-private struct FinishPage: View {
+private struct SetupFinish: View {
     @Environment(AppModel.self) private var model
     var checks: [SetupCheck.Kind: SetupCheck]
-    var missing: [String]
     @State private var notifications: UNAuthorizationStatus?
 
     var body: some View {
-        FormPage(title: "Finish") {
-            Text(missing.isEmpty ? "Desk has what it needs. Anything still open below can be set up later from Settings → General → Run setup again."
-                                 : "Still needed before Desk can show anything: \(missing.joined(separator: ", ")).")
-                .scaled(.secondary).foregroundStyle(missing.isEmpty ? Color.secondary : .red)
-                .padding(.bottom, 8)
+        let count = model.settings.config.trackedRepos.count
+        SetupCard {
             ForEach(SetupCheck.Kind.allCases, id: \.self) { kind in
-                Hairline()
-                CheckRow(kind: kind, check: checks[kind])
+                SetupCheckRow(kind: kind, check: checks[kind])
             }
-            Hairline()
-            repos.padding(.vertical, 10)
-            Hairline()
-            notificationRow.padding(.vertical, 10)
+            SetupRow(title: "Repos", ok: count > 0, required: true) {
+                Text(count > 0 ? "\(count) repos tracked" : "No repo tracked: pick some in the Repos step.").foregroundStyle(Theme.quiet)
+            } trailing: {
+                EmptyView()
+            }
+            SetupRow(title: "Notifications", ok: notifications == .authorized) {
+                Text(notifications == .authorized ? "Allowed" : "Off: failed CI, review requests and the rest show only inside Desk.")
+                    .foregroundStyle(Theme.quiet).fixedSize(horizontal: false, vertical: true)
+            } trailing: {
+                if notifications == .notDetermined {
+                    Button("Allow") {
+                        Task {
+                            _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound])
+                            await readNotifications()
+                        }
+                    }
+                    .buttonStyle(.desk)
+                } else if notifications == .denied {
+                    Button("Open Notification Settings") {
+                        NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension")!)
+                    }
+                    .buttonStyle(.desk)
+                }
+            }
         }
         .task { await readNotifications() }
-    }
-
-    private var repos: some View {
-        let count = model.settings.config.trackedRepos.count
-        return HStack(spacing: 10) {
-            Image(systemName: count > 0 ? "checkmark.circle.fill" : "xmark.circle.fill").foregroundStyle(count > 0 ? .green : .red)
-            Text(count > 0 ? "\(count) repos tracked" : "No repo tracked: pick some in the Repos step.").scaled(.body.weight(.medium))
-        }
-    }
-
-    private var notificationRow: some View {
-        HStack(spacing: 10) {
-            Image(systemName: notifications == .authorized ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
-                .foregroundStyle(notifications == .authorized ? .green : .orange)
-            VStack(alignment: .leading, spacing: 3) {
-                Text("Notifications").scaled(.body.weight(.medium))
-                Text(notifications == .authorized ? "Allowed" : "Off: failed CI, review requests and the rest show only inside Desk.")
-                    .scaled(.caption).foregroundStyle(.secondary)
-            }
-            Spacer()
-            if notifications == .notDetermined {
-                Button("Allow") {
-                    Task {
-                        _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound])
-                        await readNotifications()
-                    }
-                }
-                .controlSize(.small)
-            } else if notifications == .denied {
-                Button("Open Notification Settings") {
-                    NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension")!)
-                }
-                .controlSize(.small)
-            }
-        }
     }
 
     /// `swift run` has no bundle, and the notification center will not start without one.
