@@ -401,7 +401,8 @@ private struct PullRequestMain<Conversation: View>: View {
 private struct PullRequestFiles: View {
     var pr: PullRequest
     var model: AppModel
-    @State private var collapsed: Set<String> = []
+    /// The files whose fold you changed from how the diff opened: a large file opens folded, the rest unfolded.
+    @State private var flipped: Set<String> = []
     @Environment(\.textScale) private var scale
 
     var body: some View {
@@ -419,16 +420,17 @@ private struct PullRequestFiles: View {
         .task(id: "\(pr.url) \(pr.updatedAt)") { await model.loadConversation(pr) }
     }
 
-    // ponytail: each file's rows are built in full once its box scrolls in; make the rows lazy too if a huge file stutters.
+    // ponytail: each file's rows are built in full once its box scrolls in; a large file opens folded, as in a review's diff,
+    // so only one unfolded by hand gets that big. Make the rows lazy too if such a file stutters.
     private func files(_ diff: LoadedDiff) -> some View {
         LazyVStack(alignment: .leading, spacing: Theme.Space.m) {
             if diff.files.isEmpty { Text("No changes.").scaled(.secondary).foregroundStyle(.secondary) }
             ForEach(diff.files) { file in
+                let large = diff.foldedAtFirst.contains(file.path)
+                let folded = large != flipped.contains(file.path)
                 VStack(alignment: .leading, spacing: 0) {
-                    DiffFileHeader(file: file, folded: collapsed.contains(file.path)) {
-                        if collapsed.contains(file.path) { collapsed.remove(file.path) } else { collapsed.insert(file.path) }
-                    }
-                    if !collapsed.contains(file.path) {
+                    DiffFileHeader(file: file, folded: folded, large: large) { flipped.formSymmetricDifference([file.path]) }
+                    if !folded {
                         if file.isBinary {
                             Text("Binary file").font(DiffType(scale: scale).mono).foregroundStyle(.secondary).padding(8)
                         }
