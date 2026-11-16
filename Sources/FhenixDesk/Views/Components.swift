@@ -9,15 +9,16 @@ struct Chip: View {
     var spinning = false
 
     var body: some View {
+        let tone = Theme.tone(color)
         HStack(spacing: 5) {
-            if spinning { ProgressView().controlSize(.mini).tint(color) }
+            if spinning { ProgressView().controlSize(.mini).tint(tone) }
             Text(text)
         }
-            .scaled(.secondary)
-            .padding(.horizontal, Theme.Space.s)
-            .padding(.vertical, Theme.Space.xs / 2)
-            .background(color.opacity(0.18), in: RoundedRectangle(cornerRadius: 4))
-            .foregroundStyle(color)
+            .scaled(.caption.weight(.medium))
+            .padding(.horizontal, 6)
+            .padding(.vertical, 1)
+            .background(color == .secondary ? Theme.chip : tone.opacity(0.14), in: RoundedRectangle(cornerRadius: 4))
+            .foregroundStyle(color == .secondary ? Theme.ink : tone)
     }
 }
 
@@ -56,18 +57,17 @@ struct StatePill: View {
 
     var body: some View {
         let color: Color = switch state.move {
-        case .yoursToFix: .red
-        case .yoursToMerge: .green
-        case .others: .blue
-        case .draft: .secondary
+        case .yoursToFix: Theme.danger
+        case .yoursToMerge: Theme.ok
+        case .others: Theme.accentInk
+        case .draft: Theme.quiet
         }
         Text(state.title)
-            .scaled(.secondary.weight(.semibold))
-            .foregroundStyle(color)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 3)
-            .background(color.opacity(0.12), in: Capsule())
-            .overlay(Capsule().strokeBorder(color.opacity(0.45)))
+            .scaled(.caption.weight(.medium))
+            .foregroundStyle(state.move == .draft ? Theme.ink : color)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 1)
+            .background(state.move == .draft ? Theme.chip : color.opacity(0.14), in: RoundedRectangle(cornerRadius: 4))
             .fixedSize()
     }
 }
@@ -116,10 +116,10 @@ struct ChecksBadge: View {
 
     var body: some View {
         switch pr.checks {
-        case .success: Image(systemName: "checkmark.circle.fill").foregroundStyle(.green).help("Checks passed").accessibilityLabel("Checks passed")
-        case .failure, .error: Image(systemName: "xmark.circle.fill").foregroundStyle(.red).help("Checks failed").accessibilityLabel("Checks failed")
-        case .pending, .expected: Image(systemName: "clock.fill").foregroundStyle(.orange).help("Checks running").accessibilityLabel("Checks running")
-        case .none: Image(systemName: "minus.circle").foregroundStyle(.secondary).help("No checks").accessibilityLabel("No checks")
+        case .success: Image(systemName: "checkmark.circle.fill").foregroundStyle(Theme.ok).help("Checks passed").accessibilityLabel("Checks passed")
+        case .failure, .error: Image(systemName: "xmark.circle.fill").foregroundStyle(Theme.danger).help("Checks failed").accessibilityLabel("Checks failed")
+        case .pending, .expected: Image(systemName: "clock.fill").foregroundStyle(Theme.warn).help("Checks running").accessibilityLabel("Checks running")
+        case .none: Image(systemName: "minus.circle").foregroundStyle(Theme.quiet).help("No checks").accessibilityLabel("No checks")
         }
     }
 }
@@ -172,10 +172,10 @@ struct DiffStat: View {
     var body: some View {
         HStack(spacing: 4) {
             Text(Format.sizeBucket(pr.size))
-            Text("+\(pr.additions)").foregroundStyle(.green)
-            Text("−\(pr.deletions)").foregroundStyle(.red)
+            Text("+\(pr.additions)").foregroundStyle(Theme.ok)
+            Text("−\(pr.deletions)").foregroundStyle(Theme.danger)
         }
-        .scaled(.caption)
+        .scaled(.code)
         .monospacedDigit()
     }
 }
@@ -278,7 +278,7 @@ struct StaleBanner: View {
     var body: some View {
         if let error = model.state.errors[source] {
             HStack(spacing: 8) {
-                Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Theme.warn)
                 Text("Out of date: \(error)").scaled(.caption).lineLimit(1).truncationMode(.tail).help(error)
                 Spacer(minLength: 8)
                 Button("Retry") { Task { await model.refresh(source) } }.controlSize(.small)

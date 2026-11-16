@@ -66,6 +66,19 @@ enum Theme {
     static let merged = Color(red: 0.51, green: 0.31, blue: 0.87)
     static let closed = Color(red: 0.81, green: 0.13, blue: 0.18)
 
+    /// A system colour a view was written with, as the Instrument token for it: green is ok, red danger, orange warn,
+    /// blue the accent's ink; any other colour stays itself.
+    static func tone(_ color: Color) -> Color {
+        switch color {
+        case .green: return ok
+        case .red: return danger
+        case .orange: return warn
+        case .blue, .accentColor: return accentInk
+        case .secondary: return quiet
+        default: return color
+        }
+    }
+
     private static func dynamic(_ light: UInt32, _ dark: UInt32) -> Color {
         Color(nsColor: NSColor(name: nil) { $0.isDark ? NSColor(rgb: dark) : NSColor(rgb: light) })
     }
@@ -99,11 +112,11 @@ struct KeyCap: View {
     var body: some View {
         Text(key)
             .scaled(.caption.monospaced())
-            .foregroundStyle(.secondary)
+            .foregroundStyle(Theme.ink)
             .padding(.horizontal, 4)
-            .frame(minWidth: 16, minHeight: 16)
-            .background(Theme.raised, in: RoundedRectangle(cornerRadius: 4))
-            .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(Theme.line))
+            .frame(minWidth: 18, minHeight: 18)
+            .background(Theme.surface, in: RoundedRectangle(cornerRadius: 4))
+            .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(Theme.control))
     }
 }
 
@@ -114,16 +127,16 @@ struct PageHeader<Trailing: View>: View {
     @ViewBuilder var trailing: Trailing
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack(alignment: .center, spacing: 10) {
-                Text(title).scaled(.title)
-                if let subtitle { Text(subtitle).scaled(.secondary).foregroundStyle(.secondary) }
-                Spacer()
-                trailing
+        HStack(alignment: .center, spacing: 10) {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Text(title).scaled(.title).tracking(-0.3)
+                if let subtitle { Text(subtitle).foregroundStyle(Theme.quiet).lineLimit(1) }
             }
-            .padding(.bottom, 12)
-            Hairline()
+            Spacer()
+            trailing
         }
+        .frame(minHeight: 32)
+        .padding(.bottom, 6)
     }
 }
 
@@ -145,32 +158,32 @@ struct PillTabs<Value: Hashable>: View {
     @Binding var selection: Value
 
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 0) {
             ForEach(options.indices, id: \.self) { index in
                 let option = options[index]
                 let chosen = option.value == selection
                 Button { selection = option.value } label: {
                     HStack(spacing: 6) {
-                        Text(option.title).scaled(.body.weight(.medium)).foregroundStyle(chosen ? .primary : .secondary)
+                        Text(option.title).scaled(chosen ? .body.weight(.medium) : .body).foregroundStyle(chosen ? Theme.ink : Theme.quiet)
                         if let count = option.count {
-                            Text("\(count)").scaled(.caption.weight(.medium)).monospacedDigit().foregroundStyle(.secondary)
+                            Text("\(count)").scaled(.caption.monospaced()).foregroundStyle(chosen ? Theme.ink : Theme.quiet)
                         }
                         if let hint = option.hint { KeyCap(key: hint).accessibilityHidden(true) }
                     }
                     .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
-                    // The chosen pill is told apart by more than a shade of grey: an accent fill and edge.
-                    .background(chosen ? Theme.accent.opacity(0.25) : Color.clear, in: Capsule())
-                    .hoverFill(cornerRadius: 100, enabled: !chosen)
-                    .overlay(Capsule().strokeBorder(chosen ? Theme.accent : Theme.controlBorder))
-                    .contentShape(Capsule())
+                    .frame(height: 26)
+                    .background(chosen ? Theme.surface : Color.clear, in: RoundedRectangle(cornerRadius: 5))
+                    .shadow(color: chosen ? .black.opacity(0.08) : .clear, radius: 1, y: 1)
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                // A pill keeps its one line: squeezed, its title broke a letter a line. The bar wraps instead.
+                // A segment keeps its one line: squeezed, its title broke a letter a line. The bar wraps instead.
                 .fixedSize()
                 .accessibilityAddTraits(chosen ? .isSelected : [])
             }
         }
+        .padding(2)
+        .background(Theme.inset, in: RoundedRectangle(cornerRadius: 7))
     }
 }
 
@@ -313,18 +326,14 @@ struct GroupHeader<Trailing: View>: View {
     @ViewBuilder var trailing: Trailing
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack {
-                Text(title).scaled(.secondary.weight(.medium)).foregroundStyle(.secondary)
-                Spacer()
-                if let count { Text("\(count)").scaled(.secondary).monospacedDigit().foregroundStyle(.secondary) }
-                trailing
-            }
-            .padding(.horizontal, Theme.Space.m)
-            .padding(.top, Theme.Space.m)
-            .padding(.bottom, Theme.Space.s)
-            Hairline()
+        HStack {
+            SectionLabel(title, count: count)
+            Spacer()
+            trailing
         }
+        .padding(.horizontal, 10)
+        .padding(.top, 18)
+        .padding(.bottom, 6)
     }
 }
 
@@ -347,15 +356,13 @@ struct ListRow<Content: View>: View {
 
     var body: some View {
         content
-            .padding(.horizontal, Theme.Space.m)
+            .padding(.horizontal, 10)
             // Two lines of text with room above and below, not packed edge to edge.
-            .padding(.vertical, Theme.Space.m)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .hoverFill(Theme.raised.opacity(0.6), cornerRadius: 0, enabled: !selected)
-            .overlay(alignment: .leading) {
-                if selected { Rectangle().fill(Theme.accent).frame(width: 2) }
-            }
-            .overlay(alignment: .bottom) { Hairline() }
+            .padding(.vertical, 8)
+            .frame(maxWidth: .infinity, minHeight: 40, alignment: .leading)
+            .background(selected ? Theme.tint : Color.clear, in: RoundedRectangle(cornerRadius: 8))
+            .overlay { if selected { RoundedRectangle(cornerRadius: 8).strokeBorder(Theme.tintLine) } }
+            .hoverFill(Theme.inset.opacity(0.7), cornerRadius: 8, enabled: !selected)
             .contentShape(Rectangle())
             // One element per row for VoiceOver, its buttons still reachable as actions.
             .accessibilityElement(children: .combine)
@@ -363,8 +370,9 @@ struct ListRow<Content: View>: View {
             .modifier(OpensOnClick(open: open))
             .padding(.leading, indent)
             .listRowInsets(EdgeInsets()).listRowSeparator(.hidden)
-            // The indent painted as the window, or the list's own selection grey shows through it.
-            .listRowBackground((selected ? Theme.rowSelected : Color.clear).padding(.leading, indent).background(indent > 0 ? Theme.background : .clear))
+            .padding(.vertical, 1)
+            // The ground, opaque, so the list's own selection grey never shows: the row draws its own.
+            .listRowBackground(Theme.ground)
     }
 }
 
@@ -549,10 +557,9 @@ struct SearchBox: View {
             }
         }
         .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .frame(width: 240)
-        .background(Theme.raised, in: RoundedRectangle(cornerRadius: 6))
-        .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Theme.controlBorder))
+        .frame(width: 260, height: 30)
+        .background(Theme.surface, in: RoundedRectangle(cornerRadius: 7))
+        .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(Theme.control))
         .onAppear { model.visibleSearchBoxes += 1 }
         .onDisappear { model.visibleSearchBoxes -= 1 }
     }
@@ -614,10 +621,10 @@ extension View {
     /// The box a header menu's face sits in, as `MenuBox` draws it.
     func menuBox() -> some View {
         padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(Theme.raised, in: RoundedRectangle(cornerRadius: 6))
-            .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Theme.controlBorder))
-            .contentShape(RoundedRectangle(cornerRadius: 6))
+            .frame(height: 30)
+            .background(Theme.surface, in: RoundedRectangle(cornerRadius: 7))
+            .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(Theme.control))
+            .contentShape(RoundedRectangle(cornerRadius: 7))
     }
 }
 
@@ -648,7 +655,7 @@ struct PanelSection<Content: View>: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Space.s) {
-            if let title { Text(title).scaled(.secondary.weight(.medium)).foregroundStyle(.secondary) }
+            if let title { SectionLabel(title) }
             content
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -994,10 +1001,11 @@ struct Screen<Header: View, Body: View>: View {
             header
             content
         }
-        .padding(.horizontal, Theme.gutter)
-        .padding(.top, 14)
+        .padding(.horizontal, 28)
+        .padding(.top, 18)
+        .padding(.bottom, 16)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(Theme.background)
+        .background(Theme.ground)
     }
 }
 
@@ -1088,8 +1096,7 @@ struct SideCard<Content: View, Trailing: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 6) {
-                Text(title).scaled(.body.weight(.medium))
-                if let count { Text("\(count)").scaled(.secondary).monospacedDigit().foregroundStyle(.secondary) }
+                SectionLabel(title, count: count)
                 Spacer(minLength: Theme.Space.s)
                 trailing
             }
@@ -1110,17 +1117,17 @@ extension View {
     func sideCard(edge: Color = Theme.line) -> some View {
         padding(14)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Theme.raised.opacity(0.5), in: RoundedRectangle(cornerRadius: 10))
-            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(edge))
+            .background(Theme.surface, in: RoundedRectangle(cornerRadius: 10))
+            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(edge == Theme.line ? Theme.rule : edge))
     }
 
     /// A status-line pill: a few words on a raised capsule with an edge.
     func pill() -> some View {
         scaled(.secondary)
             .padding(.horizontal, 10)
-            .padding(.vertical, 4)
-            .background(Theme.raised, in: Capsule())
-            .overlay(Capsule().strokeBorder(Theme.controlBorder))
+            .padding(.vertical, 3)
+            .background(Theme.surface, in: Capsule())
+            .overlay(Capsule().strokeBorder(Theme.ruleStrong))
             .fixedSize()
     }
 }
@@ -1144,8 +1151,8 @@ struct BackLink: View {
                 Text(title)
             }
             .scaled(.secondary)
-            .foregroundStyle(hovering ? .primary : .secondary)
-            .frame(height: 32)
+            .foregroundStyle(hovering ? Theme.ink : Theme.quiet)
+            .frame(height: 28)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain).handCursor()
