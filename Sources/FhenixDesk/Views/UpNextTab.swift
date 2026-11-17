@@ -269,12 +269,12 @@ private struct UpNextRow: View {
     var body: some View {
         switch item {
         case .ask(let ask):
-            row(.dot(Theme.warn), title: "Master asks about \(ask.task)", line: ask.text, chip: "Master", date: ask.askedAt)
+            row(.dot(Theme.warn), title: "Master asks about \(ask.task)", line: ask.text, chip: "Master", tone: Theme.warn, date: ask.askedAt)
         case .pullRequest(let pr, let section):
             pullRequest(pr, section)
         case .worker(let job, let task):
             row(.job(job), name: task.pullRequests.first.map(Self.name) ?? job.name, title: task.title, line: job.detail,
-                chip: job.isAsking ? "Asks you" : "Working", date: job.updatedAt)
+                chip: job.isAsking ? "Asks you" : "Working", tone: job.isAsking ? Theme.warn : Theme.accentInk, date: job.updatedAt)
         case .move(let drift):
             HStack(spacing: 10) {
                 UpNextMark(mark: .dot(drift.stage == .done ? Theme.ok : Theme.accentInk))
@@ -291,7 +291,9 @@ private struct UpNextRow: View {
             let need = model.state.reviewNeed(for: pr)
             let onMe = model.state.reviewRequests.contains { $0.url == pr.url }
             let chip = section == .draftsToSubmit ? "Your draft" : need == .reRequested ? ReviewNeed.reRequested.title : onMe ? "On you" : "Open"
-            row(need == .reRequested ? .approved : .ring, name: Self.name(pr), title: pr.title, line: pr.author, chip: chip, date: pr.createdAt)
+            // As the Reviews screen colours them: what is on you in orange, your draft in the accent.
+            let tone: Color? = section == .draftsToSubmit ? Theme.accentInk : need == .reRequested || onMe ? Theme.warn : nil
+            row(need == .reRequested ? .approved : .ring, name: Self.name(pr), title: pr.title, line: pr.author, chip: chip, tone: tone, date: pr.createdAt)
         default:
             let state = RowState.of(pr)
             let mark: UpNextMark.Kind = switch section {
@@ -311,7 +313,7 @@ private struct UpNextRow: View {
 
     /// Two lines without `name`; one with it. Your PR's facts, in the PR list's columns, where another row has its chip.
     private func row(
-        _ mark: UpNextMark.Kind, name: String? = nil, title: String, line: String?, chip: String?, date: Date?,
+        _ mark: UpNextMark.Kind, name: String? = nil, title: String, line: String?, chip: String?, tone: Color? = nil, date: Date?,
         @ViewBuilder facts: () -> some View = { EmptyView() }
     ) -> some View {
         HStack(spacing: 10) {
@@ -327,7 +329,7 @@ private struct UpNextRow: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-            if let chip { StageChip2(text: chip, onTint: selected) } else { facts() }
+            if let chip { StageChip2(text: chip, onTint: selected, color: tone) } else { facts() }
             if let date { AgeText(date: date) } else { Color.clear.scaledFrame(width: 34, height: 1) }
         }
     }
