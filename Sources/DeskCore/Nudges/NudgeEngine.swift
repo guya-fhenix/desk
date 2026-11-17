@@ -98,7 +98,6 @@ public enum NudgeEngine {
                 switch PrePRStatus.of(pr) {
                 case .notRun: title = "\(label) is a draft: its self-review hasn't run"
                 case .passed: title = "\(label) passed its self-review: mark it ready" + (threads > 0 ? ", \(open) left" : "")
-                case .importantOpen: title = "\(label): its self-review left an Important finding open"
                 }
             case .approved: title = "\(label) is ready: merge it"
             default:

@@ -109,9 +109,8 @@ enum Doctor {
             let tmux = Tmux(path: path)
             let panes = (try? await tmux.panes()) ?? []
             print("tmux \(path)  app: \(config.terminalApp.rawValue)  session \(TmuxLayout.session): \(await tmux.hasSession() ? "\(panes.count) panes, \(await tmux.clients()) terminal(s) attached" : "not made yet: Show in iTerm makes it")")
-            for pane in panes { print("  \(pad(pane.paneId, 6)) \(pane.index)  \(pane.key.isEmpty ? "(not Desk's)" : pane.key)") }
-            let wanted = TmuxLayout.desired(master: state.master, sessions: state.tasks.compactMap(\.worker) + state.claudeJobs.filter { $0.role == .review })
-            print("wanted: \(wanted.map { "\($0.name)\($0.isMaster ? " (master)" : "")" }.joined(separator: ", "))")
+            for pane in panes { print("  \(pad(pane.paneId, 6)) \(pad(pane.window, 18)) \(pane.index)  \(pane.key.isEmpty ? "(not Desk's)" : pane.key)") }
+            print("the \(TmuxLayout.window) window: \(TmuxLayout.panes(master: state.master).map(\.name).joined(separator: " | "))")
         } else {
             print("tmux not found: brew install tmux")
         }

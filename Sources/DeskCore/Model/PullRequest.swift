@@ -141,8 +141,6 @@ public struct PullRequest: Codable, Sendable, Hashable, Identifiable {
     /// The unresolved threads in full, for your PR's page. Only your own PRs' search asks for them: empty on the rest,
     /// where `unresolvedThreads` still counts them.
     public var threads: [ReviewThread]
-    /// The body of the author's /pre-pr evidence comment; nil without one, and on PRs not yours.
-    public var evidence: String?
     /// The description of the `review-gate/approvals` status on the head commit; nil where the repo posts none.
     public var approvalStatus: String?
 
@@ -170,7 +168,7 @@ public struct PullRequest: Codable, Sendable, Hashable, Identifiable {
         author: String, reviewDecision: ReviewDecision = .none, mergeState: MergeState = .unknown, conflicting: Bool = false,
         checks: CheckState = .none, checkCount: Int = 0, reviews: [Review] = [],
         requestedReviewers: [String] = [], reviewRequestEvents: [ReviewRequestEvent] = [], unresolvedThreads: Int = 0,
-        pendingReview: PendingReview? = nil, labels: [String] = [], threads: [ReviewThread] = [], evidence: String? = nil,
+        pendingReview: PendingReview? = nil, labels: [String] = [], threads: [ReviewThread] = [],
         approvalStatus: String? = nil
     ) {
         self.number = number
@@ -203,7 +201,6 @@ public struct PullRequest: Codable, Sendable, Hashable, Identifiable {
         self.pendingReview = pendingReview
         self.labels = labels
         self.threads = threads
-        self.evidence = evidence
         self.approvalStatus = approvalStatus
     }
 

@@ -521,7 +521,7 @@ private struct ReviewQueueDetails: View {
             if model.reviewRunning(pr) {
                 Button("Show in iTerm") { model.showReview(pr) }
                     .buttonStyle(.deskPrimary)
-                    .help("The review session's pane in iTerm")
+                    .help("The review session's window in iTerm")
             } else {
                 Button { start(group, pr) } label: {
                     HStack(spacing: 8) {
@@ -530,7 +530,7 @@ private struct ReviewQueueDetails: View {
                     }
                 }
                 .buttonStyle(.deskPrimary)
-                .help("A review session in a pane of its own in iTerm, and the diff here")
+                .help("A review session in a window of its own in iTerm, and the diff here")
             }
         }
     }
@@ -901,7 +901,7 @@ struct ReviewTogetherSheet: View {
                 }
                 .padding(EdgeInsets(top: 18, leading: 22, bottom: 20, trailing: 22))
                 HStack(spacing: 12) {
-                    Text("It opens in a pane in iTerm, beside the master. Nothing posts until you submit.")
+                    Text("It opens in a window of its own in iTerm. Nothing posts until you submit.")
                         .scaled(.secondary).foregroundStyle(Theme.quiet).fixedSize(horizontal: false, vertical: true)
                     Spacer(minLength: 0)
                     Button("Cancel", action: dismiss)
@@ -994,7 +994,7 @@ struct ReviewPage: View {
                     if !model.reviewRunning(pr), model.canReviewTogether(pr) { request = ReviewRequest(pullRequests: [pr]) } else { model.startReview(pr) }
                 }
                     .buttonStyle(.deskPrimary)
-                    .help("The diff here and a Claude review session in a pane of its own in iTerm: it summarizes the PR, gives its take on each question, and drafts the comments you decide on")
+                    .help("The diff here and a Claude review session in a window of its own in iTerm: it summarizes the PR, gives its take on each question, and drafts the comments you decide on")
                 Button("Review on GitHub") { model.openDraft(pr) }
                     .buttonStyle(.desk)
                     .help("The PR's Files tab, where you comment, pick the verdict and submit")

@@ -219,21 +219,21 @@ struct SessionMark: View {
     }
 }
 
-/// The `desk` window as iTerm shows it: the master in the left half, the rest stacked on the right, each with Show.
+/// The `desk` window as iTerm shows it: the master in the left half, `claude agents` in the right, each with Show; under
+/// it, the sessions open in windows of their own.
 private struct LayoutSketch: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
-        let specs = model.layoutPanes
-        let master = specs.first { $0.isMaster }
-        let others = specs.filter { !$0.isMaster }
+        let master = model.layoutPanes.first { $0.isMaster }
+        let windows = model.panes.filter { $0 != PaneSpec.agentsKey && $0 != master?.key && !$0.isEmpty }.sorted()
         VStack(alignment: .leading, spacing: 8) {
-            SectionLabel(model.panes.isEmpty ? "In iTerm, once opened" : "In iTerm", count: specs.count)
+            SectionLabel(model.panes.isEmpty ? "In iTerm, once opened" : "In iTerm")
             VStack(spacing: 0) {
                 HStack(spacing: 6) {
                     ForEach(0..<3, id: \.self) { _ in Circle().fill(Theme.control).frame(width: 8, height: 8) }
                     Spacer()
-                    Text("\(TmuxLayout.session) · master | workers").scaled(.caption.monospaced()).foregroundStyle(Theme.quiet)
+                    Text("\(TmuxLayout.session) · master | claude agents").scaled(.caption.monospaced()).foregroundStyle(Theme.quiet)
                     Spacer()
                 }
                 .padding(.horizontal, 10)
@@ -241,22 +241,54 @@ private struct LayoutSketch: View {
                 .overlay(alignment: .bottom) { Rectangle().fill(Theme.rule).frame(height: 1) }
                 HStack(spacing: 6) {
                     masterPane(master)
-                    VStack(spacing: 6) {
-                        if others.isEmpty {
-                            Text("No worker at work").foregroundStyle(Theme.quiet).frame(maxWidth: .infinity, maxHeight: .infinity)
-                                .background(Theme.surface.opacity(0.5), in: RoundedRectangle(cornerRadius: 6))
-                        }
-                        ForEach(others.prefix(5), id: \.key) { pane($0) }
-                    }
+                    agentsPane
                 }
                 .padding(6)
                 .frame(height: 300)
             }
             .background(Theme.inset, in: RoundedRectangle(cornerRadius: 10))
             .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Theme.ruleStrong))
-            Text("Show brings iTerm forward on that pane. Desk adds a pane when the master starts a session, and closes it when the session finishes.")
+            if !windows.isEmpty {
+                VStack(spacing: 6) {
+                    ForEach(windows.prefix(6), id: \.self) { key in window(key) }
+                }
+            }
+            Text("Desk keeps the master on the left and claude agents, every background session, on the right. A worker or review you show opens in a window of its own; Show brings iTerm forward on it.")
                 .scaled(.secondary).foregroundStyle(Theme.quiet)
         }
+    }
+
+    private var agentsPane: some View {
+        let running = model.state.claudeJobs.filter { $0.role != .master && $0.isBusy }
+        return VStack(alignment: .leading, spacing: 8) {
+            paneHeader(name: "claude agents", state: "\(running.count) at work", dot: Theme.accentInk) { model.openMaster() }
+            Text("claude agents").foregroundStyle(Theme.quiet)
+            ForEach(running.prefix(6)) { job in
+                HStack(spacing: 6) {
+                    Circle().fill(job.isAsking ? Theme.warn : Theme.accentInk).frame(width: 6, height: 6)
+                    Text(job.name).lineLimit(1)
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .scaled(.code)
+        .padding(12)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(Theme.surface, in: RoundedRectangle(cornerRadius: 6))
+    }
+
+    private func window(_ key: String) -> some View {
+        let job = model.state.claudeJobs.first { $0.id == key }
+        return HStack(spacing: 8) {
+            Circle().fill(job?.isAsking == true ? Theme.warn : Theme.accentInk).frame(width: 7, height: 7)
+            Text(job?.name ?? (key.hasPrefix("review:") ? "review" : key)).scaled(.code.weight(.medium)).lineLimit(1)
+            Text(job.map { $0.isAsking ? "waiting for you" : $0.isRunning ? "working" : "done" } ?? "review").scaled(.secondary).foregroundStyle(Theme.quiet)
+            Spacer(minLength: 4)
+            Button("Show") { if key.hasPrefix("review:") { model.showPane(key) } else { model.show(jobId: key) } }
+                .buttonStyle(.desk(.secondary, .small))
+        }
+        .padding(.horizontal, 10).frame(height: 34)
+        .background(Theme.surface, in: RoundedRectangle(cornerRadius: 6))
     }
 
     private func masterPane(_ spec: PaneSpec?) -> some View {
@@ -276,20 +308,6 @@ private struct LayoutSketch: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(Theme.surface, in: RoundedRectangle(cornerRadius: 6))
         .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Theme.tintLine))
-    }
-
-    private func pane(_ spec: PaneSpec) -> some View {
-        let job = model.state.claudeJobs.first { $0.id == spec.key }
-        return VStack(alignment: .leading, spacing: 4) {
-            paneHeader(name: spec.name, state: job.map { $0.isAsking ? "waiting for you" : $0.isRunning ? "working" : "done" } ?? "review",
-                       dot: job?.isAsking == true ? Theme.warn : Theme.accentInk) {
-                if spec.isReview { model.showPane(spec.key) } else { model.show(jobId: spec.key) }
-            }
-            Text(job?.detail ?? "").scaled(.code).foregroundStyle(Theme.quiet).lineLimit(1)
-        }
-        .padding(EdgeInsets(top: 10, leading: 12, bottom: 10, trailing: 12))
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(Theme.surface, in: RoundedRectangle(cornerRadius: 6))
     }
 
     private func paneHeader(name: String, state: String, dot: Color, show: @escaping () -> Void) -> some View {

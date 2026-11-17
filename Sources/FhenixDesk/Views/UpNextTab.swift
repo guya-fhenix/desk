@@ -299,17 +299,21 @@ private struct UpNextRow: View {
             case .waiting: state.move == .draft ? .dot(Theme.accentInk) : .ring
             default: state.move == .draft ? .dot(Theme.accentInk) : .dot(Theme.danger)
             }
-            let chip = state.move == .draft ? "Draft" : section == .yourMove ? "Your move" : section == .readyToMerge ? "Ready" : "Waiting"
             let on = model.state.stackParent(of: pr).map { " · on #\($0.number)" } ?? ""
-            row(mark, title: pr.title, line: "\(Self.name(pr))\(on) · \(state.title)", chip: chip, date: pr.updatedAt)
+            row(mark, title: pr.title, line: "\(Self.name(pr))\(on)", chip: nil, date: pr.updatedAt) {
+                PullRequestFacets(pr: pr, rebase: model.state.rebaseReason(pr))
+            }
         }
     }
 
     /// "cofhe #1159".
     static func name(_ pr: PullRequest) -> String { "\(pr.repoName) #\(pr.number)" }
 
-    /// Two lines without `name`; one with it.
-    private func row(_ mark: UpNextMark.Kind, name: String? = nil, title: String, line: String?, chip: String, date: Date?) -> some View {
+    /// Two lines without `name`; one with it. Your PR's facts, in the PR list's columns, where another row has its chip.
+    private func row(
+        _ mark: UpNextMark.Kind, name: String? = nil, title: String, line: String?, chip: String?, date: Date?,
+        @ViewBuilder facts: () -> some View = { EmptyView() }
+    ) -> some View {
         HStack(spacing: 10) {
             UpNextMark(mark: mark)
             if let name {
@@ -323,7 +327,7 @@ private struct UpNextRow: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-            StageChip2(text: chip, onTint: selected)
+            if let chip { StageChip2(text: chip, onTint: selected) } else { facts() }
             if let date { AgeText(date: date) } else { Color.clear.scaledFrame(width: 34, height: 1) }
         }
     }
@@ -413,17 +417,17 @@ private struct UpNextDetails: View {
                 : "\(UpNextRow.name(pr)) · yours · updated \(Format.age(pr.updatedAt)) ago",
             title: pr.title
         )
-        FieldRows(labelWidth: 72) {
+        FieldRows(labelWidth: 84) {
             if review {
                 FieldRow("Review", pr.pendingReview != nil ? "Your draft, not submitted" : model.state.reviewNeed(for: pr)?.title ?? "Open to review")
                 FieldRow("Asked", model.state.reviewRequests.contains { $0.url == pr.url } ? "Of you" : "Of anyone")
+                FieldRow(label: "Checks") {
+                    HStack(spacing: 6) { ChecksBadge(pr: pr); Text(UpNextTab.checks(pr)) }
+                }
             } else {
-                FieldRow("State", RowState.of(pr).title)
+                PullRequestFacets.Rows(pr: pr, rebase: model.state.rebaseReason(pr))
             }
-            FieldRow(label: "Checks") {
-                HStack(spacing: 6) { ChecksBadge(pr: pr); Text(UpNextTab.checks(pr)) }
-            }
-            FieldRow("Branch", "\(pr.baseRef) ← \(pr.headRef)", mono: true)
+            FieldRow("Branches", "\(pr.baseRef) ← \(pr.headRef)", mono: true)
             FieldRow(label: "Size") { DiffStat(pr: pr) }
         }
         if review, pr.pendingReview != nil {
@@ -446,7 +450,7 @@ private struct UpNextDetails: View {
                     }
                 }
                 .buttonStyle(.desk(.secondary, .large))
-                .help(model.reviewRunning(pr) ? "The review session's pane in iTerm" : "The diff here and a review session in a pane of its own in iTerm")
+                .help(model.reviewRunning(pr) ? "The review session's window in iTerm" : "The diff here and a review session in a window of its own in iTerm")
             } else if let job {
                 Button("Show in iTerm") { model.show(jobId: job.id) }.buttonStyle(.desk(.secondary, .large))
                     .help("Show “\(job.name)” (\(job.status)) in its pane in iTerm")

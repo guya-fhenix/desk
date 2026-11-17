@@ -43,13 +43,13 @@ enum TerminalsCommand {
             print(DeskError.tmuxNotFound.description)
             return
         }
-        print("wanted: \(model.layoutPanes.map(\.name).joined(separator: ", "))")
+        print("the \(TmuxLayout.window) window: \(model.layoutPanes.map(\.name).joined(separator: " | "))")
         guard await tmux.hasSession() else {
             print("no \(TmuxLayout.session) session yet")
             return
         }
         for pane in (try? await tmux.panes()) ?? [] {
-            print("\(pane.paneId)\t\(pane.index)\t\(pane.key)\t\(model.state.claudeJobs.first { $0.id == pane.key }?.name ?? "")")
+            print("\(pane.paneId)\t\(pane.window)\t\(pane.index)\t\(pane.key)\t\(model.state.claudeJobs.first { $0.id == pane.key }?.name ?? "")")
         }
         print("terminals attached: \(await tmux.clients())")
     }

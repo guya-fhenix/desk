@@ -9,46 +9,21 @@ struct TmuxLayoutTests {
         ClaudeJob(id: id, name: name, state: state, cwd: "/r", prKeys: [], updatedAt: now.addingTimeInterval(-minutesAgo * 60), role: role)
     }
 
-    /// The master first; then each session that works, waits for you, or worked in the last ten minutes, once each.
-    @Test func desiredPanes() {
+    /// The master on the left, `claude agents` on the right; agents alone while no master runs.
+    @Test func theWindowsTwoPanes() {
         let master = job("m1", "master", "blocked", role: .master)
-        let sessions = [
-            job("w1", "cofhe-1154", "working"),
-            job("w2", "pro-650", "done", minutesAgo: 30),
-            job("w3", "marketplace-17", "done", minutesAgo: 4),
-            job("w4", "teecryptor", "blocked", minutesAgo: 90),
-            job("w1", "cofhe-1154", "working"),
-            master,
-        ]
-        let specs = TmuxLayout.desired(master: master, sessions: sessions, now: now)
-        #expect(specs.map(\.key) == ["m1", "w1", "w3", "w4"])
-        #expect(specs[0] == PaneSpec(key: "m1", name: "master", isMaster: true))
-        #expect(TmuxLayout.desired(master: nil, sessions: [], now: now).isEmpty)
+        #expect(TmuxLayout.panes(master: master) == [PaneSpec(key: "m1", name: "master", isMaster: true), .agents])
+        #expect(TmuxLayout.panes(master: nil) == [.agents])
+        #expect(TmuxLayout.agentsCommand(claude: "/a b/claude") == "'/a b/claude' agents")
+        #expect(TerminalOpener.iTermBuryArguments == ["write", "com.googlecode.iterm2", "AutoHideTmuxClientSession", "-bool", "true"])
     }
 
     @Test func parsesPanes() {
-        let output = "%1\t0\tm1\n%4\t1\tw1\n%7\t2\t\nnot a pane\n"
+        let output = "%1\t0\tm1\tagents\n%4\t1\tagents\tagents\n%7\t0\tw1\tcofhe-1154\n%9\t2\t\nnot a pane\n"
         #expect(TmuxLayout.parse(output) == [
-            TmuxPane(paneId: "%1", index: 0, key: "m1"), TmuxPane(paneId: "%4", index: 1, key: "w1"),
-            TmuxPane(paneId: "%7", index: 2, key: ""),
+            TmuxPane(paneId: "%1", index: 0, key: "m1"), TmuxPane(paneId: "%4", index: 1, key: "agents"),
+            TmuxPane(paneId: "%7", index: 0, key: "w1", window: "cofhe-1154"), TmuxPane(paneId: "%9", index: 2, key: ""),
         ])
-    }
-
-    /// Closes what is no longer wanted, never a review's pane or one Desk did not make; opens what is missing; and a
-    /// pane closed by hand stays closed.
-    @Test func changeBetweenLayouts() {
-        let current = [
-            TmuxPane(paneId: "%1", index: 0, key: "m1"), TmuxPane(paneId: "%2", index: 1, key: "old"),
-            TmuxPane(paneId: "%3", index: 2, key: "review:g1"), TmuxPane(paneId: "%4", index: 3, key: ""),
-        ]
-        let desired = [PaneSpec(key: "m1", name: "master", isMaster: true), PaneSpec(key: "w1", name: "a"), PaneSpec(key: "w2", name: "b")]
-        let change = TmuxLayout.change(current: current, desired: desired, made: ["m1", "old", "w2"], dismissed: [])
-        #expect(change.close == ["%2"])
-        #expect(change.open.map(\.key) == ["w1"])
-        #expect(change.dismissed == ["w2"])
-        // Dismissed stays dismissed while wanted, and is forgotten once not.
-        let later = TmuxLayout.change(current: current, desired: [desired[0]], made: ["m1"], dismissed: ["w2"])
-        #expect(later.dismissed.isEmpty && later.open.isEmpty)
     }
 
     @Test func commandsAreQuoted() {
@@ -70,25 +45,26 @@ struct TmuxLayoutTests {
         #expect(TerminalOpener.iTermScript(tmux: "/a \"b\"/tmux").contains("command \"/a \\\"b\\\"/tmux -CC attach -t desk\""))
     }
 
-    /// Against real tmux, on a server of the test's own: the layout is made, panes come and go, the master goes to the
-    /// left, and focus finds a pane by its session.
+    /// Against real tmux, on a server of the test's own: `agents` first, the master to its left, a worker in a window of
+    /// its own, focus across windows, and the window back when it was closed.
     @Test(.enabled(if: Shell.which("tmux") != nil)) func realTmux() async throws {
         let tmux = Tmux(path: Shell.which("tmux")!, socket: "desk-test-\(ProcessInfo.processInfo.processIdentifier)")
         defer { Task { _ = try? await Shell.output(tmux.path, ["-L", tmux.socket!, "kill-server"]) } }
         #expect(await !tmux.hasSession())
-        try await tmux.create(PaneSpec(key: "w1", name: "a"), command: "sleep 600")
-        try await tmux.open(PaneSpec(key: "w2", name: "b"), command: "sleep 600")
+        try await tmux.create(.agents, command: "sleep 600")
         try await tmux.open(PaneSpec(key: "m1", name: "master", isMaster: true), command: "sleep 600")
         try await tmux.arrange()
+        try await tmux.openWindow(PaneSpec(key: "w1", name: "cofhe-1154"), command: "sleep 600")
         var panes = try await tmux.panes()
-        #expect(panes.map(\.key) == ["m1", "w1", "w2"])
-        let change = TmuxLayout.change(current: panes, desired: [PaneSpec(key: "m1", name: "master", isMaster: true), PaneSpec(key: "w1", name: "a")],
-                                       made: ["m1", "w1", "w2"], dismissed: [])
-        for pane in change.close { try await tmux.close(pane) }
-        panes = try await tmux.panes()
-        #expect(panes.map(\.key) == ["m1", "w1"])
+        #expect(panes.filter { $0.window == TmuxLayout.window }.map(\.key) == ["m1", "agents"])
+        #expect(panes.first { $0.key == "w1" }?.window == "cofhe-1154")
         #expect(try await tmux.focus("w1"))
         #expect(try await !tmux.focus("gone"))
+        // The window closed: opening a pane makes it again.
+        for pane in panes where pane.window == TmuxLayout.window { try await tmux.close(pane.paneId) }
+        try await tmux.open(.agents, command: "sleep 600")
+        panes = try await tmux.panes()
+        #expect(panes.filter { $0.window == TmuxLayout.window }.map(\.key) == ["agents"])
         #expect(await tmux.clients() == 0)
         try await tmux.killSession()
         #expect(await !tmux.hasSession())

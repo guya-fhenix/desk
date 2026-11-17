@@ -172,7 +172,7 @@ deploys, production) that the diff alone does not show. The session summarizes t
 questions with where to look, follows your notes, and posts the comments and the verdicts you decide on, each PR's
 together.
 
-The review swaps the page for the diff; the session runs in its own pane in iTerm, beside the master. The group's PRs sit above the
+The review swaps the page for the diff; the session runs in a window of its own in iTerm. The group's PRs sit above the
 diff, base first, to move between them, with your notes under them. While the diff shows, the sidebar folds away to give
 the code the room; it comes back as it was when you leave the diff, and ⌃⌘S shows it in between. The file you are in
 stays pinned at the top, and the menu at the top, "File 2 of 4 · contracts/ACL.sol", lists every file with its +/− counts
@@ -190,18 +190,21 @@ the verdict you sent. Nothing of it is stored: every poll reads your pending and
 
 ## Terminals: iTerm and tmux
 
-Desk opens no terminal of its own and sends nothing to a session. The master and its workers run in iTerm2, in panes of
-one tmux session, `desk`, window `agents`: the master in the left half, and on the right a pane per other session that
-works, waits for you, or worked in the last ten minutes (the open tasks' workers and the review sessions). Each pane
-runs `claude attach <id>`; a review session runs in its own pane. iTerm2 shows the session through tmux's control mode
-(`tmux -CC attach -t desk`), so the panes are native iTerm splits, and closing iTerm leaves every session running.
+Desk opens no terminal of its own and sends nothing to a session. The master and its workers run in iTerm2, in one
+tmux session, `desk`. Its window `agents` is always two halves: the master on the left (`claude attach <id>`) and
+`claude agents` on the right, Claude Code's view of every background session, to open one or start one from. A worker
+or review session you show opens in a window of its own, so those two stay as they are. iTerm2 shows the session through
+tmux's control mode (`tmux -CC attach -t desk`), so the panes are native iTerm splits and the windows iTerm's own, and
+closing iTerm leaves every session running.
 
 Desk makes the layout the first time you ask to see a session: the Master block's Open, a Show in iTerm on a page,
-Answer in iTerm, Start review. Then, on every scan of the sessions, it opens a pane for a session that starts and closes
-the pane of one past its turn. A pane you close by hand stays closed until you show that session again or it starts
-waiting for you. Show in iTerm focuses the pane and brings iTerm forward, opening a window on the layout when no terminal
-is attached: Desk writes `desk-attach.command` in its folder and opens it with `open -a iTerm`, which needs no
-Automation permission. Settings → Master → Terminal picks Terminal.app instead, with plain `tmux attach`. View → Show
+Answer in iTerm, Start review. Then, on every scan of the sessions, it keeps the `agents` window to its two panes: one
+closed by hand comes back, and a master that restarted gets its new pane. The windows of the sessions you showed are
+yours to close. Show in iTerm focuses the pane, or the session's window, and brings iTerm forward, opening a window on
+the layout when no terminal is attached, through AppleScript (macOS asks once to let Desk control iTerm). Before it
+attaches, Desk turns on iTerm's "Automatically bury the tmux client session after connecting", so the window `tmux -CC`
+runs in, with tmux's command menu, hides as it connects. Settings → Master → Terminal picks Terminal.app instead, with
+plain `tmux attach`. View → Show
 Master in iTerm (⇧⌘M) goes straight there. `FhenixDesk --terminals status|sync|show <name>` drives the same code from the
 command line, and `make doctor` prints the layout.
 

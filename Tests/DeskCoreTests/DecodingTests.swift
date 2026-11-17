@@ -41,7 +41,7 @@ import Testing
         #expect(pr.pendingReview == PendingReview(id: "PRR_1", commitId: "abc", comments: 4))
     }
 
-    /// Your own PR's search: its open threads in full, the author's /pre-pr evidence comment, and the review gate's words.
+    /// Your own PR's search: its open threads in full, and the review gate's words.
     @Test func decodesThreadsEvidenceAndTheApprovalsStatus() throws {
         let json = """
         {"data":{"search":{"nodes":[{"number":7,"title":"t","url":"https://github.com/o/r/pull/7","isDraft":true,"createdAt":"2026-08-27T11:12:21Z",
@@ -69,7 +69,6 @@ import Testing
             author: "coderabbitai[bot]", body: "**Minor** · x", comments: 3
         )])
         #expect(pr.threads.first?.source == .codeRabbit)
-        #expect(pr.evidence == "<!-- pre-pr:start -->\n## Testing\n- ok")
         #expect(pr.approvalStatus == "medium risk: 0 of 1 approvals on the latest commit")
         #expect(pr.approvalGate?.state == .counted(have: 0, needed: 1))
     }
@@ -84,7 +83,7 @@ import Testing
         let pr = try #require(GitHubDecoding.pullRequests(from: Data(json.utf8)).prs.first)
         #expect(pr.unresolvedThreads == 0)
         // No gate status: a repo without the review flow.
-        #expect(pr.threads.isEmpty && pr.evidence == nil && pr.approvalStatus == nil)
+        #expect(pr.threads.isEmpty && pr.approvalStatus == nil)
     }
 
     @Test func reviewDecisionFallsBackToReviewsAndRulesets() throws {

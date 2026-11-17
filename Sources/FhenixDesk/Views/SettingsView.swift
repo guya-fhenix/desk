@@ -559,7 +559,7 @@ private struct MasterSettings: View {
                         Text(TmuxLayout.session).scaled(.code)
                     }
                 }
-                Text("The master on the left, a pane per running session on the right. Desk opens no terminal of its own.")
+                Text("The master on the left, claude agents on the right; a session you show opens in a window of its own. In iTerm, Desk turns on “Automatically bury the tmux client session”, so tmux's control window stays hidden.")
                     .scaled(.secondary).foregroundStyle(Theme.quiet).fixedSize(horizontal: false, vertical: true)
             } trailing: {
                 Button(app == .iTerm ? "Open in iTerm" : "Open in Terminal") { model.openMaster() }

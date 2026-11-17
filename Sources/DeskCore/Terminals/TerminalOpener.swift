@@ -5,6 +5,11 @@ import Foundation
 /// runs a script opened from outside, every time, which is why it isn't handed one; Terminal.app opens a small script in
 /// Desk's folder (plain `tmux attach`), which it runs without asking. With one attached, the app is brought forward.
 public enum TerminalOpener {
+    /// iTerm2's "Automatically bury the tmux client session after connecting": on, the window `tmux -CC` runs in, with
+    /// tmux's command menu, hides as soon as it connects and only the layout's windows show. Desk turns it on before it
+    /// attaches, with `defaults write`, which a running iTerm picks up.
+    public static let iTermBuryArguments = ["write", "com.googlecode.iterm2", "AutoHideTmuxClientSession", "-bool", "true"]
+
     /// The AppleScript that opens an iTerm2 window attached to the layout in control mode.
     public static func iTermScript(tmux: String, socket: String? = nil) -> String {
         let server = socket.map { " -L \($0)" } ?? ""

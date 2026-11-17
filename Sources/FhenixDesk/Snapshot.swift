@@ -124,6 +124,7 @@ enum Snapshot {
         // Drawn off screen, the split view's sidebar column comes out blank: snapshots lay the sidebar beside the screen,
         // unless `split` asks for the real split view, for how it moves.
         DeskWindow.flat = !arguments.contains("split")
+        DeskWindow.followsScreen = false
         if screen == "menubar" {
             let popover = SettingsMenuBarPopover().environment(model).frame(maxHeight: .infinity, alignment: .top).background(Theme.panel)
             await capture(popover, size: NSSize(width: 380, height: height), to: arguments[1])

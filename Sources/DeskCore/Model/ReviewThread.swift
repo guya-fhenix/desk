@@ -58,10 +58,9 @@ extension Array where Element == ReviewThread {
     }
 }
 
-/// What the fhenix-workflow /pre-pr command leaves on a PR: one evidence comment, edited in place on every run, and a
-/// marker on the first comment of each finding thread it starts.
+/// What the fhenix-workflow self-review leaves on a PR: a marker on the first comment of each finding thread an older one
+/// started, and its label.
 public enum PrePR {
-    public static let evidenceMarker = "<!-- pre-pr:start -->"
     public static let findingMarker = "<!-- pre-pr:finding -->"
     /// The label /pre-pr adds once none of its Important findings is open, and takes off while one is: the one the
     /// review flow's `local-review-evidence` check looks for.

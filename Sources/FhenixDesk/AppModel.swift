@@ -111,12 +111,7 @@ final class AppModel {
     var panes: Set<String> = []
     /// Why the last Show in iTerm failed, in a sentence; nil once one works.
     var terminalError: String?
-    /// Sessions Desk tagged a pane for, as of the last sync; one of them gone while still wanted was closed by hand.
-    private var tmuxMade: Set<String> = []
-    /// Sessions whose pane you closed by hand: they stay out until you show them or they start waiting for you.
-    private var tmuxDismissed: Set<String> = []
-    /// Sessions you showed although they are past their turn: they keep a pane until you close it.
-    private var tmuxShown: Set<String> = []
+    /// A sync of the `desk` layout under way, so the next waits for it.
     private var syncingTerminals = false
     /// The PR whose diff the Reviews screen shows in place of its page, by url; nil shows the page.
     var reviewing: String?
@@ -651,25 +646,14 @@ final class AppModel {
 
     // MARK: Terminals
 
-    /// The panes the layout has, or would have once opened: what the Master screen draws.
-    var layoutPanes: [PaneSpec] { wantedPanes }
+    /// The `desk` window's two panes: the master on the left, while one runs, and `claude agents` on the right. What the
+    /// Master screen draws.
+    var layoutPanes: [PaneSpec] { TmuxLayout.panes(master: state.master) }
 
     /// tmux, where it is installed.
     var tmux: Tmux? { Shell.which("tmux").map { Tmux(path: $0) } }
 
-    /// The panes the layout should have: the master, the open tasks' workers and the review sessions that are at work,
-    /// and any you showed.
-    private var wantedPanes: [PaneSpec] {
-        let sessions = state.tasks.compactMap(\.worker) + state.claudeJobs.filter { $0.role == .review || tmuxShown.contains($0.id) }
-        var specs = TmuxLayout.desired(master: state.master, sessions: sessions)
-        for job in state.claudeJobs where tmuxShown.contains(job.id) && !specs.contains(where: { $0.key == job.id }) {
-            specs.append(PaneSpec(key: job.id, name: job.name, isMaster: job.role == .master))
-        }
-        return specs
-    }
-
-    /// Keeps the `desk` layout in step with the sessions, once it exists: Desk makes it only when you ask to see a
-    /// session. Closes the panes of sessions past their turn, opens panes for new ones, and leaves alone what you closed.
+    /// Keeps the `desk` window as it should be, once it exists — Desk makes it only when you ask to see a session.
     func syncTerminals() async {
         guard !syncingTerminals, let tmux, let claude = config.resolvedClaudePath else { return }
         syncingTerminals = true
@@ -678,25 +662,38 @@ final class AppModel {
             panes = []
             return
         }
-        for job in state.claudeJobs where job.isAsking { tmuxDismissed.remove(job.id) }
         do {
-            let current = try await tmux.panes()
-            let change = TmuxLayout.change(current: current, desired: wantedPanes, made: tmuxMade, dismissed: tmuxDismissed)
-            tmuxDismissed = change.dismissed
-            tmuxShown.subtract(change.dismissed)
-            for pane in change.close { try? await tmux.close(pane) }
-            for spec in change.open { try await tmux.open(spec, command: TmuxLayout.attachCommand(claude: claude, id: spec.key)) }
-            if !change.close.isEmpty || !change.open.isEmpty, await tmux.hasSession() { try? await tmux.arrange() }
-            let after = (try? await tmux.panes()) ?? []
-            panes = Set(after.map(\.key))
-            tmuxMade = Set(after.map(\.key).filter { !$0.isEmpty && !$0.hasPrefix("review:") })
+            try await keepLayout(tmux, claude: claude)
         } catch {
             Self.log.error("tmux: \(String(describing: error), privacy: .public)")
         }
+        panes = Set(((try? await tmux.panes()) ?? []).map(\.key))
     }
 
-    /// A background session's pane, in front: the layout made or brought up to date, the pane focused, and a terminal
-    /// opened on it when none is attached.
+    /// The `desk` window's two panes and nothing else of Desk's: `claude agents` opened when it's gone, the master's when
+    /// a master runs and its pane is gone, a pane of a master that's gone (restarted under a new id) or of a session put
+    /// there before the layout was fixed closed, and the window arranged in two halves when anything changed. A pane Desk
+    /// didn't make stays. The windows of sessions you showed are yours to close.
+    private func keepLayout(_ tmux: Tmux, claude: String) async throws {
+        let window = try await tmux.panes().filter { $0.window == TmuxLayout.window }
+        let wanted = Set(layoutPanes.map(\.key))
+        var changed = false
+        for pane in window where !pane.key.isEmpty && !wanted.contains(pane.key) {
+            try? await tmux.close(pane.paneId)
+            changed = true
+        }
+        if !window.contains(where: { $0.key == PaneSpec.agentsKey }) {
+            try await tmux.open(.agents, command: TmuxLayout.agentsCommand(claude: claude))
+            changed = true
+        }
+        if let master = state.master, !window.contains(where: { $0.key == master.id }) {
+            try await tmux.open(PaneSpec(key: master.id, name: "master", isMaster: true), command: TmuxLayout.attachCommand(claude: claude, id: master.id))
+            changed = true
+        }
+        if changed { try? await tmux.arrange() }
+    }
+
+    /// A background session in front: the master in its half of the `desk` window, any other in a window of its own.
     func show(jobId: String) { Task { await showNow(jobId: jobId) } }
 
     /// `show(jobId:)`, waited for: what `--terminals show` runs.
@@ -707,7 +704,6 @@ final class AppModel {
         }
         let job = state.claudeJobs.first { $0.id == jobId }
         let spec = PaneSpec(key: jobId, name: job?.role == .master ? "master" : job?.name ?? jobId, isMaster: job?.role == .master)
-        tmuxShown.insert(jobId)
         await presentNow(spec, command: TmuxLayout.attachCommand(claude: claude, id: jobId))
     }
 
@@ -741,27 +737,26 @@ final class AppModel {
         Task { await presentNow(spec, command: command) }
     }
 
+    /// The session made when there is none, the `desk` window brought to its two panes, `spec`'s pane opened when it
+    /// isn't there — the master's in that window, any other in a window of its own — and focused, and a terminal attached
+    /// when none is, or brought forward.
     private func presentNow(_ spec: PaneSpec, command: String) async {
         do {
             guard let tmux else { throw DeskError.tmuxNotFound }
-            tmuxDismissed.remove(spec.key)
-            if !(await tmux.hasSession()) {
-                try await tmux.create(spec, command: command)
-            } else if !(try await tmux.panes()).contains(where: { $0.key == spec.key }) {
-                try await tmux.open(spec, command: command)
+            guard let claude = config.resolvedClaudePath else { throw DeskError.claudeNotFound }
+            if !(await tmux.hasSession()) { try await tmux.create(.agents, command: TmuxLayout.agentsCommand(claude: claude)) }
+            try await keepLayout(tmux, claude: claude)
+            if !(try await tmux.panes()).contains(where: { $0.key == spec.key }) {
+                if spec.isMaster {
+                    try await tmux.open(spec, command: command)
+                    try? await tmux.arrange()
+                } else {
+                    try await tmux.openWindow(spec, command: command)
+                }
             }
-            tmuxMade.insert(spec.key)
-            await syncTerminals()
-            try? await tmux.arrange()
+            panes = Set(((try? await tmux.panes()) ?? []).map(\.key))
             _ = try await tmux.focus(spec.key)
-            let attached = await tmux.clients() > 0
-            if !attached, config.terminalApp == .iTerm {
-                try await runAppleScript(TerminalOpener.iTermScript(tmux: tmux.path))
-            } else {
-                let script = attached ? nil : try TerminalOpener.writeScript(
-                    TerminalOpener.script(app: config.terminalApp, tmux: tmux.path), in: support.directory)
-                try await Shell.output("/usr/bin/open", TerminalOpener.openArguments(app: config.terminalApp, script: script))
-            }
+            try await bringTerminal(tmux)
             terminalError = nil
         } catch {
             terminalError = "Couldn't show it in \(config.terminalApp == .iTerm ? "iTerm" : "Terminal"): \(error)"
@@ -769,9 +764,24 @@ final class AppModel {
         }
     }
 
+    /// A terminal on the session: attached when none is — iTerm2 through tmux's control mode, its control window set to
+    /// hide once it connects, so only the layout shows; Terminal.app through a script — or brought forward.
+    private func bringTerminal(_ tmux: Tmux) async throws {
+        let attached = await tmux.clients() > 0
+        // Set every time, cheap: an iTerm attached before Desk set it hides its control window on its next attach.
+        if config.terminalApp == .iTerm { _ = try? await Shell.output("/usr/bin/defaults", TerminalOpener.iTermBuryArguments) }
+        if !attached, config.terminalApp == .iTerm {
+            try await runAppleScript(TerminalOpener.iTermScript(tmux: tmux.path))
+        } else {
+            let script = attached ? nil : try TerminalOpener.writeScript(
+                TerminalOpener.script(app: config.terminalApp, tmux: tmux.path), in: support.directory)
+            try await Shell.output("/usr/bin/open", TerminalOpener.openArguments(app: config.terminalApp, script: script))
+        }
+    }
+
     // MARK: Reviews
 
-    /// The pane a review session runs in, keyed by its group, or by the one PR it reviews.
+    /// The window a review session runs in, keyed by its group, or by the one PR it reviews.
     private static func reviewTab(_ pr: PullRequest) -> String { PaneSpec.reviewKey(pr.url) }
     private static func groupTab(_ group: ReviewGroup) -> String { PaneSpec.reviewKey("group:\(group.id)") }
 
@@ -798,7 +808,7 @@ final class AppModel {
         present(PaneSpec(key: key, name: "review"), command: "true")
     }
 
-    /// A review session's own pane: it runs there, in its clone, until you quit it.
+    /// A review session's own window: it runs there, in its clone, until you quit it.
     private func openReview(key: String, name: String, claude: String, arguments: [String], directory: String) {
         present(PaneSpec(key: key, name: name), command: TmuxLayout.reviewCommand(claude: claude, arguments: arguments, directory: directory))
     }
@@ -873,7 +883,7 @@ final class AppModel {
     }
 
     /// Start review on a teammate's PR: its diff on the Reviews screen, and a regular Claude session on the
-    /// review-pr skill in its own pane in iTerm — or the one already running there. Not a background session: Claude's
+    /// review-pr skill in a window of its own in iTerm — or the one already running there. Not a background session: Claude's
     /// own agents view backgrounds it if you want. It starts in the repository's checkout, where Claude Code reads
     /// the project's plugins; the skill reads the PR's code at its head without checking anything out.
     func startReview(_ pr: PullRequest) {

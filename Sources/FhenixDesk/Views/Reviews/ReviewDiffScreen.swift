@@ -456,7 +456,7 @@ struct ReviewDiffScreen: View {
     #endif
 }
 
-/// The review session beside the diff: whether it runs, that you talk to it in its own pane in iTerm, the comments
+/// The review session beside the diff: whether it runs, that you talk to it in a window of its own in iTerm, the comments
 /// drafted on GitHub for these PRs, and this PR's threads, each a press that shows its line. Desk sends nothing to the
 /// session; Show in iTerm puts its pane in front.
 private struct ReviewSessionPanel: View {
@@ -488,8 +488,8 @@ private struct ReviewSessionPanel: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
                     Text(running
-                        ? "The session runs in its own pane in iTerm, beside the master. Talk to it there: ask about a part, or tell it to drop a comment."
-                        : "Start review opens a session in its own pane in iTerm, beside the master; you talk to it there.")
+                        ? "The session runs in a window of its own in iTerm. Talk to it there: ask about a part, or tell it to drop a comment."
+                        : "Start review opens a session in a window of its own in iTerm; you talk to it there.")
                         .fixedSize(horizontal: false, vertical: true)
                     Text("Copy lines (⇧⌘C) puts the lines you select here on the clipboard, with their path and numbers, to paste to it.")
                         .scaled(.secondary).foregroundStyle(Theme.quiet).fixedSize(horizontal: false, vertical: true)
@@ -535,7 +535,7 @@ private struct ReviewSessionPanel: View {
                 if running { model.showReview(pr) } else { model.startReview(pr) }
             }
             .buttonStyle(.desk(.secondary, .large, wide: true))
-            .help(running ? "The review session's pane in iTerm" : "Starts a review session in a pane of its own in iTerm")
+            .help(running ? "The review session's window in iTerm" : "Starts a review session in a window of its own in iTerm")
             .padding(EdgeInsets(top: 12, leading: 16, bottom: 16, trailing: 16))
             .overlay(alignment: .top) { Rectangle().fill(Theme.ruleSoft).frame(height: 1) }
         }

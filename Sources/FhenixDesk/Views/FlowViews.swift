@@ -68,8 +68,6 @@ struct NextStepCard: View {
             return ("\(readiness). Squash and merge is in ⋯.", false)
         case .draft(.notRun):
             return ("A draft, not self-reviewed yet. Tell the master to have its worker run the self-review.", true)
-        case .draft(.importantOpen):
-            return ("The self-review left a finding open. Tell the master to fix it, or to accept it with a reason.", true)
         case .draft(.passed):
             return ("Self-reviewed. Mark it ready for review in ⋯, or tell the master to.", true)
         case .waitingOnReview:

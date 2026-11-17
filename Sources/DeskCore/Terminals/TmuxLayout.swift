@@ -1,7 +1,7 @@
 import Foundation
 
-/// A session Desk wants a pane for in the `desk` layout: a background session to attach to, by the id `claude attach`
-/// takes, or a review session that runs in its pane, keyed `review:<group>`.
+/// A session Desk shows in the `desk` tmux session: a background session to attach to, by the id `claude attach` takes;
+/// `claude agents`, keyed `agents`; or a review session that runs where it shows, keyed `review:<group>`.
 public struct PaneSpec: Equatable, Sendable {
     public var key: String
     public var name: String
@@ -13,82 +13,59 @@ public struct PaneSpec: Equatable, Sendable {
         self.isMaster = isMaster
     }
 
-    /// A review session's key: its panes are Desk's to open, and the session's to close when it ends.
+    /// `claude agents`, the right half of the `desk` window.
+    public static let agentsKey = "agents"
+    public static let agents = PaneSpec(key: agentsKey, name: "claude agents")
+
+    /// A review session's key: its window is Desk's to open, and the session's to close when it ends.
     public static func reviewKey(_ group: String) -> String { "review:\(group)" }
     public var isReview: Bool { key.hasPrefix("review:") }
 }
 
-/// A pane of the `desk` window as tmux lists it, with the key Desk tagged it with; empty for a pane Desk did not make.
+/// A pane of the `desk` session as tmux lists it: its window's name, and the key Desk tagged it with, empty for a pane
+/// Desk did not make.
 public struct TmuxPane: Equatable, Sendable {
     public var paneId: String
     public var index: Int
     public var key: String
+    public var window: String
 
-    public init(paneId: String, index: Int, key: String) {
+    public init(paneId: String, index: Int, key: String, window: String = TmuxLayout.window) {
         self.paneId = paneId
         self.index = index
         self.key = key
+        self.window = window
     }
 }
 
-/// What a sync does to the layout: the panes to close, the sessions to open panes for, in order, and the sessions whose
-/// pane Guy closed by hand, which stay closed until he shows them or they start waiting for him.
-public struct LayoutChange: Equatable, Sendable {
-    public var close: [String]
-    public var open: [PaneSpec]
-    public var dismissed: Set<String>
-}
-
-/// The `desk` tmux session: one window, `agents`, the master in its left half and a pane per other session at work on the
-/// right, each running `claude attach <id>`. iTerm2 shows it through tmux's control mode (`tmux -CC attach`), so each
-/// pane is a native split there, and closing iTerm leaves every session running.
+/// The `desk` tmux session. Its first window, `agents`, is always the master in its left half and `claude agents` in its
+/// right — every background session, to open one or start one from. A worker or review session you show opens in a
+/// window of its own, so those two stay as they are. iTerm2 shows it through tmux's control mode (`tmux -CC attach`): each
+/// pane a native split, each window a tab or window of iTerm's, and closing iTerm leaves every session running.
 public enum TmuxLayout {
     public static let session = "desk"
     public static let window = "agents"
     public static var target: String { "\(session):\(window)" }
     /// The pane option that says which session a pane is.
     public static let option = "@desk-session"
-    public static let listFormat = "#{pane_id}\t#{pane_index}\t#{\(option)}"
-    /// How long a session keeps its pane after its turn ends. The master messages its workers, so a worker's turns end
-    /// and start again all day: a pane that closed the moment one ended would come and go under your eyes.
-    public static let linger: TimeInterval = 600
+    public static let listFormat = "#{pane_id}\t#{pane_index}\t#{\(option)}\t#{window_name}"
 
-    /// The panes Desk wants, given the master, the open tasks' workers and the review sessions: the master first, then
-    /// each other session that works, waits for you, or worked in the last `linger`, in the order given, once each.
-    public static func desired(master: ClaudeJob?, sessions: [ClaudeJob], now: Date = Date()) -> [PaneSpec] {
-        var specs: [PaneSpec] = []
-        var seen = Set<String>()
-        if let master {
-            specs.append(PaneSpec(key: master.id, name: "master", isMaster: true))
-            seen.insert(master.id)
-        }
-        for job in sessions where seen.insert(job.id).inserted {
-            if job.isBusy || now.timeIntervalSince(job.updatedAt) < linger { specs.append(PaneSpec(key: job.id, name: job.name)) }
-        }
-        return specs
+    /// The `desk` window's two panes: the master's, while one runs, and `claude agents`.
+    public static func panes(master: ClaudeJob?) -> [PaneSpec] {
+        (master.map { [PaneSpec(key: $0.id, name: "master", isMaster: true)] } ?? []) + [.agents]
     }
 
-    /// `list-panes -F listFormat` output. A line that doesn't parse is skipped.
+    /// `list-panes -s -F listFormat` output, every window's. A line that doesn't parse is skipped.
     public static func parse(_ output: String) -> [TmuxPane] {
         output.split(separator: "\n").compactMap { line in
             let parts = line.split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
             guard parts.count >= 2, parts[0].hasPrefix("%"), let index = Int(parts[1]) else { return nil }
-            return TmuxPane(paneId: parts[0], index: index, key: parts.count > 2 ? parts[2] : "")
+            return TmuxPane(paneId: parts[0], index: index, key: parts.count > 2 ? parts[2] : "", window: parts.count > 3 ? parts[3] : window)
         }
     }
 
-    /// From the panes there are to the panes wanted. `made` are the sessions Desk opened a pane for and has not closed
-    /// since; one of them still wanted but gone was closed by hand. `dismissed` stay closed. Review panes and panes Desk
-    /// did not make are never closed: they belong to their sessions and to you.
-    public static func change(current: [TmuxPane], desired: [PaneSpec], made: Set<String>, dismissed: Set<String>) -> LayoutChange {
-        let present = Set(current.map(\.key))
-        let wanted = Set(desired.map(\.key))
-        let close = current.filter { !$0.key.isEmpty && !$0.key.hasPrefix("review:") && !wanted.contains($0.key) }.map(\.paneId)
-        let closedByHand = made.filter { wanted.contains($0) && !present.contains($0) }
-        let stillDismissed = dismissed.union(closedByHand).intersection(wanted)
-        let open = desired.filter { !present.contains($0.key) && !stillDismissed.contains($0.key) }
-        return LayoutChange(close: close, open: open, dismissed: stillDismissed)
-    }
+    /// `claude agents`, quoted for the shell tmux runs a pane's command in.
+    public static func agentsCommand(claude: String) -> String { "\(quote(claude)) agents" }
 
     /// `claude attach <id>`, quoted for the shell tmux runs a pane's command in.
     public static func attachCommand(claude: String, id: String) -> String { "\(quote(claude)) attach \(quote(id))" }
@@ -122,8 +99,9 @@ public struct Tmux: Sendable {
 
     public func hasSession() async -> Bool { (try? await call(["has-session", "-t", TmuxLayout.session])) != nil }
 
+    /// Every pane of the session, each window's.
     public func panes() async throws -> [TmuxPane] {
-        TmuxLayout.parse(try await call(["list-panes", "-t", TmuxLayout.target, "-F", TmuxLayout.listFormat]))
+        TmuxLayout.parse(try await call(["list-panes", "-s", "-t", TmuxLayout.session, "-F", TmuxLayout.listFormat]))
     }
 
     /// How many terminals are attached to the session: none means a terminal has to be opened on it.
@@ -132,23 +110,37 @@ public struct Tmux: Sendable {
             .split(separator: "\n").count
     }
 
-    /// The session, with its first pane running `command`. Wide and tall, since iTerm resizes it to its window anyway.
+    /// The session, its `agents` window's first pane running `command`. Wide and tall, since iTerm resizes it to its
+    /// window anyway.
     public func create(_ spec: PaneSpec, command: String) async throws {
         try await call(["new-session", "-d", "-s", TmuxLayout.session, "-n", TmuxLayout.window, "-x", "240", "-y", "64", command])
         let first = try await panes().first?.paneId ?? "\(TmuxLayout.target).0"
         try await tag(first, spec)
     }
 
-    /// A pane for `spec`: the master's goes before the first pane, so it is the main pane on the left; the rest go after.
+    /// A pane in the `agents` window: the master's before the others, so it is the left half; any other after them. The
+    /// window again, first, if it was closed.
     @discardableResult
     public func open(_ spec: PaneSpec, command: String) async throws -> String {
-        var arguments = ["split-window", "-d", "-P", "-F", "#{pane_id}"]
-        if spec.isMaster, let first = try await panes().first {
-            arguments += ["-b", "-h", "-t", first.paneId]
-        } else {
-            arguments += ["-t", TmuxLayout.target]
+        let window = try await panes().filter { $0.window == TmuxLayout.window }
+        guard let first = window.first, let last = window.last else {
+            let pane = try await call(["new-window", "-d", "-P", "-F", "#{pane_id}", "-t", "\(TmuxLayout.session):", "-n", TmuxLayout.window, command])
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            try await tag(pane, spec)
+            return pane
         }
-        let pane = try await call(arguments + [command]).trimmingCharacters(in: .whitespacesAndNewlines)
+        let place = spec.isMaster ? ["-b", "-t", first.paneId] : ["-t", last.paneId]
+        let pane = try await call(["split-window", "-d", "-h", "-P", "-F", "#{pane_id}"] + place + [command])
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        try await tag(pane, spec)
+        return pane
+    }
+
+    /// A window of its own for `spec`, named after it, beside the `agents` window.
+    @discardableResult
+    public func openWindow(_ spec: PaneSpec, command: String) async throws -> String {
+        let pane = try await call(["new-window", "-d", "-P", "-F", "#{pane_id}", "-t", "\(TmuxLayout.session):", "-n", spec.name, command])
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         try await tag(pane, spec)
         return pane
     }
@@ -160,16 +152,15 @@ public struct Tmux: Sendable {
 
     public func close(_ pane: String) async throws { try await call(["kill-pane", "-t", pane]) }
 
-    /// The master in the left half, the rest stacked on the right.
+    /// The `agents` window in two halves, side by side.
     public func arrange() async throws {
-        try await call(["set-option", "-w", "-t", TmuxLayout.target, "main-pane-width", "50%"])
-        try await call(["select-layout", "-t", TmuxLayout.target, "main-vertical"])
+        try await call(["select-layout", "-t", TmuxLayout.target, "even-horizontal"])
     }
 
-    /// Makes `key`'s pane the active one, which iTerm follows.
+    /// Makes `key`'s pane the active one, in whichever window it is, which iTerm follows.
     public func focus(_ key: String) async throws -> Bool {
         guard let pane = try await panes().first(where: { $0.key == key }) else { return false }
-        try await call(["select-window", "-t", TmuxLayout.target])
+        try await call(["select-window", "-t", pane.paneId])
         try await call(["select-pane", "-t", pane.paneId])
         return true
     }

@@ -34,6 +34,8 @@ struct DeskWindow: View {
     /// Snapshots set this: the sidebar beside the screen in a plain row, since the split view's sidebar column draws
     /// nothing off screen.
     nonisolated(unsafe) static var flat = false
+    /// Snapshots set this: the text scale is theirs to give (`scale=`), not the screen's the off-screen window is near.
+    nonisolated(unsafe) static var followsScreen = true
 
     var body: some View {
         // The sidebar stays while Settings or the Master screen is open, so you never lose your place. Setup takes the
@@ -65,6 +67,7 @@ struct DeskWindow: View {
         // A wider screen, larger text: the scale follows the screen the window is on.
         .environment(\.textScale, model.textScale)
         .background(ScreenReader { screen in
+            guard Self.followsScreen else { return }
             let scale = CGFloat(ScreenTextScale.scale(forWidth: Double(screen.frame.width)))
             if model.textScale != scale { model.textScale = scale }
         })

@@ -122,6 +122,7 @@ struct PullRequestsTab: View {
                             }
                         }
                     case .open:
+                        PullRequestFacets.Header().plainListRow().selectionDisabled()
                         ForEach(rows, id: \.pullRequest.url) { row in
                             PullRequestRow(row: row, model: model, selected: selection == row.pullRequest.url)
                         }
@@ -438,14 +439,13 @@ struct PullRequestRow: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(pr.title).scaled(.rowTitle.weight(selected ? .semibold : .medium)).lineLimit(1)
                     HStack(spacing: 6) {
-                        ChecksBadge(pr: pr).scaled(.caption)
                         Text(line(pr)).foregroundStyle(Theme.quiet).lineLimit(1)
                         TicketMark(pr: pr, model: model)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 HStack(spacing: 10) {
-                    StatePill(state: RowState.of(pr))
+                    PullRequestFacets(pr: pr, rebase: model.state.rebaseReason(pr))
                     // The marks keep their width on every row, so the pills line up down the list.
                     Color.clear.frame(width: 14, height: 14).overlay { SessionMarks(pr: pr, model: model) }
                     AgeText(date: pr.updatedAt)
@@ -463,8 +463,164 @@ struct PullRequestRow: View {
         if row.depth == 0, let parent = model.state.stackParent(of: pr) { parts.append("on #\(parent.number)") }
         parts.append("\(pr.baseRef) ← \(pr.headRef)")
         parts.append("\(Format.sizeBucket(pr.size)) +\(pr.additions) −\(pr.deletions)")
-        if pr.unresolvedThreads > 0 { parts.append("\(pr.unresolvedThreads) unresolved") }
         return parts.joined(separator: " · ")
+    }
+}
+
+/// A PR of yours fact by fact, each in a narrow column of its own under the list's header, so a column reads down the
+/// list: whether it's a draft, its self-review, its CI, its review, its open threads, and its branch against its base.
+/// A mark, and a word or a count where a mark can't say it; the words on hover, and in the details column. Nothing is
+/// summed into one word: ready to merge is every column green.
+struct PullRequestFacets: View {
+    var pr: PullRequest
+    var rebase: RebaseReason?
+
+    /// The columns' names and widths, the header's and the rows' alike.
+    static let columns: [(title: String, width: CGFloat)] = [
+        ("State", 44), ("Self", 34), ("CI", 30), ("Review", 56), ("Threads", 56), ("Branch", 50),
+    ]
+
+    var body: some View {
+        HStack(spacing: 10) {
+            ForEach(Array(facts.enumerated()), id: \.offset) { index, fact in
+                Self.cell(fact).scaledFrame(width: Self.columns[index].width, alignment: .leading)
+            }
+        }
+    }
+
+    enum Tone { case ok, bad, warn, neutral }
+
+    /// A fact as a mark, a word or a count beside it for the row, the words for it for the details column and the
+    /// hover, and how it reads: fine, to fix, under way or to look at, neutral.
+    struct Fact {
+        var symbol: String?
+        var text: String?
+        var words: String
+        var tone: Tone
+    }
+
+    var facts: [Fact] { [state, selfReview, ci, review, threads, branch] }
+
+    /// The facts' names in a details column, where there's room to spell them.
+    static let labels = ["State", "Self-review", "CI", "Review", "Threads", "Branch"]
+
+    private var state: Fact {
+        pr.isDraft ? Fact(text: "Draft", words: "Draft, not asked of reviewers", tone: .neutral)
+            : Fact(text: "Open", words: "Open for review", tone: .neutral)
+    }
+
+    /// Done or not, draft or open alike: the local-reviewed label the self-review sets when it passes.
+    private var selfReview: Fact {
+        pr.isLocallyReviewed
+            ? Fact(symbol: "checkmark.seal.fill", words: "Self-reviewed", tone: .ok)
+            : Fact(symbol: "circle.dashed", words: "Not self-reviewed", tone: .warn)
+    }
+
+    private var ci: Fact {
+        switch pr.checks {
+        case .success: return Fact(symbol: "checkmark.circle.fill", words: "Passing", tone: .ok)
+        case .failure, .error: return Fact(symbol: "xmark.circle.fill", words: "Failed", tone: .bad)
+        case .pending, .expected: return Fact(symbol: "clock.fill", words: "Running", tone: .warn)
+        case .none: return Fact(text: "—", words: "No checks", tone: .neutral)
+        }
+    }
+
+    private var review: Fact {
+        if pr.reviewDecision == .changesRequested {
+            return Fact(symbol: "arrow.uturn.backward.circle.fill", words: "Changes requested", tone: .bad)
+        }
+        if pr.isDraft { return Fact(text: "—", words: "Not asked yet: a draft", tone: .neutral) }
+        switch pr.approvalGate?.state {
+        case .counted(let have, let needed):
+            return Fact(symbol: "person.fill.checkmark", text: "\(have)/\(needed)", words: "\(have) of \(needed) approvals",
+                        tone: have >= needed ? .ok : .neutral)
+        case .waitingForCodeRabbit:
+            return Fact(symbol: "hourglass", words: "Waiting for CodeRabbit", tone: .neutral)
+        default:
+            return pr.reviewDecision == .approved
+                ? Fact(symbol: "checkmark.circle.fill", words: "Approved", tone: .ok)
+                : Fact(symbol: "hourglass", words: "Waiting on reviewers", tone: .neutral)
+        }
+    }
+
+    private var threads: Fact {
+        let count = pr.unresolvedThreads
+        return count == 0 ? Fact(text: "—", words: "None open", tone: .neutral)
+            : Fact(symbol: "bubble.left.fill", text: "\(count)", words: "\(count) unresolved", tone: .warn)
+    }
+
+    private var branch: Fact {
+        switch rebase {
+        case .conflicts: return Fact(symbol: "exclamationmark.triangle.fill", words: "Conflicts with \(pr.baseRef)", tone: .bad)
+        case .behindBase: return Fact(symbol: "arrow.down.circle.fill", words: "Behind \(pr.baseRef)", tone: .warn)
+        case .baseMerged: return Fact(symbol: "arrow.triangle.branch", words: "\(pr.baseRef) was merged: rebase onto \(pr.defaultBranch)", tone: .warn)
+        case nil: return Fact(text: "—", words: "Up to date", tone: .neutral)
+        }
+    }
+
+    /// The facts as label and value rows, in words, for a details column's `FieldRows`.
+    struct Rows: View {
+        var pr: PullRequest
+        var rebase: RebaseReason?
+
+        var body: some View {
+            let facts = PullRequestFacets(pr: pr, rebase: rebase).facts
+            ForEach(Array(facts.enumerated()), id: \.offset) { index, fact in
+                FieldRow(label: PullRequestFacets.labels[index]) {
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        if let symbol = fact.symbol {
+                            Image(systemName: symbol).font(.system(size: 11, weight: .semibold)).foregroundStyle(PullRequestFacets.color(fact.tone))
+                        }
+                        Text(fact.words).foregroundStyle(fact.tone == .bad ? Theme.danger : Theme.ink).fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+        }
+    }
+
+    private static func cell(_ fact: Fact) -> some View {
+        HStack(spacing: 3) {
+            if let symbol = fact.symbol { Image(systemName: symbol).font(.system(size: 11, weight: .semibold)).foregroundStyle(color(fact.tone)) }
+            if let text = fact.text {
+                Text(text).lineLimit(1).foregroundStyle(fact.tone == .neutral ? Theme.quiet : color(fact.tone))
+            }
+        }
+        .scaled(.secondary)
+        .help(fact.words)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(fact.words)
+    }
+
+    static func color(_ tone: Tone) -> Color {
+        switch tone {
+        case .ok: Theme.ok
+        case .bad: Theme.danger
+        case .warn: Theme.warn
+        case .neutral: Theme.quiet
+        }
+    }
+
+    /// The column names over the rows, in the rows' places: the PR, its title, the facts, when it moved.
+    struct Header: View {
+        var body: some View {
+            HStack(spacing: 10) {
+                Color.clear.frame(width: 18, height: 1)
+                Text("PR").scaledFrame(width: 160, alignment: .leading)
+                Text("Title").frame(maxWidth: .infinity, alignment: .leading)
+                HStack(spacing: 10) {
+                    ForEach(PullRequestFacets.columns, id: \.title) { column in
+                        Text(column.title).scaledFrame(width: column.width, alignment: .leading)
+                    }
+                }
+                Color.clear.frame(width: 14, height: 1)
+                Text("Moved").lineLimit(1).fixedSize().scaledFrame(width: 34, alignment: .trailing)
+            }
+            .scaled(.caption.weight(.medium))
+            .foregroundStyle(Theme.quiet)
+            .textCase(.uppercase)
+            .padding(.horizontal, 10)
+            .padding(.bottom, 2)
+        }
     }
 }
 
@@ -681,17 +837,14 @@ private struct TaskPullRequestDetails: View {
                     VStack(alignment: .leading, spacing: 6) {
                         Text(pr.taskRef).scaled(.code).foregroundStyle(Theme.quiet)
                         Text(pr.title).scaled(.heading).fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
-                        TaskStatePill(pr: pr).padding(.top, 2)
+                        if pr.state != .open { TaskStatePill(pr: pr).padding(.top, 2) }
                     }
                     VStack(alignment: .leading, spacing: 8) {
                         SectionLabel("Pull request")
-                        FieldRows(labelWidth: 72) {
+                        FieldRows(labelWidth: 84) {
+                            if pr.state == .open { PullRequestFacets.Rows(pr: pr, rebase: model.state.rebaseReason(pr)) }
                             FieldRow("Branches", "\(pr.baseRef) ← \(pr.headRef)", mono: true)
                             FieldRow(label: "Size") { DiffStat(pr: pr) }
-                            if pr.state == .open {
-                                FieldRow(label: "Checks") { HStack(spacing: 6) { ChecksBadge(pr: pr); Text(TaskText.checks(pr)) } }
-                                FieldRow("Threads", pr.unresolvedThreads == 0 ? "None open" : "\(pr.unresolvedThreads) unresolved")
-                            }
                             FieldRow("Updated", "\(Format.age(pr.updatedAt)) ago")
                         }
                     }

@@ -50,16 +50,15 @@ import Testing
         #expect(NudgeEngine.nudges(withFlow).map(\.title) == ["PRO-1: the session is asking you something"])
     }
 
-    /// A draft says whether its self-review passed: its label, or, from an older /pre-pr, an Important finding still open.
+    /// A draft says whether its self-review passed: its label.
     @Test func aDraftSaysWhetherPrePRPassed() {
         var pr = Fixtures.pr(number: 4, head: "d", draft: true)
-        pr.evidence = "<!-- pre-pr:start -->\n## Testing"
         let key = ClaudeJobs.prKey(pr.url)!
         var flow = input(mine: [pr])
         flow.sessions = [ClaudeJob(id: "aaaaaaaa", name: "s", state: "done", cwd: "/r/cofhe", prKeys: [key], updatedAt: Fixtures.t0, startedOn: [key])]
         let waiting = { NudgeEngine.nudges(flow).first { $0.kind == .flowWaiting }?.title }
-        #expect(PrePRStatus.of(pr) == .importantOpen)
-        #expect(waiting() == "cofhe#4: its self-review left an Important finding open")
+        #expect(PrePRStatus.of(pr) == .notRun)
+        #expect(waiting() == "cofhe#4 is a draft: its self-review hasn't run")
         pr.labels = [PrePR.reviewedLabel]
         flow.mine = [pr]
         #expect(PrePRStatus.of(pr) == .passed)
