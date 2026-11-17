@@ -108,11 +108,15 @@ investigation of errors in the cloud (named after the session), or from a PR wit
 root). A ticket's task holds every open PR of yours that names it, in any repo, and the PRs stacked on them; a worker
 that opens a PR with no key keeps it in its own task. Nothing of it is stored: every refresh works it out again.
 
-Open lists the tasks, Merged your PRs merged in the last month; ⌃Tab and ⌃⇧Tab flip between the two. PRs gives the
-flat list of your open PRs instead. The tasks are grouped by who they wait on: **Waits on you**, **Worker at it**,
-**In review**, and **No pull request yet**. A task's row has an icon for what it started from (ticket, session or PR),
-its key, its title, and under them its PRs and what its worker is doing (Claude Code's own status line), with a chip
-(Working, Your move, Draft, In review, Investigating…) and how long since it moved. The details column has the ticket's
+Open lists the tasks with their PRs under them, Merged your PRs merged in the last month; ⌃Tab and ⌃⇧Tab flip between
+the two. The tasks are grouped by who they wait on: **Waits on you** (the master asks about it, a session of it asks you,
+or a PR of it is yours to fix: conflicts, red CI, changes requested, a thread open), **Worker at it**, **In review**, and
+**No pull request yet**. A task's row has an icon for what it started from (ticket, session or PR), its key, its title,
+and a line with its PRs and what its worker is doing (Claude Code's own status line), with a chip (Working, Your move,
+Draft, In review, Investigating…) and how long since it moved. Its PRs follow, a step in, joined to it by a line, each
+stacked one a further step in with ↳; a task that is a PR is one row, with that PR's facts in place of the chip. One
+header names the columns, so the facts line up down the list at any depth. J and K walk tasks and PRs alike; the details
+column shows the task, or the PR in words with its task. The details column has the ticket's
 summary, its PRs and where each stands, what it depends on (someone else's open PR, or a branch no open PR opens), its
 worker with Show in iTerm, and the master's questions about it; Open task (↩) opens the Task page.
 
@@ -121,11 +125,12 @@ it, its PRs as a table (each opens its page), what it depends on, and the sessio
 Show in iTerm; beside them the ticket's fields with Open in Jira, the master's questions, and the activity Desk knows of
 (PRs opened and moved, sessions started and finished).
 
-Each PR row leads with the title. Under it is a line with the checks, number, repo, branches, size, open threads and
-ticket. On the right is one pill for what the PR waits on, coloured by whose move it is: Conflicts, CI failed, Changes
-requested, Ready to merge, Draft · not self-reviewed (or · self-reviewed, or · finding open), N open threads, Waiting on
-review. Then the session's mark (a spinner while it works, a bubble while it asks you something) and when the PR last
-moved.
+Each PR row leads with the title, and under it its branches, size and ticket. On the right each fact has a column of
+its own: State (Draft or Open), Self (self-reviewed: the `local-reviewed` label), CI, Review (approved, the review
+gate's count of approvals, changes requested, or waiting), Threads (open ones) and Branch (conflicts, behind its base,
+or its base merged). Ready to merge is every column green. Then the session's mark (a spinner while it works, a bubble
+while it asks you something) and when the PR last moved. Hover a mark for its words; Up Next's rows of your PRs show the
+same columns.
 
 Your PR's page leads with a breadcrumb back to Tasks, its title, which you can edit while it is open, and a line with
 its number, branches and size; on the right a chip for where it stands, Open on GitHub, and ⋯ with Mark Ready for Review

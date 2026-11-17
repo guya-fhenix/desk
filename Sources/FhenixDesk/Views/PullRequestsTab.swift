@@ -1,51 +1,33 @@
 import DeskCore
 import SwiftUI
 
-/// Tasks: your open tasks grouped by who they wait on, a row each with its PRs and what its worker is doing, and beside
-/// them the selected task in full; or every open PR of yours in one list; or the ones merged this month. Return opens a
-/// task's page, or a PR's.
+/// Tasks: your open tasks grouped by who they wait on, each a row with what its worker is doing, and its PRs under it,
+/// their facts in the columns of one header; beside them the selected task or PR in full. Or your PRs merged this month.
+/// Return opens a task's page, or a PR's.
 struct PullRequestsTab: View {
     /// Your open work, or the PRs merged in the last month.
     enum Scope { case open, merged }
 
     @Environment(AppModel.self) private var model
     @State private var scope = Scope.open
-    @State private var sortOrder: [KeyPathComparator<StackedPullRequest>] = []
-    @AppStorage("sort.pullRequests") private var storedSort = ""
-    /// A task's id in the Tasks view; a PR's url in the PRs view and in Merged.
+    /// A task's id, or the url of a PR under one or in Merged.
     @State private var selection: String?
     /// The pages open over the list; empty shows the list.
     @State private var path: [Route] = []
     @FocusState private var listFocused: Bool
     @State private var search = ""
-    /// Your open work as tasks, or today's flat list of PRs.
-    @AppStorage("pullRequests.byTask") private var byTask = true
     /// With Reduce Motion on, the list jumps to the selected row instead of sliding there.
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    private static let sort = TableSort<StackedPullRequest>(
-        [
-            ("repo", KeyPathComparator(\.pullRequest.repoName)),
-            ("number", KeyPathComparator(\.pullRequest.number)),
-            ("threads", KeyPathComparator(\.pullRequest.unresolvedThreads)),
-            ("size", KeyPathComparator(\.pullRequest.size)),
-            ("age", KeyPathComparator(\.pullRequest.createdAt)),
-            ("updated", KeyPathComparator(\.pullRequest.updatedAt)),
-        ],
-        fallback: [
-            KeyPathComparator(\StackedPullRequest.pullRequest.repoName),
-            KeyPathComparator(\StackedPullRequest.pullRequest.updatedAt, order: .reverse),
-        ]
-    )
-
     var body: some View {
         let groups = taskGroups
-        let rows = self.rows
         let merged = self.merged
-        let shown = scope == .merged ? merged.map(\.url) : byTask ? groups.flatMap { $0.tasks.map(\.id) } : rows.map(\.pullRequest.url)
+        // Down the list as it reads: each task, then the PRs under it.
+        let shown = scope == .merged ? merged.map(\.url)
+            : groups.flatMap { $0.tasks.flatMap { [$0.id] + nested($0).map(\.pullRequest.url) } }
         RouteStack(path: $path, back: "Tasks") {
             HStack(spacing: 0) {
-                list(groups: groups, rows: rows, merged: merged, shown: shown)
+                list(groups: groups, merged: merged, shown: shown)
                 details
             }
             .background(Theme.ground)
@@ -53,11 +35,9 @@ struct PullRequestsTab: View {
         // A page opened here opens the next one on this path: the task page its PR rows, the PR page its task.
         .environment(\.taskOpenRoute, { path.append($0) })
         .focusedSceneValue(\.routePath, $path)
-        .remembersSort(Self.sort, order: $sortOrder, stored: $storedSort)
         .selectsFirstRow(shown.first, selection: $selection)
         // A view opens on its first row, unless the selection is already in it: search may have switched it to show its PR.
         .onChange(of: scope) { reselect(shown) }
-        .onChange(of: byTask) { reselect(shown) }
         // Search, Up Next and a notification land here with a PR to show: its page, with its row selected behind it. Only
         // yours: one on its way to Reviews passes through while this screen is still on show, and is Reviews' to take. A
         // task's id opens its page the same way.
@@ -65,11 +45,10 @@ struct PullRequestsTab: View {
             guard let target else { return }
             if model.yourPullRequest(target) != nil {
                 scope = model.state.recentlyMerged().contains { $0.url == target } ? .merged : .open
-                selection = scope == .open && byTask ? model.state.tasks.first { $0.pullRequests.contains { $0.url == target } }?.id : target
+                selection = scope == .open ? row(of: target) : target
                 path = [.pr(target)]
             } else if model.state.tasks.contains(where: { $0.id == target }) {
                 scope = .open
-                byTask = true
                 selection = target
                 path = [.task(target)]
             } else {
@@ -83,11 +62,11 @@ struct PullRequestsTab: View {
         if !shown.contains(where: { $0 == selection }) { selection = shown.first }
     }
 
-    @ViewBuilder private func list(groups: [TaskGroup], rows: [StackedPullRequest], merged: [PullRequest], shown: [String]) -> some View {
+    @ViewBuilder private func list(groups: [TaskGroup], merged: [PullRequest], shown: [String]) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            header(open: byTask ? groups.reduce(0) { $0 + $1.tasks.count } : rows.count, merged: merged.count)
+            header(open: groups.reduce(0) { $0 + $1.tasks.count }, merged: merged.count)
                 .padding(.bottom, 8)
-            if scope == .open ? model.state.mine.isEmpty && (!byTask || model.state.tasks.isEmpty) : model.state.recentlyMerged().isEmpty {
+            if scope == .open ? model.state.mine.isEmpty && model.state.tasks.isEmpty : model.state.recentlyMerged().isEmpty {
                 if let error = model.state.errors[.github] {
                     EmptyState(
                         icon: "exclamationmark.triangle", text: "Couldn't load your pull requests from GitHub.", detail: error,
@@ -112,19 +91,18 @@ struct PullRequestsTab: View {
                 // Arrow keys, J and K move the selection; a double-click, Return or → opens the task's page, or the PR's.
                 List(selection: $selection) {
                     switch scope {
-                    case .open where byTask:
+                    case .open:
+                        PullRequestFacets.Header().plainListRow().selectionDisabled()
                         ForEach(groups) { group in
                             GroupHeader(title: group.title, count: group.tasks.count)
-                                .padding(.top, group.id == groups.first?.id ? -4 : 0)
+                                .padding(.top, group.id == groups.first?.id ? 2 : 0)
                                 .plainListRow().selectionDisabled()
                             ForEach(group.tasks) { task in
                                 TaskRow(task: task, model: model, selected: selection == task.id)
+                                ForEach(nested(task), id: \.pullRequest.url) { row in
+                                    PullRequestRow(row: row, model: model, selected: selection == row.pullRequest.url, nested: true)
+                                }
                             }
-                        }
-                    case .open:
-                        PullRequestFacets.Header().plainListRow().selectionDisabled()
-                        ForEach(rows, id: \.pullRequest.url) { row in
-                            PullRequestRow(row: row, model: model, selected: selection == row.pullRequest.url)
                         }
                     case .merged:
                         ForEach(merged, id: \.url) { pr in
@@ -134,7 +112,7 @@ struct PullRequestsTab: View {
                 }
                 .deskList()
                 // The grouped list's first label brings its own gap.
-                .padding(.top, scope == .open && byTask ? 0 : 10)
+                .padding(.top, scope == .open ? 0 : 10)
                 // Focused on arrival and on the way back from a page, so the keys work without a click first.
                 .focused($listFocused)
                 .task(id: path.isEmpty) { if path.isEmpty { listFocused = true } }
@@ -177,12 +155,13 @@ struct PullRequestsTab: View {
         }
     }
 
-    /// "Tasks  6 open", and on the right the search, Open and Merged, and Tasks or PRs.
+    /// "Tasks  6 open · 7 pull requests", and on the right the search, and Open and Merged.
     /// On one line where it fits; else the presses go under the title, on the right.
     private func header(open: Int, merged: Int) -> some View {
         let title = HStack(alignment: .firstTextBaseline, spacing: 10) {
             Text("Tasks").scaled(.title).tracking(-0.3)
-            Text("\(model.state.tasks.count) open").scaled(.code).foregroundStyle(Theme.quiet)
+            Text("\(model.state.tasks.count) open · \(model.state.mine.count) pull request\(model.state.mine.count == 1 ? "" : "s")")
+                .scaled(.code).foregroundStyle(Theme.quiet)
         }
         .fixedSize()
         return ViewThatFits(in: .horizontal) {
@@ -200,28 +179,19 @@ struct PullRequestsTab: View {
     }
 
     @ViewBuilder private func controls(open: Int, merged: Int) -> some View {
-        if scope == .open, !byTask { SortMenu(sort: Self.sort, order: $sortOrder) }
         SearchBox(prompt: "Task, repo, number or title", text: $search)
         // Counted over what the search leaves, like the Reviews and Jira screens.
         Segmented(options: [.init(value: .open, title: "Open", count: open), .init(value: .merged, title: "Merged", count: merged)], selection: $scope)
             .help("Your open work, or your PRs merged this month (⌃⇥)")
-        if scope == .open {
-            Segmented(options: [.init(value: true, title: "Tasks"), .init(value: false, title: "PRs")], selection: $byTask)
-                .help("Your work as tasks, or every open PR of yours in one list")
-        }
     }
 
     @ViewBuilder private var details: some View {
-        if scope == .open, byTask {
-            if let task = model.state.tasks.first(where: { $0.id == selection }) {
-                TaskDetails(task: task, model: model) { path.append($0) }
-            } else {
-                DetailColumn { Text("No task selected.").foregroundStyle(Theme.quiet) }
-            }
+        if scope == .open, let task = model.state.tasks.first(where: { $0.id == selection }) {
+            TaskDetails(task: task, model: model) { path.append($0) }
         } else if let pr = selection.flatMap(model.yourPullRequest) {
             TaskPullRequestDetails(pr: pr, model: model) { open(pr.url) }
         } else {
-            DetailColumn { Text("No pull request selected.").foregroundStyle(Theme.quiet) }
+            DetailColumn { Text(scope == .open ? "Nothing selected." : "No pull request selected.").foregroundStyle(Theme.quiet) }
         }
     }
 
@@ -235,12 +205,23 @@ struct PullRequestsTab: View {
         }
     }
 
-    /// The stacked rows, filtered by the search field. A child that matches keeps its indent even when its
-    /// root does not: the arrow still says it is stacked, and the PR's page names the parent.
-    private var rows: [StackedPullRequest] {
-        let all = model.state.stackedMine(order: sortOrder)
-        guard !search.trimmingCharacters(in: .whitespaces).isEmpty else { return all }
-        return all.filter { $0.pullRequest.matches(search: search) }
+    /// The PR a task started from, where it is one: a stack's root, whose facts its task's own row carries.
+    static func root(of task: WorkTask) -> PullRequest? {
+        guard task.origin == .pullRequest else { return nil }
+        return task.pullRequests.first { "\($0.repo)#\($0.number)".lowercased() == task.id.lowercased() } ?? task.pullRequests.first
+    }
+
+    /// The PRs under a task's row, base first, each a step in for every PR of the task it's built on: all of them, but a
+    /// task that is a PR, whose row is its root's.
+    private func nested(_ task: WorkTask) -> [StackedPullRequest] {
+        let root = Self.root(of: task)
+        let depths = Linker.depths(task.pullRequests, parents: model.state.stackParents)
+        return task.pullRequests.filter { $0.url != root?.url }.map { StackedPullRequest(pullRequest: $0, depth: depths[$0.url] ?? 0) }
+    }
+
+    /// The row a PR of yours shows on: its own, or its task's, when the task is the PR.
+    private func row(of url: String) -> String {
+        model.state.tasks.first { Self.root(of: $0)?.url == url }?.id ?? url
     }
 
     /// Your tasks by who they wait on, filtered by the search field: a task stays when its key or title matches, or one
@@ -406,7 +387,13 @@ private struct TaskRow: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 HStack(spacing: 10) {
-                    StageChip2(text: TaskHeader.chip(task, asked: model.state.askedTasks), onTint: selected)
+                    if let root = PullRequestsTab.root(of: task) {
+                        PullRequestFacets(pr: root, rebase: model.state.rebaseReason(root))
+                    } else {
+                        StageChip2(text: TaskHeader.chip(task, asked: model.state.askedTasks), onTint: selected)
+                    }
+                    // The PR rows' session marks' place, so the ages line up down the list.
+                    Color.clear.frame(width: 14, height: 14)
                     AgeText(date: task.updatedAt)
                 }
                 .frame(height: 20)
@@ -423,6 +410,8 @@ struct PullRequestRow: View {
     var model: AppModel
     var selected: Bool
     var indent: CGFloat = 0
+    /// Under its task's row: a line down the icon's column joins it to the task.
+    var nested = false
     /// Opens its page on a click; nil where a click selects it and Return opens it.
     var open: (() -> Void)? = nil
 
@@ -433,7 +422,7 @@ struct PullRequestRow: View {
                 Image(systemName: "arrow.triangle.pull")
                     .font(.system(size: 12)).foregroundStyle(Theme.quiet)
                     .frame(width: 18, height: 20)
-                    .opacity(row.depth > 0 ? 0 : 1)
+                    .opacity(row.depth > 0 || nested ? 0 : 1)
                 StackRef(pr: pr, depth: row.depth, name: pr.taskRef).scaled(.code).foregroundStyle(Theme.quiet)
                     .scaledFrame(width: 160, height: 20, alignment: .leading)
                 VStack(alignment: .leading, spacing: 2) {
@@ -452,6 +441,12 @@ struct PullRequestRow: View {
                         .help("Updated \(Format.date(pr.updatedAt)) · opened \(Format.date(pr.createdAt))")
                 }
                 .frame(height: 20)
+            }
+            .background(alignment: .leading) {
+                if nested {
+                    // Through the row's padding too, so the line runs on from the task's row to the next.
+                    Rectangle().fill(Theme.ruleStrong).frame(width: 1).padding(.leading, 8.5).padding(.vertical, -9)
+                }
             }
         }
     }
@@ -605,7 +600,7 @@ struct PullRequestFacets: View {
         var body: some View {
             HStack(spacing: 10) {
                 Color.clear.frame(width: 18, height: 1)
-                Text("PR").scaledFrame(width: 160, alignment: .leading)
+                Text("Task · PR").scaledFrame(width: 160, alignment: .leading)
                 Text("Title").frame(maxWidth: .infinity, alignment: .leading)
                 HStack(spacing: 10) {
                     ForEach(PullRequestFacets.columns, id: \.title) { column in

@@ -128,5 +128,13 @@ import Testing
         task.sessions = [session("w", name: "PRO-650", state: "blocked")]
         #expect(task.waitingOn(asked: []) == .you)
         #expect(WorkTask(id: "x", origin: .session, title: "x").waitingOn(asked: []) == .nobody)
+        // A PR of it yours to fix puts it on you, though it's in review; a worker at it keeps it the worker's.
+        var asked = ready
+        asked.reviewDecision = .changesRequested
+        task.sessions = []
+        task.pullRequests = [ready, asked]
+        #expect(task.waitingOn(asked: []) == .you)
+        task.sessions = [session("w", name: "PRO-650", state: "working")]
+        #expect(task.waitingOn(asked: []) == .worker)
     }
 }

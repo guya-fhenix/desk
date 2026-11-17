@@ -48,6 +48,8 @@ public struct WorkTask: Sendable, Identifiable, Hashable {
     public func waitingOn(asked: Set<String>) -> TaskWait {
         if asked.contains(id) || sessions.contains(where: \.isAsking) { return .you }
         if sessions.contains(where: \.isRunning) { return .worker }
+        // A PR of its yours to fix — a conflict, red CI, changes asked for, a thread open — is yours, whatever the stage.
+        if pullRequests.contains(where: { RowState.of($0).move == .yoursToFix }) { return .you }
         switch stage {
         case .inReview: return .reviewers
         case .draft, .approved: return .you
