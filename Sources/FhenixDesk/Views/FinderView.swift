@@ -236,7 +236,7 @@ struct FinderView: View {
             if inBrowser, let ticket = model.state.ticket(task.id) {
                 model.open(ticket.url)
             } else {
-                // The Tasks screen opens a task's page from its id, as it does a PR's from its url.
+                // The Tasks screen selects a task from its id, or opens its PR's page when the task is a PR.
                 model.selectPullRequest = task.id
                 model.pendingTab = .pullRequests
             }

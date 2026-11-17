@@ -333,7 +333,7 @@ private struct TicketDetails: View {
             }
             .scrollIndicators(.automatic)
             HStack(spacing: 8) {
-                Button(action: openPage) { HStack(spacing: 8) { Text("Open task"); ButtonKey(key: "↩") } }
+                Button(action: openPage) { HStack(spacing: 8) { Text("Open ticket"); ButtonKey(key: "↩") } }
                     .buttonStyle(.desk(.primary, .large, wide: true))
                     .help("The ticket's page (↩ or →)")
                 Button { model.open(ticket.url) } label: {

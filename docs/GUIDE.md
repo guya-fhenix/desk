@@ -114,16 +114,11 @@ or a PR of it is yours to fix: conflicts, red CI, changes requested, a thread op
 **No pull request yet**. A task's row has an icon for what it started from (ticket, session or PR), its key, its title,
 and a line with its PRs and what its worker is doing (Claude Code's own status line), with a chip (Working, Your move,
 Draft, In review, Investigating…) and how long since it moved. Its PRs follow, a step in, joined to it by a line, each
-stacked one a further step in with ↳; a task that is a PR is one row, with that PR's facts in place of the chip. One
-header names the columns, so the facts line up down the list at any depth. J and K walk tasks and PRs alike; the details
-column shows the task, or the PR in words with its task. The details column has the ticket's
-summary, its PRs and where each stands, what it depends on (someone else's open PR, or a branch no open PR opens), its
-worker with Show in iTerm, and the master's questions about it; Open task (↩) opens the Task page.
-
-A task's page says where it stands in its header, with the chip its row has, and leads with its ticket's first line.
-Under it, its PRs as a table (each opens its page), what it depends on, and the sessions behind it with their summaries and
-Show in iTerm; beside them the ticket's fields with Open in Jira, the master's questions, and the activity Desk knows of
-(PRs opened and moved, sessions started and finished).
+stacked one a further step in with ↳; a task that is a PR is that PR's row, and selects and opens as any PR does. One
+header names the columns, so the facts line up down the list at any depth. J and K walk tasks and PRs alike; Return or
+a double-click opens a PR's page. A task has no page: the details column is its view, with the ticket's summary, its PRs
+and where each stands (each opens its page), what it depends on (someone else's open PR, or a branch no open PR opens),
+its worker with Show in iTerm, and the master's questions about it, and at its foot Master in iTerm and Open in Jira.
 
 Each PR row leads with the title, and under it its branches, size and ticket. On the right each fact has a column of
 its own: State (Draft or Open), Self (self-reviewed: the `local-reviewed` label), CI, Review (approved, the review
@@ -142,7 +137,7 @@ is fetched when the tab opens and again once new commits move the head. The deta
 draft, whose move it is in review (nothing, when the reviewer who asked for changes has been asked again), with Master
 in iTerm when the move is the master's or a worker's. A conflict, red CI or a base to rebase onto shows there too, for the worker to fix when the
 master hands it over. **Checks** sums up every check on the head commit in one line, "✓ 14 passed, 2 skipped"; Show all
-lists them, worst first, with where a failed one stopped. **Task** names the task, its worker and what it did, with Show in iTerm and a link to the Task page; **Jira** its
+lists them, worst first, with where a failed one stopped. **Task** names the task, its worker and what it did, with Show in iTerm; **Jira** its
 ticket and status, or that it has none. **About** has the open threads by who started them, the
 reviewers and where each stands, labels, size, when it was opened and updated, and its stack.
 
@@ -219,7 +214,7 @@ The Jira screen lists the running sprint or the backlog, one group per status in
 assignee filter (the row of pictures) picks others. Done is left out. A row has the key, summary, status, priority and
 how many open PRs name it, under a column header. The selected ticket opens in the details column on the right: who
 opened it, its status, priority, assignee and the task it belongs to, its PRs and sessions (Show in iTerm), the move
-Desk suggests with Move and Dismiss, and its description, editable; at the foot Open task (↩, its page) and Open in
+Desk suggests with Move and Dismiss, and its description, editable; at the foot Open ticket (↩, its page) and Open in
 Jira (⌘↩). A ticket's page shows its key and summary,
 where it stands, its description, and beside it the PRs that name it, the sessions started on it, and the move Desk
 suggests for it, if any. To start work on one, tell the master: "start PRO-123".

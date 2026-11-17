@@ -2,8 +2,8 @@ import DeskCore
 import SwiftUI
 
 /// Tasks: your open tasks grouped by who they wait on, each a row with what its worker is doing, and its PRs under it,
-/// their facts in the columns of one header; beside them the selected task or PR in full. Or your PRs merged this month.
-/// Return opens a task's page, or a PR's.
+/// their facts in the columns of one header; beside them the selected task or PR in full. A task that is a PR is that
+/// PR's row. Or your PRs merged this month. Return opens a PR's page; a task has only its details column.
 struct PullRequestsTab: View {
     /// Your open work, or the PRs merged in the last month.
     enum Scope { case open, merged }
@@ -24,7 +24,7 @@ struct PullRequestsTab: View {
         let merged = self.merged
         // Down the list as it reads: each task, then the PRs under it.
         let shown = scope == .merged ? merged.map(\.url)
-            : groups.flatMap { $0.tasks.flatMap { [$0.id] + nested($0).map(\.pullRequest.url) } }
+            : groups.flatMap { $0.tasks.flatMap { [Self.root(of: $0)?.url ?? $0.id] + nested($0).map(\.pullRequest.url) } }
         RouteStack(path: $path, back: "Tasks") {
             HStack(spacing: 0) {
                 list(groups: groups, merged: merged, shown: shown)
@@ -32,25 +32,28 @@ struct PullRequestsTab: View {
             }
             .background(Theme.ground)
         }
-        // A page opened here opens the next one on this path: the task page its PR rows, the PR page its task.
-        .environment(\.taskOpenRoute, { path.append($0) })
         .focusedSceneValue(\.routePath, $path)
         .selectsFirstRow(shown.first, selection: $selection)
         // A view opens on its first row, unless the selection is already in it: search may have switched it to show its PR.
         .onChange(of: scope) { reselect(shown) }
         // Search, Up Next and a notification land here with a PR to show: its page, with its row selected behind it. Only
         // yours: one on its way to Reviews passes through while this screen is still on show, and is Reviews' to take. A
-        // task's id opens its page the same way.
+        // task's id selects its row, or opens its PR's page when the task is a PR.
         .onChange(of: model.selectPullRequest, initial: true) { _, target in
             guard let target else { return }
             if model.yourPullRequest(target) != nil {
                 scope = model.state.recentlyMerged().contains { $0.url == target } ? .merged : .open
-                selection = scope == .open ? row(of: target) : target
-                path = [.pr(target)]
-            } else if model.state.tasks.contains(where: { $0.id == target }) {
-                scope = .open
                 selection = target
-                path = [.task(target)]
+                path = [.pr(target)]
+            } else if let task = model.state.tasks.first(where: { $0.id == target }) {
+                scope = .open
+                if let root = Self.root(of: task) {
+                    selection = root.url
+                    path = [.pr(root.url)]
+                } else {
+                    selection = target
+                    path = []
+                }
             } else {
                 return
             }
@@ -98,7 +101,12 @@ struct PullRequestsTab: View {
                                 .padding(.top, group.id == groups.first?.id ? 2 : 0)
                                 .plainListRow().selectionDisabled()
                             ForEach(group.tasks) { task in
-                                TaskRow(task: task, model: model, selected: selection == task.id)
+                                // A task that is a PR is that PR's row: it selects and opens as any PR does.
+                                if let root = Self.root(of: task) {
+                                    PullRequestRow(row: StackedPullRequest(pullRequest: root), model: model, selected: selection == root.url)
+                                } else {
+                                    TaskRow(task: task, model: model, selected: selection == task.id)
+                                }
                                 ForEach(nested(task), id: \.pullRequest.url) { row in
                                     PullRequestRow(row: row, model: model, selected: selection == row.pullRequest.url, nested: true)
                                 }
@@ -187,7 +195,7 @@ struct PullRequestsTab: View {
 
     @ViewBuilder private var details: some View {
         if scope == .open, let task = model.state.tasks.first(where: { $0.id == selection }) {
-            TaskDetails(task: task, model: model) { path.append($0) }
+            TaskDetails(task: task, model: model) { open($0) }
         } else if let pr = selection.flatMap(model.yourPullRequest) {
             TaskPullRequestDetails(pr: pr, model: model) { open(pr.url) }
         } else {
@@ -199,7 +207,6 @@ struct PullRequestsTab: View {
         if let pr = model.yourPullRequest(id) {
             PullRequestMenu(pr: pr, model: model)
         } else if let task = model.state.tasks.first(where: { $0.id == id }) {
-            Button("Open Task") { open(id) }
             if let worker = task.worker { Button("Show \(worker.name) in iTerm") { model.show(jobId: worker.id) } }
             if task.origin == .ticket, let ticket = model.state.ticket(task.id) { Button("Open in Jira") { model.open(ticket.url) } }
         }
@@ -219,10 +226,6 @@ struct PullRequestsTab: View {
         return task.pullRequests.filter { $0.url != root?.url }.map { StackedPullRequest(pullRequest: $0, depth: depths[$0.url] ?? 0) }
     }
 
-    /// The row a PR of yours shows on: its own, or its task's, when the task is the PR.
-    private func row(of url: String) -> String {
-        model.state.tasks.first { Self.root(of: $0)?.url == url }?.id ?? url
-    }
 
     /// Your tasks by who they wait on, filtered by the search field: a task stays when its key or title matches, or one
     /// of its PRs does.
@@ -242,16 +245,11 @@ struct PullRequestsTab: View {
         model.state.recentlyMerged().filter { $0.matches(search: search) }
     }
 
-    /// Its page, with its row selected behind it for the way back: a task's, or a PR's.
+    /// A PR's page, with its row selected behind it for the way back. A task has no page: its details column is it.
     private func open(_ id: String) {
         selection = id
-        path.append(model.yourPullRequest(id) == nil ? .task(id) : .pr(id))
+        if model.yourPullRequest(id) != nil { path.append(.pr(id)) }
     }
-}
-
-extension EnvironmentValues {
-    /// Opens a page on the path of the screen it is shown on; nil where that screen does not offer it.
-    @Entry var taskOpenRoute: (@MainActor (Route) -> Void)? = nil
 }
 
 /// The tasks waiting on one party, under its label.
@@ -387,11 +385,7 @@ private struct TaskRow: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 HStack(spacing: 10) {
-                    if let root = PullRequestsTab.root(of: task) {
-                        PullRequestFacets(pr: root, rebase: model.state.rebaseReason(root))
-                    } else {
-                        StageChip2(text: TaskHeader.chip(task, asked: model.state.askedTasks), onTint: selected)
-                    }
+                    StageChip2(text: TaskHeader.chip(task, asked: model.state.askedTasks), onTint: selected)
                     // The PR rows' session marks' place, so the ages line up down the list.
                     Color.clear.frame(width: 14, height: 14)
                     AgeText(date: task.updatedAt)
@@ -682,11 +676,13 @@ private struct TicketMark: View {
 }
 
 /// The selected task in full: what it is and its ticket's first line, its PRs and where each stands, what it depends on,
-/// its worker and what that worker did, and the master's questions about it; at the foot, its page and the master.
+/// its worker and what that worker did, and the master's questions about it; at the foot, the master and its ticket.
+/// A task's only view: it has no page.
 private struct TaskDetails: View {
     var task: WorkTask
     var model: AppModel
-    var open: (Route) -> Void
+    /// Opens a PR's page, by url.
+    var open: (String) -> Void
 
     var body: some View {
         let ticket = task.origin == .ticket ? model.state.ticket(task.id) : nil
@@ -704,7 +700,7 @@ private struct TaskDetails: View {
                         RuledList(title: "Pull requests", count: task.pullRequests.count) {
                             ForEach(task.pullRequests, id: \.url) { pr in
                                 RuledRow {
-                                    Button { open(.pr(pr.url)) } label: {
+                                    Button { open(pr.url) } label: {
                                         HStack(spacing: 12) {
                                             Text(pr.taskRef).scaled(.code).lineLimit(1)
                                             Spacer(minLength: 8)
@@ -736,9 +732,8 @@ private struct TaskDetails: View {
             }
             .scrollIndicators(.never)
             HStack(spacing: 8) {
-                Button { open(.task(task.id)) } label: { HStack(spacing: 8) { Text("Open task"); ButtonKey(key: "↩") } }
-                    .buttonStyle(.desk(.primary, .large, wide: true))
-                Button("Master in iTerm") { model.openMaster() }.buttonStyle(.desk(.secondary, .large))
+                Button("Master in iTerm") { model.openMaster() }.buttonStyle(.desk(.primary, .large, wide: true))
+                if let ticket { Button("Open in Jira") { model.open(ticket.url) }.buttonStyle(.desk(.secondary, .large)) }
             }
         }
     }
@@ -792,8 +787,6 @@ struct TaskWorkerLine: View {
 struct TaskAskCallout: View {
     var ask: MasterAsk
     var model: AppModel
-    /// Tinted, where it is the page's one thing to act on.
-    var tinted = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -813,8 +806,7 @@ struct TaskAskCallout: View {
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(tinted ? Theme.tint : Theme.inset, in: RoundedRectangle(cornerRadius: 8))
-        .overlay { if tinted { RoundedRectangle(cornerRadius: 8).strokeBorder(Theme.tintLine) } }
+        .background(Theme.inset, in: RoundedRectangle(cornerRadius: 8))
     }
 }
 
@@ -916,7 +908,6 @@ struct PullRequestPage: View {
     /// The tab picked since it opened.
     @State private var picked: PullRequestTab?
     var onBack: () -> Void
-    @Environment(\.taskOpenRoute) private var openRoute
 
     /// Yours to rewrite while it is open; a review's description is the author's, so the Reviews page only reads it.
     private var description: some View {
@@ -964,7 +955,7 @@ struct PullRequestPage: View {
                 NextStepCard(pr: pr, session: model.state.session(for: pr), model: model)
                 TaskChecks(pr: pr, model: model)
             }
-            if let task { TaskOfPullRequest(task: task, model: model, open: openRoute) }
+            if let task { TaskOfPullRequest(task: task, model: model) }
             TaskJiraSection(pr: pr, model: model)
             AboutCard(pr: pr, model: model)
         }
@@ -999,10 +990,6 @@ private struct TaskOfPullRequest: View {
                 if let worker = task.worker {
                     Button("Show in iTerm") { model.show(jobId: worker.id) }.buttonStyle(.desk(.secondary, .small))
                         .help("Show \(worker.name)'s pane in iTerm")
-                }
-                if let open {
-                    Button("Open the task") { open(.task(task.id)) }
-                        .buttonStyle(.plain).underline().scaled(.secondary).foregroundStyle(Theme.quiet).handCursor()
                 }
             }
             .padding(.top, 10)

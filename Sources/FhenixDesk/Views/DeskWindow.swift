@@ -271,8 +271,6 @@ private struct AccountFooter: View {
 enum Route: Hashable {
     case pr(String)
     case ticket(String)
-    /// A task's page, by its id.
-    case task(String)
 }
 
 extension FocusedValues {
@@ -316,12 +314,6 @@ struct RoutePage: View {
             case .ticket(let key):
                 if let ticket = model.state.ticket(key) {
                     TicketPage(ticket: ticket, model: model, back: back, onBack: pop)
-                } else {
-                    gone
-                }
-            case .task(let id):
-                if let task = model.state.tasks.first(where: { $0.id == id }) {
-                    TaskPage(task: task, model: model, back: back, onBack: pop) { path.append($0) }
                 } else {
                     gone
                 }
