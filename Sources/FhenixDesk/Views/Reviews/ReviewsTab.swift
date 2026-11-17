@@ -414,7 +414,7 @@ private struct ReviewQueueRow: View {
                 Text(Format.sizeBucket(pr.size)).foregroundStyle(Theme.ink)
                     .padding(.horizontal, 5)
                     .background(on ? Theme.chipOn : Theme.chip, in: RoundedRectangle(cornerRadius: 4))
-                Text("+\(pr.additions) −\(pr.deletions)")
+                Text("\(Text("+\(pr.additions)").foregroundStyle(Theme.ok)) \(Text("−\(pr.deletions)").foregroundStyle(Theme.danger))")
             }
             .scaled(.code).foregroundStyle(Theme.quiet).lineLimit(1)
             .scaledFrame(width: 112, alignment: .leading)

@@ -612,7 +612,7 @@ struct DiffFileHeader: View {
                 Text(file.status == .modified ? "" : file.status.rawValue).scaled(.caption).foregroundStyle(Theme.quiet)
                 if folded, large { Text("Large diff: click to show").scaled(.caption).foregroundStyle(Theme.quiet) }
                 Spacer(minLength: 8)
-                Text("+\(file.additions) −\(file.deletions)").foregroundStyle(Theme.quiet)
+                Text("\(Text("+\(file.additions)").foregroundStyle(Theme.ok)) \(Text("−\(file.deletions)").foregroundStyle(Theme.danger))")
             }
             .font(mono)
             .padding(.horizontal, 12).padding(.vertical, 8)
