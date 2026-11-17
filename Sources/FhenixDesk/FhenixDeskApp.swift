@@ -115,7 +115,8 @@ private struct DeskRoot: View {
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     static var openDesk: (() -> Void)?
-    private var statusItem: NSStatusItem?
+    /// Read by the snapshot harness, which clicks its button with real mouse events.
+    private(set) var statusItem: NSStatusItem?
     private var model: AppModel?
     /// Read by the snapshot harness, which presses the item the way a click does.
     private(set) var popover: NSPopover?

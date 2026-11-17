@@ -5,10 +5,10 @@ import ScreenCaptureKit
 import SwiftUI
 
 /// Draws a PR's page, or its review diff at its first open thread, off screen into a PNG, with live data, as the app
-/// shows it: `FhenixDesk --snapshot <pr url> <out.png> [page|files|diff] [height] [dark] [running]`. `--snapshot window <tab>
-/// <out.png> [height] [dark]` draws the whole Desk window on one of its screens instead, and with `steps=` presses keys
-/// in it first; `--snapshot popover <prefix>` presses the menu bar item. For checking a view, and its keys, without
-/// driving the window. Debug builds only.
+/// shows it: `FhenixDesk --snapshot <pr url> <out.png> [page|files|diff] [height] [dark|light|system] [running]`.
+/// `--snapshot window <tab> <out.png> [height] [dark|light|system]` draws the whole Desk window on one of its screens
+/// instead, and with `steps=` presses keys in it first; `--snapshot popover <prefix>` clicks the menu bar item. For
+/// checking a view, and its keys, without driving the window. Debug builds only.
 @MainActor
 enum Snapshot {
     static func start(_ arguments: [String]) {
@@ -38,6 +38,7 @@ enum Snapshot {
         let height = arguments.count > 3 ? CGFloat(Double(arguments[3]) ?? 2400) : 2400
         appearance(arguments)
         let model = AppModel()
+        settings(model, arguments)
         appearance(arguments)
         var found: PullRequest?
         for _ in 0..<120 where found == nil {
@@ -76,13 +77,14 @@ enum Snapshot {
         let screen = arguments.first ?? ""
         let screens = ["settings", "setup", "master", "menubar"]
         guard arguments.count >= 2, screens.contains(screen) || DeskWindow.Tab(rawValue: screen) != nil else {
-            print("usage: --snapshot window <upNext|pullRequests|reviews|tickets|master|settings|setup|menubar> <out.png> [height] [dark|light] [open=<pr url>] [pane=<pane>] [step=<step>] [update=<current>,<latest>] [ghError=<text>] [asks=1] [steps=key:j;shot:<png>;report;wait:1]")
+            print("usage: --snapshot window <upNext|pullRequests|reviews|tickets|master|settings|setup|menubar> <out.png> [height] [dark|light|system] [accent=<hex>] [open=<pr url>] [pane=<pane>] [step=<step>] [update=<current>,<latest>] [ghError=<text>] [asks=1] [steps=key:j;shot:<png>;report;wait:1]")
             return
         }
         func value(_ name: String) -> String? { arguments.first { $0.hasPrefix("\(name)=") }.map { String($0.dropFirst(name.count + 1)) } }
         let height = arguments.count > 2 ? CGFloat(Double(arguments[2]) ?? 720) : 720
         appearance(arguments)
         let model = AppModel()
+        settings(model, arguments)
         appearance(arguments)
         model.showingSetup = false
         model.showingSettings = screen == "settings"
@@ -127,9 +129,9 @@ enum Snapshot {
         }
     }
 
-    /// The menu bar item's popover, pressed the way a click presses it: opened and drawn, closed by a second press,
-    /// opened by a third; a press just as it closes, as a click on the item makes, leaves it closed; one after that opens
-    /// it. Prints each state.
+    /// The menu bar item clicked four times with mouse events: the popover opens and is drawn, a click on the item while
+    /// it shows closes it (without opening it again on the release), and the next opens it and the last closes it.
+    /// Prints each state.
     private static func popover(_ prefix: String) async {
         let model = AppModel()
         for _ in 0..<120 where Set(model.state.lastRefresh.keys).union(model.state.errors.keys).count < Source.allCases.count {
@@ -138,33 +140,49 @@ enum Snapshot {
         let delegate = AppDelegate()
         delegate.installMenuBarItem(model: model)
         try? await Task.sleep(for: .seconds(1))
-        // A process that can't come forward over the user's apps never finishes a popover's animation, and AppKit holds
-        // the close until it does; a click on the item brings the app forward first.
+        // A click on the item, as AppKit gets one: a press and a release in the queue, so the popover's watch for clicks
+        // outside it sees the press, the button tracks it, and the release sends the button's action.
         func press() {
-            delegate.togglePopover()
+            guard let button = delegate.statusItem?.button, let window = button.window else { return print("no menu bar item") }
+            let point = button.convert(NSPoint(x: button.bounds.midX, y: button.bounds.midY), to: nil)
+            for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+                NSEvent.mouseEvent(
+                    with: type, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                    windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1,
+                    pressure: type == .leftMouseDown ? 1 : 0
+                ).map { NSApp.postEvent($0, atStart: false) }
+            }
+        }
+        // A process that can't come forward over the user's apps never finishes a popover's animation, and AppKit holds
+        // the close until it does; a real click brings the app forward first.
+        func settle() async {
+            try? await Task.sleep(for: .milliseconds(300))
             delegate.popover?.animates = false
+            try? await Task.sleep(for: .milliseconds(700))
         }
         func state(_ when: String) { print("\(when): \(delegate.popover?.isShown == true ? "open" : "closed")") }
         press()
-        try? await Task.sleep(for: .seconds(1))
-        state("a press")
+        await settle()
+        state("a click")
         if let view = delegate.popover?.contentViewController?.view.window?.contentView { write(layerImage(of: view), "\(prefix)-open.png") }
         press()
-        try? await Task.sleep(for: .seconds(1))
-        state("a second press")
+        await settle()
+        state("a second click, on the item while it shows")
         press()
-        try? await Task.sleep(for: .seconds(1))
-        state("a third press")
+        await settle()
+        state("a third click")
         press()
-        press()
-        try? await Task.sleep(for: .seconds(1))
-        state("a press just as it closed")
-        press()
-        try? await Task.sleep(for: .seconds(1))
-        state("a press a second later")
-        press()
-        try? await Task.sleep(for: .seconds(1))
-        state("and another")
+        await settle()
+        state("a fourth click")
+    }
+
+    /// `system`: Desk set to follow macOS, which a run passed `-AppleInterfaceStyle Dark` (or `Light`) takes for the
+    /// system's look; `accent=<hex>`: that accent. In memory only: the config on disk stays as it is.
+    private static func settings(_ model: AppModel, _ arguments: [String]) {
+        if arguments.contains("system") { model.config.appearance = .system }
+        let accent = arguments.first { $0.hasPrefix("accent=") }.flatMap { DeskConfig.validAccent(String($0.dropFirst(7))) }
+        if let accent { model.config.accent = accent }
+        if arguments.contains("system") || accent != nil { model.applyAppearance() }
     }
 
     private static func appearance(_ arguments: [String]) {
@@ -231,7 +249,8 @@ enum Snapshot {
         case "wait":
             try? await Task.sleep(for: .seconds(Double(argument) ?? 1))
         case "shot":
-            write(await grab(window, host: host, titled: titled), argument)
+            // Always the layer tree, so a run's captures compare with each other wherever the window is.
+            write(layerImage(of: titled ? window.contentView?.superview ?? host : host), argument)
         case "report":
             print(report?() ?? "report: none")
         default:

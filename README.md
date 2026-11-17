@@ -32,8 +32,10 @@ one screen: `upNext`, `pullRequests`, `reviews`, `tickets`, `master`, `settings`
 (`step=…`), or `menubar` (the popover alone); `open=<pr url or task id>` opens a page, `finder=<query>` opens Search,
 `asks=1` adds a sample question from the master. `steps=key:j;key:x;shot:<png>;report` presses keys in the window first
 (`j k x r m`, arrows, `return`, `space`, `escape`), drawing and printing the state between them; a review diff takes
-`running` for its session's panel as it shows while one runs. `--snapshot popover <prefix>` presses the menu bar item
-open, closed and open again, and draws the popover. Hover reads the real pointer, which none of these move.
+`running` for its session's panel as it shows while one runs. `system` sets Desk to follow macOS and `accent=#0F766E`
+picks an accent, in memory only; with `-NSRequiresAquaSystemAppearance YES` at the end, macOS gives the run only the
+light look. `--snapshot popover <prefix>` clicks the menu bar item with mouse events, open, closed and open again, and
+draws the popover. Hover reads the window server's pointer, which none of these move.
 `FhenixDesk --terminals status|sync|show <name>` drives the iTerm layout from the command line.
 
 ## Release
