@@ -14,7 +14,7 @@ struct DeskWindow: View {
         var title: String {
             switch self {
             case .upNext: return "Up Next"
-            case .pullRequests: return "Pull Requests"
+            case .pullRequests: return "Tasks"
             case .reviews: return "Reviews"
             case .tickets: return "Jira"
             }
@@ -222,7 +222,7 @@ struct DeskWindow: View {
         switch tab {
         case .upNext: return model.upNextCount(filters)
         case .tickets: return model.state.ticketGroups(tickets.placement, assignees: tickets.assignees).reduce(0) { $0 + $1.tickets.count }
-        case .pullRequests: return model.state.mine.count
+        case .pullRequests: return model.state.tasks.count
         case .reviews: return model.state.reviewQueue(.needsYou, days: filters.window, hiding: filters.hidden, needingApproval: filters.needsApproval).count
         }
     }

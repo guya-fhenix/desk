@@ -128,7 +128,7 @@ final class AppModel {
 
     /// What Up Next has waiting on you, inside the Reviews screen's filters, which Up Next's reviews follow.
     func upNextCount(_ filters: ReviewFilters) -> Int {
-        state.upNextCount(reviewDays: filters.window, hiding: filters.hidden, needingApproval: filters.needsApproval)
+        state.upNextCount(reviewDays: filters.window, hiding: filters.hidden, needingApproval: filters.needsApproval) + state.asks.count
     }
 
     /// The polls start first: reading the Jira account can wait out acli's whole timeout offline, and the window would
@@ -519,6 +519,15 @@ final class AppModel {
         landed = landed.filter { now.timeIntervalSince($0.value.at) < 600 }
         readied = readied.filter { now.timeIntervalSince($0.value) < 600 }
         state.apply(landed: landed.values.map(\.pr), readied: Set(readied.keys))
+    }
+
+    /// Turns a ready PR of yours back into a draft, shown as one at once. Why it failed, or nil.
+    func convertToDraft(_ pr: PullRequest) async -> String? {
+        let error = await perform(.github) { try await service.convertToDraft(pr) } patch: {
+            readied[pr.url] = nil
+            if let index = state.github?.mine.firstIndex(where: { $0.url == pr.url }) { state.github?.mine[index].isDraft = true }
+        }
+        return error.map { "Couldn't make it a draft: \($0)" }
     }
 
     /// Closes a PR from its page without merging it. Why it failed, or nil.
