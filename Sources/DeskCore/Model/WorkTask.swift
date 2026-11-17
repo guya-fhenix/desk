@@ -48,6 +48,8 @@ public struct WorkTask: Sendable, Identifiable, Hashable {
     public func waitingOn(asked: Set<String>) -> TaskWait {
         if asked.contains(id) || sessions.contains(where: \.isAsking) { return .you }
         if sessions.contains(where: \.isRunning) { return .worker }
+        // A PR of its yours to fix — a conflict, red CI, changes asked for, a thread open — is yours, whatever the stage.
+        if pullRequests.contains(where: { RowState.of($0).move == .yoursToFix }) { return .you }
         switch stage {
         case .inReview: return .reviewers
         case .draft, .approved: return .you
@@ -65,12 +67,14 @@ extension Linker {
     ///
     /// A PR belongs to the ticket it, or the root of its stack, names; else to the worker session that carries it and was
     /// started on no ticket; else to its stack's root PR. A session started on a ticket joins that ticket's task, with or
-    /// without a PR. Any other session is a task of its own when it is a worker, or runs in `trackedRoots`, and carries
+    /// without a PR. Any other session is a task of its own when it is a worker, or runs in `trackedRoots` or in one of
+    /// `repoRoots` itself (a session that spans the clones there; an untracked clone under one is not), and carries
     /// none of your PRs: the master and review sessions never are, and one that has sat done for `idleDays` drops off
     /// unless `keep` names it (the master still has a question open on it).
     public static func tasks(
         mine: [PullRequest], allOpen: [PullRequest], merged: [PullRequest], ticketKeys: [String: [String]], tickets: [Ticket],
-        sessions: [ClaudeJob], trackedRoots: [String] = [], keep: Set<String> = [], now: Date = Date(), idleDays: Double = 3
+        sessions: [ClaudeJob], trackedRoots: [String] = [], repoRoots: [String] = [], keep: Set<String> = [], now: Date = Date(),
+        idleDays: Double = 3
     ) -> [WorkTask] {
         let parents = stackParents(allOpen)
         let mineByURL = Dictionary(mine.map { ($0.url, $0) }, uniquingKeysWith: { first, _ in first })
@@ -120,7 +124,8 @@ extension Linker {
                 if !tasks[key]!.sessions.contains(session) { tasks[key]!.sessions.append(session) }
                 continue
             }
-            guard !carried.contains(session.id), session.role == .worker || ClaudePaths.path(session.cwd, isUnder: trackedRoots)
+            guard !carried.contains(session.id),
+                  session.role == .worker || ClaudePaths.isWork(session.cwd, clones: trackedRoots, roots: repoRoots)
             else { continue }
             let stale = session.isIdle && session.updatedAt < now.addingTimeInterval(-idleDays * 86_400)
             guard !stale || keep.contains(session.name) else { continue }

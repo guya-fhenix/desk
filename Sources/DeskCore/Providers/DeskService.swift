@@ -6,15 +6,20 @@ public enum DeskError: Error, CustomStringConvertible, Sendable {
     case jiraNotConfigured
     case jiraSignedOut
     case claudeNotFound
+    case tmuxNotFound
+    /// Opening the terminal app on the layout failed, and why, in a sentence.
+    case terminal(String)
     case sessionNotStarted(String)
 
     public var description: String {
         switch self {
+        case .tmuxNotFound: return "tmux not found. Install it with Homebrew (brew install tmux): the master and its workers run in its desk session."
         case .ghNotFound: return "gh CLI not found. Install it or set the path in Settings."
         case .jiraNotConfigured: return "acli not found. Install it or set its path in Settings → Jira."
         case .jiraSignedOut: return "Not signed in to Jira. Run `acli jira auth login --web` in a terminal, then press Recheck in Settings → Jira."
         case .claudeNotFound: return "claude CLI not found. Install it or set the path in Settings."
         case .sessionNotStarted(let output): return "claude --bg printed no session id: \(output.prefix(200))"
+        case .terminal(let why): return why
         }
     }
 }
@@ -94,22 +99,18 @@ public actor DeskService {
     public func cloneSlugs() async -> Set<String> { await git.cloneSlugs(roots: config.expandedRepoRoots) }
 
     /// Claude Code's background sessions on a PR or a ticket. Small local files, read with the git scan.
-    /// `keepIn`: the tracked clones, where a session with no PR or ticket is still a task.
+    /// `keepIn`: the tracked clones, where, as in your repo roots themselves, a session with no PR or ticket is still a
+    /// task.
     public func claudeJobs(keepIn: [String] = []) -> [ClaudeJob] {
-        ClaudeJobs.scan(tickets: TicketKeyMatcher(projectKeys: config.jiraProjectKeys), keepIn: keepIn)
+        ClaudeJobs.scan(tickets: TicketKeyMatcher(projectKeys: config.jiraProjectKeys), keepIn: keepIn, roots: config.expandedRepoRoots)
     }
 
     /// Your Claude plan's limits, for the sidebar. A local file too, read with the git scan.
     public func claudeLimits() -> [ClaudeLimit] { ClaudeLimits.read() }
 
-    /// Whether each clone's review sessions can start, and on which skill, by repo root. A few small files per repo.
-    public func reviewSkills(repos: [RepoRef]) async -> [String: ReviewSkill] {
-        var skills: [String: ReviewSkill] = [:]
-        for repo in repos where skills[repo.root] == nil {
-            skills[repo.root] = ClaudePlugins.reviewSkill(repoRoot: repo.root, pluginDir: config.pluginDir)
-        }
-        return skills
-    }
+    /// Whether review sessions can start, and on which skill: fhenix-workflow as installed for your user in the Claude
+    /// Code Desk runs, the same in every repo. A couple of small files.
+    public func reviewSkill() -> ReviewSkill { ClaudePlugins.reviewSkill(pluginDir: config.pluginDir) }
 
     /// The GitHub provider, or why there is none.
     private func gh() throws -> GitHubProvider {
@@ -152,6 +153,9 @@ public actor DeskService {
         return ClaudeJob(id: id, name: "master", state: "working", cwd: folder, prKeys: [], updatedAt: Date(), role: .master)
     }
 
+    /// Stops the master. Its workers run on; a new master picks them up from the graph.
+    public func stopMaster(_ id: String) async throws { try await claude().stop(id) }
+
     public func markReady(_ pr: PullRequest) async throws {
         try await gh().markReady(repo: pr.repo, number: pr.number)
     }
@@ -192,8 +196,8 @@ public actor DeskService {
         try await gh().close(repo: pr.repo, number: pr.number)
     }
 
-    public func squashMerge(_ pr: PullRequest) async throws {
-        try await gh().squashMerge(repo: pr.repo, number: pr.number, headSha: pr.headSha)
+    public func merge(_ pr: PullRequest, method: MergeMethod) async throws {
+        try await gh().merge(repo: pr.repo, number: pr.number, headSha: pr.headSha, method: method)
     }
 
     /// Your tickets, everyone else's in the projects, and the ones PRs name. Everyone else's backlog only with
@@ -232,6 +236,12 @@ public actor DeskService {
     public func editTicket(key: String, summary: String? = nil, description: String? = nil) async throws {
         guard let jira else { throw DeskError.jiraNotConfigured }
         try await jira.edit(key: key, summary: summary, description: description)
+    }
+
+    /// The project's statuses, for Setup and Settings to pick the three moves from.
+    public func jiraStatuses(project: String) async throws -> [JiraStatus] {
+        guard let jira else { throw DeskError.jiraNotConfigured }
+        return try await jira.statuses(project: project)
     }
 
     public func jiraProjectKeys() async throws -> [String] {

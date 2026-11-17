@@ -17,6 +17,8 @@ cp Resources/Info.plist "$APP/Contents/Info.plist"
 # The build number is the commit count, so every build of a version is told apart without editing the source plist.
 plutil -replace CFBundleVersion -string "$(git rev-list --count HEAD)" "$APP/Contents/Info.plist"
 cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
+# Instrument Sans and DM Mono, with their licences; the app registers them at launch.
+cp -R Resources/Fonts "$APP/Contents/Resources/Fonts"
 echo -n "APPL????" > "$APP/Contents/PkgInfo"
 # Notarization needs the hardened runtime and a secure timestamp. The runtime asks for no entitlements here: the app
 # only starts processes (gh, git, acli, claude, zsh) and a pty for the terminal, and loads no code at run time.

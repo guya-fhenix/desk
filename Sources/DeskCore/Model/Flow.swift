@@ -64,7 +64,6 @@ public enum RowState: Sendable, Equatable {
         case .changesRequested: return "Changes requested"
         case .readyToMerge: return "Ready to merge"
         case .draft(.notRun): return "Draft · not self-reviewed"
-        case .draft(.importantOpen): return "Draft · finding open"
         case .draft(.passed): return "Draft · self-reviewed"
         case .openThreads(let count): return count == 1 ? "1 open thread" : "\(count) open threads"
         case .waitingOnReview: return "Waiting on review"
@@ -81,12 +80,10 @@ public enum RowState: Sendable, Equatable {
     }
 }
 
-/// Where the self-review stands on your draft: passed (its `local-reviewed` label), or not. A finding left open shows only
-/// on a PR an older /pre-pr posted its evidence comment on; the self-review now keeps its findings in the worker's session.
+/// Whether the self-review passed on a PR: its `local-reviewed` label, the one thing it leaves on GitHub. Its findings
+/// stay in the worker's session.
 public enum PrePRStatus: Sendable, Equatable {
-    case notRun, passed, importantOpen
+    case notRun, passed
 
-    public static func of(_ pr: PullRequest) -> PrePRStatus {
-        pr.isLocallyReviewed ? .passed : pr.evidence == nil ? .notRun : .importantOpen
-    }
+    public static func of(_ pr: PullRequest) -> PrePRStatus { pr.isLocallyReviewed ? .passed : .notRun }
 }

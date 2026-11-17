@@ -4,7 +4,6 @@ import Testing
 
 /// The flow's stage is worked out from GitHub and the session alone: nothing of it is saved.
 @Suite struct FlowStageTests {
-    private static let evidence = "<!-- pre-pr:start -->\n## Testing\n- ok"
 
     private func session(
         _ state: String, prs: [PullRequest] = [], ticket: String? = nil, id: String = "aaaaaaaa", startedOn: [PullRequest] = []
@@ -16,11 +15,10 @@ import Testing
     }
 
     private func pr(
-        draft: Bool = false, evidence: String? = nil, threads: Int = 0, review: ReviewDecision = .reviewRequired,
+        draft: Bool = false, threads: Int = 0, review: ReviewDecision = .reviewRequired,
         gate: String? = nil, merged: Bool = false, checks: CheckState = .success, merge: MergeState = .blocked
     ) -> PullRequest {
         var pr = Fixtures.pr(number: 1, head: "h", merged: merged ? Fixtures.t0 : nil, checks: checks, review: review, merge: merge, draft: draft)
-        pr.evidence = evidence
         pr.unresolvedThreads = threads
         pr.approvalStatus = gate
         return pr
@@ -28,9 +26,8 @@ import Testing
 
     @Test func eachStageFromGitHub() {
         let cases: [(String, PullRequest, FlowStage)] = [
-            ("a draft, no evidence", pr(draft: true), .draft),
-            ("a draft with /pre-pr's evidence", pr(draft: true, evidence: Self.evidence), .draft),
-            ("a draft with evidence and threads left open", pr(draft: true, evidence: Self.evidence, threads: 2), .draft),
+            ("a draft", pr(draft: true), .draft),
+            ("a draft with threads left open", pr(draft: true, threads: 2), .draft),
             ("ready, nothing open, not approved", pr(), .inReview),
             ("ready with open threads", pr(threads: 2), .inReview),
             ("ready, approved by GitHub, no gate", pr(review: .approved), .approved),
@@ -69,14 +66,13 @@ import Testing
             ("in review, threads open", pr(threads: 2), .openThreads(2), .yoursToFix),
             ("a draft keeps its pill with threads open", pr(draft: true, threads: 1), .draft(.notRun), .draft),
             ("a draft /pre-pr has not run on", pr(draft: true), .draft(.notRun), .draft),
-            ("a draft /pre-pr left a finding open on", pr(draft: true, evidence: Self.evidence), .draft(.importantOpen), .draft),
             ("waiting on review", pr(), .waitingOnReview, .others),
         ]
         for (name, pr, state, move) in cases {
             #expect(RowState.of(pr) == state, "\(name)")
             #expect(RowState.of(pr).move == move, "\(name)")
         }
-        var passed = pr(draft: true, evidence: Self.evidence)
+        var passed = pr(draft: true)
         passed.labels = [PrePR.reviewedLabel]
         #expect(RowState.of(passed).title == "Draft · self-reviewed")
         #expect(RowState.openThreads(1).title == "1 open thread" && RowState.openThreads(3).title == "3 open threads")
@@ -112,7 +108,7 @@ import Testing
 
     @Test func sessionsPutPullRequestsAndTicketsInTheFlow() {
         var config = DeskConfig()
-        config.jiraProjectKeys = ["PRO"]
+        config.jiraProjectKey = "PRO"
         var state = DeskState(config: config)
         let mine = Fixtures.pr(number: 1, title: "PRO-1 the fix", head: "pro-1", draft: true)
         let other = Fixtures.pr(number: 2, head: "b")

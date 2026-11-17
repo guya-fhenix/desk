@@ -106,7 +106,7 @@ extension DeskService {
         """
     }
 
-    /// The arguments of the regular `claude` a review runs in the terminal panel. The allowed `showHelper` is what
+    /// The arguments of the regular `claude` a review runs in its own pane in iTerm. The allowed `showHelper` is what
     /// lets the session move the diff without asking each time; the prompt goes last, because `--allowedTools` takes
     /// every argument after it up to the next option.
     /// For a clone whose sessions have no `review-teammate-task` yet: one PR on `review-pr`, and the ticket it is for.

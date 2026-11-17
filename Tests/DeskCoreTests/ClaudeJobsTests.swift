@@ -82,7 +82,9 @@ import Testing
             {"state": "done", "name": "a question", "cwd": "/r/powershot/sub", "intent": "how does X work", "updatedAt": "2026-11-16T07:00:00Z"}
             """)
         try job(home, id: "dddddddd", body: #"{"state": "done", "name": "openclaw", "cwd": "/r/openclaw", "intent": "server"}"#)
+        try job(home, id: "eeeeeeee", body: #"{"state": "done", "name": "plan", "cwd": "/r", "intent": "a flow across repos"}"#)
 
+        #expect(ClaudeJobs.scan(home: home.path, keepIn: ["/r/powershot"], roots: ["/r"]).map(\.id).contains("eeeeeeee"))
         let jobs = ClaudeJobs.scan(home: home.path, keepIn: ["/r/powershot"])
         #expect(jobs.map(\.id) == ["aaaaaaaa", "bbbbbbbb", "cccccccc"])
         #expect(jobs.map(\.role) == [.master, .worker, .other])
@@ -142,18 +144,20 @@ import Testing
         #expect(ClaudeJobs.scan(home: "/nope/not/here").isEmpty)
     }
 
-    @Test func reviewSkillFollowsClaudeCodesSettingsOrderAndTheInstalledVersion() throws {
+    /// The plugin as installed for the user: turned on in the user's settings, the user-wide install's version and skills.
+    /// A repo's own install doesn't count.
+    @Test func reviewSkillIsTheUsersInstall() throws {
         let base = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: base) }
-        let (home, repo) = (base.appendingPathComponent("home").path, base.appendingPathComponent("repo").path)
+        let home = base.appendingPathComponent("home").path
         func write(_ path: String, _ text: String) throws {
             try FileManager.default.createDirectory(atPath: (path as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
             try text.write(toFile: path, atomically: true, encoding: .utf8)
         }
-        func skill() -> ReviewSkill.State { ClaudePlugins.reviewSkill(repoRoot: repo, home: home).state }
+        func skill() -> ReviewSkill.State { ClaudePlugins.reviewSkill(home: home).state }
 
         #expect(skill() == .notEnabled)
-        try write("\(repo)/.claude/settings.json", #"{"enabledPlugins": {"fhenix-workflow@fhenix": true}}"#)
+        try write("\(home)/settings.json", #"{"enabledPlugins": {"fhenix-workflow@fhenix": true}}"#)
         #expect(skill() == .notInstalled)
 
         let old = "\(home)/plugins/cache/fhenix/fhenix-workflow/0.7.0"
@@ -161,33 +165,34 @@ import Testing
         let new = "\(home)/plugins/cache/fhenix/fhenix-workflow/1.0.0"
         try write("\(mid)/skills/review-pr/SKILL.md", "---\nname: review-pr\n---\n")
         try write("\(new)/skills/review-teammate-task/SKILL.md", "---\nname: review-teammate-task\n---\n")
-        func installed(_ path: String, _ version: String, for project: String = repo) throws {
+        func installed(_ path: String, _ version: String, scope: String = "user") throws {
+            let project = scope == "user" ? "" : #", "projectPath": "/repo""#
             try write("\(home)/plugins/installed_plugins.json", """
                 {"version": 2, "plugins": {"fhenix-workflow@fhenix": [
-                  {"scope": "project", "projectPath": "\(project)", "installPath": "\(path)", "version": "\(version)"}]}}
+                  {"scope": "\(scope)"\(project), "installPath": "\(path)", "version": "\(version)"}]}}
                 """)
         }
         // No review skill at all: Start review stays off, and the note says what to get.
         try installed(old, "0.7.0")
-        let stale = ClaudePlugins.reviewSkill(repoRoot: repo, home: home)
+        let stale = ClaudePlugins.reviewSkill(home: home)
         #expect(stale == ReviewSkill(state: .noSkill, version: "0.7.0", missing: ["review-pr"]))
         #expect(stale.text == "fhenix-workflow 0.7.0 has no review-pr — update the plugin")
-        // Another repo's install does not count for this one.
-        try installed(new, "1.0.0", for: "/elsewhere")
+        // A repo's install is not the user's.
+        try installed(new, "1.0.0", scope: "project")
         #expect(skill() == .notInstalled)
         // review-pr: one PR at a time.
-        try installed(mid, "0.8.2", for: "\(repo)/")
-        let one = ClaudePlugins.reviewSkill(repoRoot: repo, home: home)
+        try installed(mid, "0.8.2")
+        let one = ClaudePlugins.reviewSkill(home: home)
         #expect(one == ReviewSkill(state: .ready, version: "0.8.2"))
         #expect(one.reviewSkill == "review-pr" && one.text == "fhenix-workflow 0.8.2 · review-pr")
         // review-teammate-task: any set of PRs, and nothing missing although review-pr is gone.
         try installed(new, "1.0.0")
-        let group = ClaudePlugins.reviewSkill(repoRoot: repo, home: home)
+        let group = ClaudePlugins.reviewSkill(home: home)
         #expect(group == ReviewSkill(state: .ready, version: "1.0.0", groupReview: true))
         #expect(group.text == "fhenix-workflow 1.0.0 · review-teammate-task")
 
-        // Local settings outrank the shared ones, the way they do in Claude Code.
-        try write("\(repo)/.claude/settings.local.json", #"{"enabledPlugins": {"fhenix-workflow@fhenix": false}}"#)
+        // Turned off in the user's settings.
+        try write("\(home)/settings.json", #"{"enabledPlugins": {"fhenix-workflow@fhenix": false}}"#)
         #expect(skill() == .notEnabled)
     }
 

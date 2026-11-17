@@ -120,6 +120,25 @@ public actor JiraProvider {
         return try await search(jql: "key in (\(keys.joined(separator: ","))) ORDER BY updated DESC", assignedToMe: false, placement: .unknown)
     }
 
+    /// The project's statuses, each with Jira's category, found one search at a time: an item in none of the statuses
+    /// found so far, until no item is left. acli has no call for a project's statuses, and reading every item would
+    /// fetch hundreds; this asks once per status and once more. A status no item has ever been in doesn't show.
+    public func statuses(project: String) async throws -> [JiraStatus] {
+        var found: [JiraStatus] = []
+        // A workflow has a handful; the cap ends a search that kept answering with a status it was told to leave out.
+        for _ in 0..<40 {
+            let left = found.isEmpty ? "" : " AND status not in (\(found.map { JiraDecoding.quoted($0.name) }.joined(separator: ", ")))"
+            let data = try await acli(
+                ["jira", "workitem", "search", "--jql", "project = \(JiraDecoding.quoted(project))\(left)",
+                 "--fields", "status", "--limit", "1", "--json"],
+                timeout: Self.searchTimeout
+            )
+            guard let status = try JiraDecoding.firstStatus(from: data), !found.contains(status) else { break }
+            found.append(status)
+        }
+        return JiraStatus.ordered(found)
+    }
+
     public func projectKeys() async throws -> [String] {
         let data = try await acli(["jira", "project", "list", "--paginate", "--json"])
         return try JiraDecoding.projectKeys(from: data)
@@ -187,6 +206,25 @@ public enum JiraDecoding {
         } catch {
             throw JiraError.badOutput("\(error)")
         }
+    }
+
+    /// The status of the first item of a search's JSON, or nil for none; acli prints nothing at all for no items.
+    public static func firstStatus(from data: Data) throws -> JiraStatus? {
+        guard !data.allSatisfy({ $0 == 0x20 || $0 == 0x0A || $0 == 0x0D || $0 == 0x09 }) else { return nil }
+        struct Item: Decodable { var fields: StatusFields }
+        struct StatusFields: Decodable { var status: Status }
+        do {
+            return try JSONDecoder().decode([Item].self, from: data).first.map {
+                JiraStatus(name: $0.fields.status.name, category: .init(key: $0.fields.status.statusCategory.key))
+            }
+        } catch {
+            throw JiraError.badOutput("\(error)")
+        }
+    }
+
+    /// A name as a JQL string: in double quotes, with a quote or backslash in it escaped.
+    public static func quoted(_ text: String) -> String {
+        "\"" + text.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"") + "\""
     }
 
     public static func projectKeys(from data: Data) throws -> [String] {

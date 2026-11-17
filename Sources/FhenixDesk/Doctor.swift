@@ -34,8 +34,7 @@ enum Doctor {
             print("  \(pad(worktree.repoName, 18)) \(pad(worktree.branch ?? "(detached)", 44)) \(flags.joined(separator: " "))")
         }
         for error in scan.errors { print("  error: \(error)") }
-        state.reviewSkills = await service.reviewSkills(repos: scan.repos)
-        for repo in scan.repos { print("  \(pad(repo.name, 18)) skills: \(state.reviewSkills[repo.root]?.text ?? "?")") }
+        print("  fhenix-workflow, for your user: \(await service.reviewSkill().text)")
 
         section("GitHub")
         do {
@@ -105,6 +104,16 @@ enum Doctor {
             if !task.dependsOn.isEmpty { print("      depends on \(task.dependsOn.joined(separator: ", "))") }
         }
 
+        section("Terminals")
+        if let path = Shell.which("tmux") {
+            let tmux = Tmux(path: path)
+            let panes = (try? await tmux.panes()) ?? []
+            print("tmux \(path)  app: \(config.terminalApp.rawValue)  session \(TmuxLayout.session): \(await tmux.hasSession() ? "\(panes.count) panes, \(await tmux.clients()) terminal(s) attached" : "not made yet: Show in iTerm makes it")")
+            for pane in panes { print("  \(pad(pane.paneId, 6)) \(pad(pane.window, 18)) \(pane.index)  \(pane.key.isEmpty ? "(not Desk's)" : pane.key)") }
+            print("the \(TmuxLayout.window) window: \(TmuxLayout.panes(master: state.master).map(\.name).joined(separator: " | "))")
+        } else {
+            print("tmux not found: brew install tmux")
+        }
         section("Waiting on your review (\(state.reviewsToDo.count))")
         if state.reviewsToDo.isEmpty { print("  nothing asked of you") }
         for pr in state.reviewsToDo {

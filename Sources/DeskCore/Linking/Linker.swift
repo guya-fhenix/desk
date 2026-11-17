@@ -49,6 +49,22 @@ public enum Linker {
         return depth
     }
 
+    /// Each PR's place in the stacks among these PRs: how many of the PRs it is built on, one on another, are here too.
+    /// A PR whose parent isn't among them is 0, a root of what shows.
+    public static func depths(_ pullRequests: [PullRequest], parents: [String: String]) -> [String: Int] {
+        let urls = Set(pullRequests.map(\.url))
+        return Dictionary(pullRequests.map { pr in
+            var depth = 0
+            var current = pr.url
+            var seen: Set<String> = [pr.url]
+            while let parent = parents[current], urls.contains(parent), seen.insert(parent).inserted {
+                depth += 1
+                current = parent
+            }
+            return (pr.url, depth)
+        }, uniquingKeysWith: { first, _ in first })
+    }
+
     /// Orders PRs so every stack is contiguous: stacks sorted by comparing their roots, each child indented
     /// beneath its parent by number. A PR whose parent is not in the list is a root; the caller notes the parent.
     public static func stacked(

@@ -9,9 +9,14 @@ enum Entry {
         // write fails with EPIPE instead and the command's own result says what happened.
         signal(SIGPIPE, SIG_IGN)
         let arguments = CommandLine.arguments
+        AppFonts.register()
         if arguments.contains("--doctor") {
             setvbuf(stdout, nil, _IOLBF, 0)
             await Doctor.run()
+            return
+        }
+        if let index = arguments.firstIndex(of: "--terminals") {
+            TerminalsCommand.start(Array(arguments.dropFirst(index + 1)))
             return
         }
         #if DEBUG

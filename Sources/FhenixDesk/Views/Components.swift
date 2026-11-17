@@ -9,31 +9,16 @@ struct Chip: View {
     var spinning = false
 
     var body: some View {
+        let tone = Theme.tone(color)
         HStack(spacing: 5) {
-            if spinning { ProgressView().controlSize(.mini).tint(color) }
+            if spinning { ProgressView().controlSize(.mini).tint(tone) }
             Text(text)
         }
-            .scaled(.secondary)
-            .padding(.horizontal, Theme.Space.s)
-            .padding(.vertical, Theme.Space.xs / 2)
-            .background(color.opacity(0.18), in: RoundedRectangle(cornerRadius: 4))
-            .foregroundStyle(color)
-    }
-}
-
-/// Whether a repo's sessions can run the team review skill: a green seal, or an orange warning that says why
-/// not. `showsText` spells it out where there is room for it.
-struct ReviewSkillMark: View {
-    var skill: ReviewSkill
-    var showsText = false
-
-    var body: some View {
-        HStack(spacing: 4) {
-            Image(systemName: skill.isReady ? "checkmark.seal.fill" : "exclamationmark.triangle.fill")
-                .foregroundStyle(skill.isReady ? Color.green : .orange)
-            if showsText { Text(skill.text).scaled(.caption).foregroundStyle(.secondary) }
-        }
-        .help(skill.text)
+            .scaled(.caption.weight(.medium))
+            .padding(.horizontal, 6)
+            .padding(.vertical, 1)
+            .background(color == .secondary ? Theme.chip : tone.opacity(0.14), in: RoundedRectangle(cornerRadius: 4))
+            .foregroundStyle(color == .secondary ? Theme.ink : tone)
     }
 }
 
@@ -56,18 +41,17 @@ struct StatePill: View {
 
     var body: some View {
         let color: Color = switch state.move {
-        case .yoursToFix: .red
-        case .yoursToMerge: .green
-        case .others: .blue
-        case .draft: .secondary
+        case .yoursToFix: Theme.danger
+        case .yoursToMerge: Theme.ok
+        case .others: Theme.accentInk
+        case .draft: Theme.quiet
         }
         Text(state.title)
-            .scaled(.secondary.weight(.semibold))
-            .foregroundStyle(color)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 3)
-            .background(color.opacity(0.12), in: Capsule())
-            .overlay(Capsule().strokeBorder(color.opacity(0.45)))
+            .scaled(.caption.weight(.medium))
+            .foregroundStyle(state.move == .draft ? Theme.ink : color)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 1)
+            .background(state.move == .draft ? Theme.chip : color.opacity(0.14), in: RoundedRectangle(cornerRadius: 4))
             .fixedSize()
     }
 }
@@ -90,15 +74,30 @@ struct ChecksPill: View {
     var pr: PullRequest
 
     var body: some View {
-        HStack(spacing: 6) {
+        // The app's status chip, tinted as the checks went, beside the review's own chips.
+        HStack(spacing: 5) {
             ChecksBadge(pr: pr).accessibilityHidden(true)
             Text(sentence)
             if pr.checkCount > 0 {
-                Text("·  \(pr.checkCount) \(pr.checkCount == 1 ? "check" : "checks")").foregroundStyle(.secondary)
+                Text("· \(pr.checkCount) \(pr.checkCount == 1 ? "check" : "checks")").opacity(0.75)
             }
         }
-        .pill()
+        .scaled(.caption.weight(.medium))
+        .foregroundStyle(tone ?? Theme.ink)
+        .padding(.horizontal, 6)
+        .padding(.vertical, 1)
+        .background(tone.map { $0.opacity(0.14) } ?? Theme.chip, in: RoundedRectangle(cornerRadius: 4))
+        .fixedSize()
         .accessibilityElement(children: .combine)
+    }
+
+    private var tone: Color? {
+        switch pr.checks {
+        case .success: return Theme.ok
+        case .failure, .error: return Theme.danger
+        case .pending, .expected: return Theme.warn
+        case .none: return nil
+        }
     }
 
     private var sentence: String {
@@ -116,10 +115,10 @@ struct ChecksBadge: View {
 
     var body: some View {
         switch pr.checks {
-        case .success: Image(systemName: "checkmark.circle.fill").foregroundStyle(.green).help("Checks passed").accessibilityLabel("Checks passed")
-        case .failure, .error: Image(systemName: "xmark.circle.fill").foregroundStyle(.red).help("Checks failed").accessibilityLabel("Checks failed")
-        case .pending, .expected: Image(systemName: "clock.fill").foregroundStyle(.orange).help("Checks running").accessibilityLabel("Checks running")
-        case .none: Image(systemName: "minus.circle").foregroundStyle(.secondary).help("No checks").accessibilityLabel("No checks")
+        case .success: Image(systemName: "checkmark.circle.fill").foregroundStyle(Theme.ok).help("Checks passed").accessibilityLabel("Checks passed")
+        case .failure, .error: Image(systemName: "xmark.circle.fill").foregroundStyle(Theme.danger).help("Checks failed").accessibilityLabel("Checks failed")
+        case .pending, .expected: Image(systemName: "clock.fill").foregroundStyle(Theme.warn).help("Checks running").accessibilityLabel("Checks running")
+        case .none: Image(systemName: "minus.circle").foregroundStyle(Theme.quiet).help("No checks").accessibilityLabel("No checks")
         }
     }
 }
@@ -172,10 +171,10 @@ struct DiffStat: View {
     var body: some View {
         HStack(spacing: 4) {
             Text(Format.sizeBucket(pr.size))
-            Text("+\(pr.additions)").foregroundStyle(.green)
-            Text("−\(pr.deletions)").foregroundStyle(.red)
+            Text("+\(pr.additions)").foregroundStyle(Theme.ok)
+            Text("−\(pr.deletions)").foregroundStyle(Theme.danger)
         }
-        .scaled(.caption)
+        .scaled(.code)
         .monospacedDigit()
     }
 }
@@ -237,7 +236,7 @@ struct PullRequestMenu: View {
         if pr.state != .merged {
             Divider()
             if let job = model.state.claudeJobs(for: pr).first {
-                Button("Attach to Session") { model.attach(job, for: pr) }
+                Button("Show Session in iTerm") { model.show(jobId: job.id) }
             }
         }
     }
@@ -278,7 +277,7 @@ struct StaleBanner: View {
     var body: some View {
         if let error = model.state.errors[source] {
             HStack(spacing: 8) {
-                Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Theme.warn)
                 Text("Out of date: \(error)").scaled(.caption).lineLimit(1).truncationMode(.tail).help(error)
                 Spacer(minLength: 8)
                 Button("Retry") { Task { await model.refresh(source) } }.controlSize(.small)
@@ -307,7 +306,9 @@ struct ReviewStatusChip: View {
                 Chip(text: "Draft · \(comments)", color: .blue)
                     .help("Your pending review on GitHub: \(comments) \(comments == 1 ? "comment" : "comments"). Only you can see it.")
             case .submitted(let state):
-                Chip(text: Self.submittedTitle(state), color: .green).help("Your latest review on GitHub")
+                // The verdict's colour, as GitHub shows it: approved green, changes requested red, a comment grey.
+                Chip(text: Self.submittedTitle(state), color: state == .approved ? .green : state == .changesRequested ? .red : .secondary)
+                    .help("Your latest review on GitHub")
             case nil:
                 EmptyView()
             }
@@ -347,22 +348,22 @@ struct ClaudeSessionButton: View {
         if jobs.count > 1, let newest = jobs.first {
             Menu {
                 ForEach(jobs) { job in
-                    Button("\(job.name) — \(job.status)") { model.attach(job, for: pr) }
+                    Button("\(job.name) — \(job.status)") { model.show(jobId: job.id) }
                 }
             } label: {
-                Label { Text("Attach") } icon: { icon("terminal.fill", newest.isRunning ? .green : .accentColor) }
+                Label { Text("Show in iTerm") } icon: { icon("terminal.fill", newest.isRunning ? .green : .accentColor) }
             }
             .menuIndicator(.hidden).fixedSize()
             .sessionStyle(prominent, menu: true)
             .labelStyle(.titleAndIcon)
             .help(failure ?? "\(jobs.count) background sessions on this PR")
         } else if let job = jobs.first {
-            Button { model.attach(job, for: pr) } label: {
-                Label { Text("Attach") } icon: { icon("terminal.fill", job.isRunning ? .green : .accentColor) }
+            Button { model.show(jobId: job.id) } label: {
+                Label { Text("Show in iTerm") } icon: { icon("terminal.fill", job.isRunning ? .green : .accentColor) }
             }
             .sessionStyle(prominent)
             .labelStyle(.titleAndIcon)
-            .help(failure ?? "Attach to “\(job.name)” (\(job.status)) in Desk’s terminal panel")
+            .help(failure ?? "Show “\(job.name)” (\(job.status)) in its pane in iTerm")
         }
     }
 
@@ -785,13 +786,15 @@ struct EditableDescription<Rendered: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Space.s) {
             HStack {
-                Text("Description").scaled(.secondary.weight(.medium)).foregroundStyle(.secondary)
+                SectionLabel("Description")
                 Spacer()
                 if !editing {
-                    Button("Edit", action: start)
-                        .controlSize(.small)
-                        .disabled(!editable)
-                        .help(editable ? editHelp : lockedHelp)
+                    Button(action: start) {
+                        Label("Edit", systemImage: "pencil").labelStyle(.titleAndIcon)
+                    }
+                    .buttonStyle(.desk(.secondary, .small))
+                    .disabled(!editable)
+                    .help(editable ? editHelp : lockedHelp)
                 }
             }
             if editing {
@@ -803,21 +806,21 @@ struct EditableDescription<Rendered: View>: View {
                     // first click and jumps taller, which carries Cancel out from under that very click.
                     .frame(height: 400)
                     .padding(8)
-                    .background(Theme.raised, in: RoundedRectangle(cornerRadius: 8))
-                    .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Theme.accent, lineWidth: 1.5))
+                    .background(Theme.surface, in: RoundedRectangle(cornerRadius: 8))
+                    .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Theme.accentInk, lineWidth: 1.5))
                 HStack(spacing: 8) {
                     // Verbatim: the hint shows the syntax, so it must not be rendered as markdown itself.
                     Text(verbatim: "Markdown: # headings, - lists, **bold**, `code`, [links](https://…)")
                         .scaled(.caption.monospaced()).foregroundStyle(.secondary)
                     Spacer()
                     if saving { ProgressView().controlSize(.small) }
-                    Button("Cancel", action: cancel).keyboardShortcut(.cancelAction).disabled(saving)
+                    Button("Cancel", action: cancel).buttonStyle(.desk(.secondary, .small)).keyboardShortcut(.cancelAction).disabled(saving)
                     Button("Save", action: commit)
-                        .buttonStyle(.borderedProminent)
+                        .buttonStyle(.desk(.primary, .small))
                         .keyboardShortcut(.return, modifiers: .command)
                         .disabled(saving || draft == text)
                 }
-                if let error { Text(error).scaled(.caption).foregroundStyle(.red).textSelection(.enabled) }
+                if let error { Text(error).scaled(.caption).foregroundStyle(Theme.danger).textSelection(.enabled) }
             } else {
                 rendered
             }
@@ -852,6 +855,16 @@ struct EditableDescription<Rendered: View>: View {
 }
 
 /// GitHub's mark, from its SVG outline; a template, so it takes the text colour.
+/// "Open on GitHub" with GitHub's mark, on every button that goes there.
+struct OpenOnGitHubLabel: View {
+    var body: some View {
+        HStack(spacing: 6) {
+            GitHubMark()
+            Text("Open on GitHub")
+        }
+    }
+}
+
 struct GitHubMark: View {
     var body: some View {
         Image(nsImage: Self.mark).resizable().scaledToFit().frame(width: 14, height: 14)
@@ -910,20 +923,20 @@ struct SessionStatus: View {
                 if jobs.count > 1 {
                     Menu {
                         ForEach(jobs) { job in
-                            Button("Attach to \(job.name) — \(job.status)") { model.attach(job, for: pr) }
+                            Button("Show \(job.name) — \(job.status) in iTerm") { model.show(jobId: job.id) }
                         }
                     } label: {
                         label
                     } primaryAction: {
-                        model.attach(newest, for: pr)
+                        model.show(jobId: newest.id)
                     }
                     .menuStyle(.button)
                 } else {
-                    Button { model.attach(newest, for: pr) } label: { label }
+                    Button { model.show(jobId: newest.id) } label: { label }
                 }
             }
             .fixedSize()
-            .help("“\(newest.name)”, \(newest.status). Click to attach it in Desk’s terminal panel"
+            .help("“\(newest.name)”, \(newest.status). Click to show it in its pane in iTerm"
                 + (jobs.count > 1 ? "; the arrow lists the other sessions on this PR" : ""))
         } else {
             ClaudeSessionButton(pr: pr, model: model, prominent: true).fixedSize()

@@ -305,13 +305,10 @@ public enum GitHubQueries {
     /// The open threads are only counted here.
     public static let searchQuery = searchQuery(threads: "reviewThreads(last: 100) { totalCount nodes { isResolved } }")
 
-    /// Your own PRs' search: each thread in full, for the PR page's list, and the comments the /pre-pr evidence is one
-    /// of. /pre-pr edits its one evidence comment in place, and posts it while the PR is a draft, so it is early on.
-    /// ponytail: the first 50 comments; read the evidence by REST if a PR ever has more before it.
+    /// Your own PRs' search: each thread in full, for the PR page's list.
     public static let mineSearchQuery = searchQuery(threads: """
       reviewThreads(last: 100) { totalCount nodes { id isResolved isOutdated path line originalLine
         comments(first: 1) { totalCount nodes { author { __typename login } body url } } } }
-      comments(first: 50) { nodes { author { __typename login } body } }
       """)
 
     private static func searchQuery(threads: String) -> String {
@@ -541,11 +538,6 @@ public enum GitHubDecoding {
                     comments: thread.comments?.totalCount ?? 1
                 )
             },
-            // The author's, as the review gate reads it: anyone can paste the marker into a comment.
-            evidence: node.comments?.nodes.last { comment in
-                comment.author?.name == node.author?.name
-                    && comment.body.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix(PrePR.evidenceMarker)
-            }?.body,
             approvalStatus: commit?.status?.context.map { $0.description ?? "" }
         )
     }
@@ -726,14 +718,6 @@ public enum GitHubDecoding {
         var timelineItems: Timeline
         var reviewThreads: ReviewThreads?
         var labels: Labels?
-        /// The PR's conversation, your own PRs' only.
-        var comments: IssueComments?
-    }
-
-    private struct IssueComments: Decodable { var nodes: [IssueComment] }
-    private struct IssueComment: Decodable {
-        var author: Login?
-        var body: String
     }
 
     private struct Labels: Decodable { var nodes: [Label] }

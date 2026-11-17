@@ -36,10 +36,12 @@ extension GitHubProvider {
         try await Shell.output(ghPath, ["pr", "close", String(number), "--repo", repo], run: run)
     }
 
-    /// Always a squash: one commit per PR on the base branch. Only of `headSha`, the head you saw: a commit pushed
-    /// since, by a session or anyone, makes GitHub refuse it rather than squash in what nobody looked at.
-    public func squashMerge(repo: String, number: Int, headSha: String) async throws {
-        try await Shell.output(ghPath, ["pr", "merge", String(number), "--repo", repo, "--squash", "--match-head-commit", headSha], run: run)
+    /// Merges a PR the way you picked, a squash unless you chose otherwise. Only of `headSha`, the head you saw: a
+    /// commit pushed since, by a session or anyone, makes GitHub refuse it rather than merge in what nobody looked at.
+    public func merge(repo: String, number: Int, headSha: String, method: MergeMethod) async throws {
+        try await Shell.output(
+            ghPath, ["pr", "merge", String(number), "--repo", repo, "--\(method.rawValue)", "--match-head-commit", headSha], run: run
+        )
     }
 
     /// Replies in a review thread.

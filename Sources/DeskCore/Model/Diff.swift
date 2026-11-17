@@ -78,6 +78,52 @@ extension Array where Element == DiffRow {
     }
 }
 
+/// One row of a side-by-side diff: a hunk's header, or the old file's line on the left beside the new file's on the
+/// right. An unchanged line is on both sides; a side with no line, where one file has more lines than the other, is nil.
+public enum SplitRow: Sendable, Hashable {
+    case hunk(String)
+    case pair(left: DiffLine?, right: DiffLine?)
+}
+
+extension Array where Element == DiffRow {
+    /// These rows side by side, paired as GitHub's split view pairs them: an unchanged line on both sides, and each run
+    /// of removed lines beside the added lines that follow it, one for one, the longer run's rest beside nothing.
+    public var split: [SplitRow] {
+        var rows: [SplitRow] = []
+        var removed: [DiffLine] = []
+        var added: [DiffLine] = []
+        func pairUp() {
+            for index in 0..<Swift.max(removed.count, added.count) {
+                rows.append(.pair(left: removed.indices.contains(index) ? removed[index] : nil,
+                                  right: added.indices.contains(index) ? added[index] : nil))
+            }
+            removed = []
+            added = []
+        }
+        for row in self {
+            switch row {
+            case .hunk(let header):
+                pairUp()
+                rows.append(.hunk(header))
+            case .line(let line):
+                switch line.kind {
+                case .removed:
+                    // A removed line after added ones starts a run of its own.
+                    if !added.isEmpty { pairUp() }
+                    removed.append(line)
+                case .added:
+                    added.append(line)
+                case .context:
+                    pairUp()
+                    rows.append(.pair(left: line, right: line))
+                }
+            }
+        }
+        pairUp()
+        return rows
+    }
+}
+
 public struct DiffFile: Sendable, Hashable, Identifiable {
     public var id: String { path }
     /// The new path; for a deletion the old one, because that is the only one there is.

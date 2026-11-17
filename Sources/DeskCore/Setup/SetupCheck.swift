@@ -18,9 +18,9 @@ public struct SetupFix: Sendable, Hashable {
 /// Each is read off the tool itself, every time; Desk keeps none of it.
 public struct SetupCheck: Identifiable, Sendable, Equatable {
     public enum Kind: String, CaseIterable, Sendable {
-        case homebrew, commandLineTools, gh, acli, claude, github, jira, claudeAccount, workflowPlugin
+        case homebrew, commandLineTools, gh, acli, claude, tmux, github, jira, claudeAccount, workflowPlugin
 
-        public static let tools: [Kind] = [.homebrew, .commandLineTools, .gh, .acli, .claude]
+        public static let tools: [Kind] = [.homebrew, .commandLineTools, .gh, .acli, .claude, .tmux]
         public static let accounts: [Kind] = [.github, .jira, .claudeAccount, .workflowPlugin]
 
         public var title: String {
@@ -30,6 +30,7 @@ public struct SetupCheck: Identifiable, Sendable, Equatable {
             case .gh: return "GitHub CLI (gh)"
             case .acli: return "Atlassian CLI (acli)"
             case .claude: return "Claude Code"
+            case .tmux: return "tmux and iTerm2"
             case .github: return "GitHub"
             case .jira: return "Jira"
             case .claudeAccount: return "Claude"
@@ -48,6 +49,7 @@ public struct SetupCheck: Identifiable, Sendable, Equatable {
             case .gh: return "Required: every pull request comes through gh."
             case .acli: return "Jira tickets and the ticket sync stay off."
             case .claude: return "No sessions: the master, its workers and review sessions stay off."
+            case .tmux: return "The master and its workers show in iTerm through tmux; without tmux, Show in iTerm stays off."
             case .github: return "Required: gh must be signed in, with the read:org scope, to list the org's pull requests."
             case .jira: return "Jira tickets and the ticket sync stay off."
             case .claudeAccount: return "Sessions cannot start."
@@ -146,6 +148,8 @@ public enum Setup {
             return await tool(kind, config.resolvedAcliPath, install: "brew install atlassian/acli/acli")
         case .claude:
             return await tool(kind, config.resolvedClaudePath, install: "curl -fsSL https://claude.ai/install.sh | bash")
+        case .tmux:
+            return await terminal(config: config)
         case .github:
             guard let gh = config.resolvedGhPath else { return SetupCheck(kind, ok: false, detail: "Install the GitHub CLI first.") }
             // Exits 1 when nobody is signed in, with the JSON still on stdout.
@@ -170,6 +174,19 @@ public enum Setup {
                 installed: FileManager.default.contents(atPath: "\(home)/plugins/installed_plugins.json")
             )
         }
+    }
+
+    /// tmux, which holds the master's layout, and the terminal app that shows it: iTerm2 by default, Terminal.app when
+    /// Settings says so. tmux missing is the failure; iTerm2 missing says the panes open in Terminal instead.
+    private static func terminal(config: DeskConfig) async -> SetupCheck {
+        guard let tmux = Shell.which("tmux") else {
+            return SetupCheck(.tmux, ok: false, detail: "tmux isn't installed.", fixes: [SetupFix("Install", "brew install tmux")])
+        }
+        let version = (try? await Shell.output(tmux, ["-V"], timeout: 10))?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "tmux"
+        let iTerm = FileManager.default.fileExists(atPath: "/Applications/iTerm.app")
+        let shows = config.terminalApp == .terminal ? "shown in Terminal" : iTerm ? "shown in iTerm2" : "iTerm2 isn't installed: set Terminal in Settings → Master"
+        let fixes = config.terminalApp == .iTerm && !iTerm ? [SetupFix("Install iTerm2", "brew install --cask iterm2")] : []
+        return SetupCheck(.tmux, ok: config.terminalApp == .terminal || iTerm, detail: "\(version) · \(shows)", fixes: fixes)
     }
 
     /// A tool on disk: its version and where it is, or the command that installs it.
@@ -250,8 +267,8 @@ public enum Setup {
         return status.email ?? ""
     }
 
-    /// Installed anywhere, user-wide or for one repo, is enough here: Fhenix repos turn the plugin on in their own
-    /// settings, and Settings → Repos says per repo whether it is there. An install with no review skill, neither
+    /// Installed for your user, in the Claude Code Desk runs: the master, its workers and review sessions need it in
+    /// every repo they work in, so one repo's install doesn't count. An install with no review skill, neither
     /// review-teammate-task (1.0) nor review-pr (0.8), is flagged: Start review stays off.
     public static func workflowPlugin(marketplaces: Data?, installed: Data?) -> SetupCheck {
         let known = (marketplaces.flatMap { try? JSONSerialization.jsonObject(with: $0) } as? [String: Any]) ?? [:]
@@ -259,7 +276,8 @@ public enum Setup {
             ((value as? [String: Any])?["source"] as? [String: Any])?["repo"].map { "\($0)".lowercased() } == marketplace.lowercased()
         }?.key
         let plugins = ((installed.flatMap { try? JSONSerialization.jsonObject(with: $0) } as? [String: Any])?["plugins"] as? [String: Any]) ?? [:]
-        let records = plugins.filter { $0.key.hasPrefix("\(ClaudePlugins.plugin)@") }.values.flatMap { ($0 as? [[String: Any]]) ?? [] }
+        let all = plugins.filter { $0.key.hasPrefix("\(ClaudePlugins.plugin)@") }.values.flatMap { ($0 as? [[String: Any]]) ?? [] }
+        let records = all.filter { $0["scope"] as? String == "user" }
         let versions = records.compactMap { $0["version"] as? String }
         if !versions.isEmpty {
             let detail = "\(ClaudePlugins.plugin) \(Array(Set(versions)).sorted().joined(separator: ", "))"
@@ -274,8 +292,9 @@ public enum Setup {
             }
             return SetupCheck(.workflowPlugin, ok: true, detail: detail)
         }
-        let install = "claude plugin install \(ClaudePlugins.plugin)@\(name ?? "fhenix")"
-        return SetupCheck(.workflowPlugin, ok: false, detail: "Not installed.",
+        let install = "claude plugin install \(ClaudePlugins.plugin)@\(name ?? "fhenix") --scope user"
+        let detail = all.isEmpty ? "Not installed." : "Installed only in \(all.count) repo\(all.count == 1 ? "" : "s"); Desk's sessions need it for your user."
+        return SetupCheck(.workflowPlugin, ok: false, detail: detail,
                           fixes: [SetupFix("Install", name == nil ? "claude plugin marketplace add \(marketplace) && \(install)" : install)])
     }
 }

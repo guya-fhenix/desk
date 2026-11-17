@@ -16,6 +16,20 @@ import Testing
         #expect(Linker.stackDepth(top.url, parents: parents) == 2)
     }
 
+    /// Depth counts only the parents among the PRs shown: the stack's top is 2 under its root, 0 when its parent is not
+    /// there, and a cycle ends rather than loops.
+    @Test func depthsCountParentsAmongThePullRequestsShown() {
+        let root = Fixtures.pr(number: 1, head: "a", base: "master")
+        let middle = Fixtures.pr(number: 2, head: "b", base: "a")
+        let top = Fixtures.pr(number: 3, head: "c", base: "b")
+        let parents = Linker.stackParents([root, middle, top])
+        #expect(Linker.depths([root, middle, top], parents: parents) == [root.url: 0, middle.url: 1, top.url: 2])
+        #expect(Linker.depths([root, top], parents: parents) == [root.url: 0, top.url: 0])
+        #expect(Linker.depths([middle, top], parents: parents) == [middle.url: 0, top.url: 1])
+        let loop = [root.url: top.url, top.url: root.url]
+        #expect(Linker.depths([root, top], parents: loop)[root.url] == 1)
+    }
+
     /// A fork's `master` and a release PR from the default branch only share a name with the branch others merge into.
     @Test func forkAndDefaultBranchPullRequestsAreNobodysParent() {
         let feature = Fixtures.pr(number: 1, head: "feature", base: "master")

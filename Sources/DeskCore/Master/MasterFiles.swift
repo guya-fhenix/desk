@@ -153,6 +153,14 @@ public struct MasterFolder: Sendable {
         try (lines.suffix(keeping).joined(separator: "\n") + "\n").write(to: target, atomically: true, encoding: .utf8)
     }
 
+    /// The last `limit` events Desk told the master, newest first. A line that doesn't read is skipped.
+    public func events(limit: Int = 20) -> [MasterEvent] {
+        guard let text = try? String(contentsOf: file("events.jsonl"), encoding: .utf8) else { return [] }
+        let decoder = JSON.decoder()
+        return text.split(separator: "\n").suffix(limit * 2).compactMap { try? decoder.decode(MasterEvent.self, from: Data($0.utf8)) }
+            .suffix(limit).reversed()
+    }
+
     /// The master's open questions. A file it has not written yet, or one it is halfway through writing, reads as none.
     public func asks() -> [MasterAsk] {
         struct File: Decodable { var asks: [MasterAsk] }

@@ -2,7 +2,8 @@
 
 A macOS menu bar app that tracks the Fhenix development cycle (Jira tickets, pull requests, reviews and Claude Code
 sessions), with a master session you talk to that runs a worker session per task, from a ticket or an
-investigation to its merge. How it works: [docs/GUIDE.md](docs/GUIDE.md).
+investigation to its merge. The master and its workers run in iTerm2, in panes of a tmux session Desk keeps in step;
+Desk is the board, in Nightshift's Instrument look, light or dark. How it works: [docs/GUIDE.md](docs/GUIDE.md).
 
 ## Install
 
@@ -10,8 +11,8 @@ investigation to its merge. How it works: [docs/GUIDE.md](docs/GUIDE.md).
    **Fhenix Desk** onto Applications.
 2. A notarized release opens normally. If macOS says it cannot check the app for malicious software, that release is
    an ad-hoc build: run `xattr -dr com.apple.quarantine "/Applications/Fhenix Desk.app"` once, then open it.
-3. On first launch, Setup checks the tools Desk drives (git, `gh`, `acli`, Claude Code and the `fhenix-workflow`
-   plugin), installs what is missing, signs you in and walks the settings it needs. Settings → General runs it again.
+3. On first launch, Setup checks the tools Desk drives (git, `gh`, `acli`, Claude Code, tmux and iTerm2, and the
+   `fhenix-workflow` plugin), installs what is missing, signs you in and walks the settings it needs. Settings → General runs it again.
 
 Needs macOS 15 on Apple Silicon.
 
@@ -26,8 +27,21 @@ make install  # quit a running Desk, build the .app into ~/Applications and open
 
 To check a view without driving the window, a debug build draws a PR's page, or its review diff at its first thread,
 with live data into a PNG: `.build/debug/FhenixDesk --snapshot <pr url> <out.png> [page|diff] [height] [dark|light]`.
-`--snapshot window <tab> <out.png> [height] [dark|light]` draws the whole window, sidebar included, on one screen:
-`upNext`, `pullRequests`, `reviews`, `tickets` or `settings`.
+`--snapshot window <screen> <out.png> [height] [dark|light]` draws the whole window, 1440 wide, sidebar included, on
+one screen: `upNext`, `pullRequests`, `reviews`, `tickets`, `master`, `settings` (`pane=appearance` …), `setup`
+(`step=…`), or `menubar` (the popover alone); `open=<pr url or task id>` opens a page, `finder=<query>` opens Search,
+`asks=1` adds a sample question from the master. `steps=key:j;key:x;move:700,338;shot:<png>;report` presses keys in the
+window first (`j k x r m`, arrows, `return`, `space`, `escape`) and moves the pointer for hover (`move:x,y` from the
+window's top left), drawing and printing the state between them. `split` draws the real split view, whose sidebar
+comes out blank off screen, and the `layout` step then says whether the screen fits the window's height; `frames:<prefix>:<n>`
+draws n frames 50 ms apart; `scroll:<points>` and `wheel:<points>:<events>` (a trackpad's swipe) scroll the tallest
+scroll view and time it; `tab=files` opens a PR's page on Files changed, and `diff=split` lays it side by side. Everything is drawn in-process, never captured
+from the screen, so no run asks for Screen Recording. A review diff takes
+`running` for its session's panel as it shows while one runs. `system` sets Desk to follow macOS and `accent=#0F766E`
+picks an accent, in memory only; with `-NSRequiresAquaSystemAppearance YES` at the end, macOS gives the run only the
+light look. `--snapshot popover <prefix>` clicks the menu bar item with mouse events, open, closed and open again, and
+draws the popover.
+`FhenixDesk --terminals status|sync|show <name>` drives the iTerm layout from the command line.
 
 ## Release
 

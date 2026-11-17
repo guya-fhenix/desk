@@ -8,7 +8,6 @@ struct DeskWindow: View {
     enum Tab: String, CaseIterable, Identifiable {
         case upNext, pullRequests, reviews, tickets
 
-        /// The row tag must be the same type as the selection binding, or clicks never select.
         var id: Tab { self }
 
         var title: String {
@@ -19,21 +18,6 @@ struct DeskWindow: View {
             case .tickets: return "Jira"
             }
         }
-
-        var icon: String {
-            switch self {
-            case .upNext: return "tray"
-            case .pullRequests: return "arrow.triangle.pull"
-            case .reviews: return "bubble.left.and.text.bubble.right"
-            case .tickets: return SidebarIcon.jira
-            }
-        }
-    }
-
-    /// What the sidebar has chosen: a tab, or Settings beside the sidebar.
-    private enum Choice: Hashable {
-        case tab(Tab)
-        case settings
     }
 
     @Environment(AppModel.self) private var model
@@ -44,50 +28,34 @@ struct DeskWindow: View {
     /// the first folded it away, put back when the last goes.
     @State private var reviewDiffs = 0
     @State private var columnsBeforeReview = NavigationSplitViewVisibility.all
-    /// The terminal panel's width as last dragged; 400 to start, which beside the sidebar and a screen at its floor is all
-    /// the default window has.
-    @AppStorage("terminal.width") private var terminalWidth: Double = 400
-    /// The detail column's width, which bounds how wide the panel can be dragged.
-    @State private var detailWidth: CGFloat = 0
-    private static let screenMinimum: CGFloat = 480
-    private static let terminalMinimum: CGFloat = 360
     private var filters = ReviewFilters()
     private var tickets = TicketFilters()
 
+    /// Snapshots set this: the sidebar beside the screen in a plain row, since the split view's sidebar column draws
+    /// nothing off screen.
+    nonisolated(unsafe) static var flat = false
+    /// Snapshots set this: the text scale is theirs to give (`scale=`), not the screen's the off-screen window is near.
+    nonisolated(unsafe) static var followsScreen = true
+
     var body: some View {
-        // The sidebar stays while Settings is open, with Settings chosen in it, so you never lose your place.
-        // Setup takes the sidebar's place, its toggle gone with it, but keeps the terminal panel, where its installs and
-        // sign-ins run.
-        NavigationSplitView(columnVisibility: model.showingSetup ? .constant(.detailOnly) : $columns) {
-            sidebar
-        } detail: {
-            // The terminal panel on the right, when it has a tab and is not hidden; the divider between drags. A tab's
-            // pages show inside the detail too, in place of its list, so the panel stays beside them. An HStack, not an
-            // HSplitView: inside the split view's detail an HSplitView took its width from the sidebar, squeezing it
-            // below its own minimum and cutting its labels.
-            let terminal = model.terminals.visible && !model.terminals.tabs.isEmpty
-            let widest = max(detailWidth - Self.screenMinimum - 1, Self.terminalMinimum)
-            let width = min(max(terminalWidth, Self.terminalMinimum), widest)
-            HStack(spacing: 0) {
-                Group { if model.showingSetup { SetupView() } else if model.showingSettings { SettingsView() } else { screen } }
-                    .frame(minWidth: Self.screenMinimum, maxWidth: .infinity, maxHeight: .infinity)
-                if terminal, !model.terminals.expanded {
-                    PanelDivider(width: $terminalWidth, shown: width, range: Self.terminalMinimum...widest)
-                    // The panel's room; the panel itself is laid over it, below.
-                    Color.clear.frame(width: width)
+        // The sidebar stays while Settings or the Master screen is open, so you never lose your place. Setup takes the
+        // sidebar's place, its toggle gone with it.
+        Group {
+            if Self.flat {
+                HStack(spacing: 0) {
+                    if !model.showingSetup {
+                        sidebar.frame(width: Theme.sidebarWidth * model.textScale)
+                        Rectangle().fill(Theme.rule).frame(width: 1)
+                    }
+                    detail
+                }
+            } else {
+                NavigationSplitView(columnVisibility: model.showingSetup ? .constant(.detailOnly) : $columns) {
+                    sidebar
+                } detail: {
+                    detail
                 }
             }
-            // One panel, laid over the right of the column: its room beside the screen, or, expanded, the whole column,
-            // covering the screen so the screen keeps its place underneath. Only its width changes, never where it sits:
-            // two panels, one beside and one over, handed the tab's view between them, and collapsing left it in neither.
-            .overlay(alignment: .trailing) {
-                if terminal {
-                    TerminalPanelView(panel: model.terminals)
-                        .frame(width: model.terminals.expanded ? nil : width)
-                }
-            }
-            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { detailWidth = $0 }
-            .background(Theme.background.ignoresSafeArea())
         }
         .environment(\.reviewRoom, reviewRoom)
         // Each screen's header says where you are.
@@ -96,54 +64,103 @@ struct DeskWindow: View {
         // image, and its text comes out soft.
         .overlay { if model.showingFinder { FinderView() } }
         .appFont()
+        // A wider screen, larger text: the scale follows the screen the window is on.
+        .environment(\.textScale, model.textScale)
+        .background(ScreenReader { screen in
+            guard Self.followsScreen else { return }
+            let scale = CGFloat(ScreenTextScale.scale(forWidth: Double(screen.frame.width)))
+            if model.textScale != scale { model.textScale = scale }
+        })
+        .foregroundStyle(Theme.ink)
+        .tint(Theme.accent)
+        // The accent is read as a colour draws: a new one rebuilds the window.
+        .id(model.config.accent)
         // A regular app while the window shows, so ⌘-Tab and the Dock can bring it back.
         .onAppear { NSApp.setActivationPolicy(.regular) }
         // The menu bar and the nudges ask for a tab by setting this; clearing it keeps it a one-shot.
         .onChange(of: model.pendingTab, initial: true) { _, requested in
             guard let requested else { return }
-            tab = requested
-            model.showingSettings = false
-            model.terminals.expanded = false
+            choose(requested)
             model.pendingTab = nil
         }
         .onDisappear { NSApp.setActivationPolicy(.accessory) }
     }
 
-    /// Search, which opens over the window rather than being chosen, the tabs with their counts, and Settings; the master
-    /// session and the sync status pinned under them.
+    private var detail: some View {
+        Group {
+            if model.showingSetup { SetupView() }
+            else if model.showingSettings { SettingsView() }
+            else if model.showingMaster { MasterScreen() }
+            else { screen }
+        }
+        // No minimum height: the split view sizes itself to its columns' minimum, worked out at their narrowest, where a
+        // page's title squeezed by its buttons wraps a word to a line. That came out taller than the window, and the page
+        // drifted up under its top edge. Each screen fills the height it gets and scrolls within it.
+        .frame(minWidth: 640, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
+        .background(Theme.ground.ignoresSafeArea())
+    }
+
+    /// Instrument's sidebar: the app's mark, Search, the four screens with their counts, and pinned under them the
+    /// master, the sync status and your accounts, which open Settings.
     private var sidebar: some View {
-        List(selection: choice) {
+        VStack(alignment: .leading, spacing: 18) {
+            HStack(spacing: 8) {
+                AppMark()
+                Text("Fhenix Desk").scaled(.body.weight(.semibold))
+            }
+            .frame(height: 32)
+            .padding(.horizontal, 8)
             Button { model.showingFinder = true } label: {
-                HStack(spacing: Theme.Space.s) {
-                    Label("Search", systemImage: "magnifyingglass")
-                    Spacer(minLength: Theme.Space.xs)
-                    HStack(spacing: 3) {
-                        KeyCap(key: "⌘")
-                        KeyCap(key: "K")
-                    }
+                HStack(spacing: 8) {
+                    Image(systemName: "magnifyingglass").font(.system(size: 12, weight: .medium))
+                    Text("Search")
+                    Spacer(minLength: 4)
+                    Text("⌘K").scaled(.caption.monospaced())
                 }
+                .foregroundStyle(Theme.quiet)
+                .padding(.horizontal, 8)
+                .frame(height: 30)
+                .background(Theme.surface, in: RoundedRectangle(cornerRadius: 6))
+                .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Theme.ruleStrong))
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            ForEach(Tab.allCases) { item in
-                Label { Text(item.title) } icon: { SidebarIcon(name: item.icon) }
-                    .badge(badge(for: item))
-                    .tag(Choice.tab(item))
+            .accessibilityLabel("Search, ⌘K")
+            VStack(spacing: 1) {
+                ForEach(Tab.allCases) { item in navItem(item) }
             }
-            Label("Settings", systemImage: "gearshape").tag(Choice.settings)
-        }
-        .listStyle(.sidebar)
-        .safeAreaInset(edge: .bottom) {
-            VStack(spacing: Theme.Space.s) {
+            Spacer(minLength: 0)
+            VStack(spacing: 10) {
                 UpdateNotice()
                 MasterStatus()
                 SidebarStatus()
+                AccountFooter(selected: model.showingSettings) {
+                    model.showingMaster = false
+                    model.showingSettings = true
+                }
             }
-            .padding(.horizontal, Theme.Space.s).padding(.bottom, Theme.Space.m)
         }
+        .padding(EdgeInsets(top: 18, leading: 10, bottom: 14, trailing: 10))
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(Theme.panel.ignoresSafeArea())
         .toolbar(removing: model.showingSetup ? .sidebarToggle : nil)
         // Outermost, or the split view does not see it.
-        .navigationSplitViewColumnWidth(min: 200, ideal: Theme.sidebarWidth, max: 320)
+        .navigationSplitViewColumnWidth(min: 212 * model.textScale, ideal: Theme.sidebarWidth * model.textScale, max: 300 * model.textScale)
+    }
+
+    private func navItem(_ item: Tab) -> some View {
+        let selected = !model.showingSettings && !model.showingMaster && tab == item
+        let dot = item == .pullRequests && workersAtWork
+        return NavItem(title: item.title, count: badge(for: item), dot: dot, selected: selected) { choose(item) }
+    }
+
+    /// Whether a task's worker is at work: the dot beside Tasks.
+    private var workersAtWork: Bool { model.state.tasks.contains { $0.worker?.isRunning == true } }
+
+    private func choose(_ item: Tab) {
+        tab = item
+        model.showingSettings = false
+        model.showingMaster = false
     }
 
     /// A review diff wants the window's width for its code: the first on screen folds the sidebar away, the last to go
@@ -161,22 +178,6 @@ struct DeskWindow: View {
         }
     }
 
-    private var choice: Binding<Choice?> {
-        Binding {
-            model.showingSettings ? .settings : .tab(tab)
-        } set: { choice in
-            // A screen chosen while the terminal is expanded over it shows; the terminal goes back beside it.
-            if choice != nil { model.terminals.expanded = false }
-            switch choice {
-            case .tab(let item):
-                tab = item
-                model.showingSettings = false
-            case .settings: model.showingSettings = true
-            case nil: break
-            }
-        }
-    }
-
     @ViewBuilder private var screen: some View {
         switch tab {
         case .upNext: UpNextTab()
@@ -186,9 +187,8 @@ struct DeskWindow: View {
         }
     }
 
-    /// The badge counts the rows the screen opens on: Up Next the rows it lists, Pull Requests every open PR of yours,
-    /// drafts too, as its Open tab lists them, Reviews its Needs you scope inside its filters — not the PRs you reviewed
-    /// that wait on their authors — and Jira the tickets in its placement and assignee filter.
+    /// The count beside each screen: Up Next the rows it lists, Tasks the open tasks, Reviews its Needs you scope inside
+    /// its filters, and Jira the tickets in its placement and assignee filter.
     private func badge(for tab: Tab) -> Int {
         switch tab {
         case .upNext: return model.upNextCount(filters)
@@ -199,11 +199,77 @@ struct DeskWindow: View {
     }
 }
 
-/// A page a tab opens over its list: a PR's, by url, or a ticket's, by key. Each tab keeps a path of these, so Back,
-/// ⌘[ and ← return to the list with its row still selected.
+/// The app's mark: an F on the accent, the way Nightshift marks a workspace.
+struct AppMark: View {
+    var size: CGFloat = 20
+
+    var body: some View {
+        Text("F").font(.custom(AppFonts.sans, fixedSize: size * 0.55).weight(.semibold)).foregroundStyle(.white)
+            .frame(width: size, height: size)
+            .background(Theme.accent, in: RoundedRectangle(cornerRadius: size / 4))
+            .accessibilityHidden(true)
+    }
+}
+
+/// One screen in the sidebar: its name, and its count in DM Mono, with a dot before it when something there is at work.
+private struct NavItem: View {
+    var title: String
+    var count: Int
+    var dot = false
+    var selected: Bool
+    var action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack {
+                Text(title).scaled(selected ? .body.weight(.medium) : .body)
+                Spacer(minLength: 4)
+                if dot { Circle().fill(Theme.accentInk).frame(width: 6, height: 6) }
+                if count > 0 { Text("\(count)").scaled(.caption.monospaced()).foregroundStyle(selected ? Theme.ink : Theme.quiet) }
+            }
+            .padding(.horizontal, 8)
+            .frame(height: 30)
+            .background(selected ? Theme.selected : .clear, in: RoundedRectangle(cornerRadius: 6))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(selected ? [.isSelected] : [])
+        .accessibilityValue(count > 0 ? "\(count)" : "")
+    }
+}
+
+/// Under a hairline at the sidebar's foot: who you are on GitHub and the way to Settings. An account not signed in shows
+/// in the sync detail.
+private struct AccountFooter: View {
+    @Environment(AppModel.self) private var model
+    var selected: Bool
+    var action: () -> Void
+
+    var body: some View {
+        let login = model.state.login
+        Button(action: action) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(login.isEmpty ? "Not signed in to GitHub" : login).foregroundStyle(Theme.ink).fontWeight(.medium)
+                Text("Settings ⌘,")
+            }
+            .scaled(.secondary)
+            .foregroundStyle(Theme.quiet)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(EdgeInsets(top: 10, leading: 8, bottom: selected ? 8 : 0, trailing: 8))
+            .background(selected ? Theme.selected : .clear, in: UnevenRoundedRectangle(bottomLeadingRadius: 6, bottomTrailingRadius: 6))
+            .overlay(alignment: .top) { Rectangle().fill(Theme.ruleStrong).frame(height: 1) }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Settings")
+    }
+
+}
+
+/// A page a tab opens over its list: a PR's, by url. Each tab keeps a path of these, so Back, ⌘[ and ← return to the
+/// list with its row still selected. A task and a ticket have none: their details column is them.
 enum Route: Hashable {
     case pr(String)
-    case ticket(String)
 }
 
 extension FocusedValues {
@@ -216,42 +282,7 @@ extension EnvironmentValues {
     @Entry var reviewRoom: @MainActor (Bool) -> Void = { _ in }
 }
 
-/// The page a route opens: your PR's own page, someone else's PR as the review queue shows it — its diff while you
-/// review it — or a ticket's. The PR is looked up among every open one, not only the screen's rows: one you just
-/// reviewed may leave a filtered list. Keyed by the route, so nothing typed on one page carries over to the next.
-/// The line between a screen and the terminal panel, which drags to set the panel's width: a hairline drawn, a wider strip
-/// to grab, and the column-resize pointer over it.
-private struct PanelDivider: View {
-    @Binding var width: Double
-    /// The width the panel shows at, after the window's bounds: where a drag starts from.
-    var shown: CGFloat
-    var range: ClosedRange<CGFloat>
-    @State private var start: CGFloat?
-
-    var body: some View {
-        Rectangle().fill(Theme.line).frame(width: 1)
-            .frame(maxHeight: .infinity)
-            .overlay {
-                Color.clear.frame(width: 9).contentShape(Rectangle())
-                    .pointerStyle(.columnResize)
-                    .gesture(
-                        DragGesture(minimumDistance: 1, coordinateSpace: .global)
-                            .onChanged { drag in
-                                let from = start ?? shown
-                                start = from
-                                // Dragged left, the panel grows.
-                                width = Double(min(max(from - drag.translation.width, range.lowerBound), range.upperBound))
-                            }
-                            .onEnded { _ in start = nil }
-                    )
-            }
-            .accessibilityHidden(true)
-    }
-}
-
-/// A tab's list, or the page on top of its path in place of it. Not a `NavigationStack`: inside the split view's detail,
-/// a stack's pages are pushed onto the detail column whole, out from under the terminal panel beside the list, so a
-/// session opened from a PR's page showed only once you went back to the list.
+/// A tab's list, or the page on top of its path in place of it.
 struct RouteStack<Root: View>: View {
     @Binding var path: [Route]
     /// The tab, which a page's back link names.
@@ -267,6 +298,8 @@ struct RouteStack<Root: View>: View {
     }
 }
 
+/// The page a route opens: your PR's own page, someone else's PR as the review queue shows it — its diff while you
+/// review it — or a ticket's. Keyed by the route, so nothing typed on one page carries over to the next.
 struct RoutePage: View {
     var route: Route
     /// The tab it opened on, which the back link names.
@@ -277,12 +310,6 @@ struct RoutePage: View {
     var body: some View {
         Group {
             switch route {
-            case .ticket(let key):
-                if let ticket = model.state.ticket(key) {
-                    TicketPage(ticket: ticket, model: model, back: back, onBack: pop)
-                } else {
-                    gone
-                }
             case .pr(let url):
                 if let pr = model.yourPullRequest(url) {
                     PullRequestPage(pr: pr, model: model, back: back, onBack: pop)

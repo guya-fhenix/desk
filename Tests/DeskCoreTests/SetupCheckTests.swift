@@ -112,19 +112,29 @@ import Testing
         #expect(Setup.claudeAccount(from: Data("not json".utf8)) == nil)
     }
 
-    @Test func findsTheWorkflowPluginInAnyScope() throws {
+    /// The user's install, not a repo's: Desk's sessions need the plugin in every repo they run in.
+    @Test func findsTheWorkflowPluginForTheUser() throws {
         let marketplaces = Data(#"{"fhenix":{"source":{"source":"github","repo":"FhenixProtocol/claude-marketplace"}}}"#.utf8)
         let new = FileManager.default.temporaryDirectory.appending(path: "desk-plugin-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: new) }
         try FileManager.default.createDirectory(at: new.appending(path: "skills/review-pr"), withIntermediateDirectories: true)
         try Data().write(to: new.appending(path: "skills/review-pr/SKILL.md"))
         let installed = Data(#"""
-        {"plugins":{"fhenix-workflow@fhenix":[{"scope":"project","version":"0.8.1","installPath":"\#(new.path)"},
+        {"plugins":{"fhenix-workflow@fhenix":[{"scope":"user","version":"0.8.1","installPath":"\#(new.path)"},
           {"scope":"project","version":"0.7.0","installPath":"/nonexistent"}]}}
         """#.utf8)
         let found = Setup.workflowPlugin(marketplaces: marketplaces, installed: installed)
         #expect(found.ok)
-        #expect(found.detail == "fhenix-workflow 0.7.0, 0.8.1")
+        #expect(found.detail == "fhenix-workflow 0.8.1")
+        // Only in repos: not enough, and the fix installs it for the user.
+        let repos = Data(#"""
+        {"plugins":{"fhenix-workflow@fhenix":[{"scope":"project","version":"0.8.1","installPath":"\#(new.path)"},
+          {"scope":"project","version":"0.8.1","installPath":"\#(new.path)"}]}}
+        """#.utf8)
+        let inRepos = Setup.workflowPlugin(marketplaces: marketplaces, installed: repos)
+        #expect(!inRepos.ok)
+        #expect(inRepos.detail == "Installed only in 2 repos; Desk's sessions need it for your user.")
+        #expect(inRepos.fixes.first?.command == "claude plugin install fhenix-workflow@fhenix --scope user")
         // Installed, but no install has a review skill: Start review stays off, so it is flagged.
         let old = Data(#"{"plugins":{"fhenix-workflow@fhenix":[{"scope":"user","version":"0.7.0","installPath":"/nonexistent"}]}}"#.utf8)
         let stale = Setup.workflowPlugin(marketplaces: marketplaces, installed: old)
@@ -138,7 +148,8 @@ import Testing
         let current = Data(#"{"plugins":{"fhenix-workflow@fhenix":[{"scope":"user","version":"1.0.0","installPath":"\#(group.path)"}]}}"#.utf8)
         #expect(Setup.workflowPlugin(marketplaces: marketplaces, installed: current).ok)
         // Marketplace known: install from it by its local name. Unknown: add it first.
-        #expect(Setup.workflowPlugin(marketplaces: marketplaces, installed: nil).fixes.first?.command == "claude plugin install fhenix-workflow@fhenix")
+        #expect(Setup.workflowPlugin(marketplaces: marketplaces, installed: nil).fixes.first?.command
+            == "claude plugin install fhenix-workflow@fhenix --scope user")
         #expect(Setup.workflowPlugin(marketplaces: nil, installed: nil).fixes.first?.command.hasPrefix("claude plugin marketplace add FhenixProtocol/claude-marketplace && ") == true)
     }
 }

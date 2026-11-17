@@ -41,7 +41,7 @@ import Testing
         #expect(pr.pendingReview == PendingReview(id: "PRR_1", commitId: "abc", comments: 4))
     }
 
-    /// Your own PR's search: its open threads in full, the author's /pre-pr evidence comment, and the review gate's words.
+    /// Your own PR's search: its open threads in full, and the review gate's words.
     @Test func decodesThreadsEvidenceAndTheApprovalsStatus() throws {
         let json = """
         {"data":{"search":{"nodes":[{"number":7,"title":"t","url":"https://github.com/o/r/pull/7","isDraft":true,"createdAt":"2026-08-27T11:12:21Z",
@@ -69,7 +69,6 @@ import Testing
             author: "coderabbitai[bot]", body: "**Minor** · x", comments: 3
         )])
         #expect(pr.threads.first?.source == .codeRabbit)
-        #expect(pr.evidence == "<!-- pre-pr:start -->\n## Testing\n- ok")
         #expect(pr.approvalStatus == "medium risk: 0 of 1 approvals on the latest commit")
         #expect(pr.approvalGate?.state == .counted(have: 0, needed: 1))
     }
@@ -84,7 +83,7 @@ import Testing
         let pr = try #require(GitHubDecoding.pullRequests(from: Data(json.utf8)).prs.first)
         #expect(pr.unresolvedThreads == 0)
         // No gate status: a repo without the review flow.
-        #expect(pr.threads.isEmpty && pr.evidence == nil && pr.approvalStatus == nil)
+        #expect(pr.threads.isEmpty && pr.approvalStatus == nil)
     }
 
     @Test func reviewDecisionFallsBackToReviewsAndRulesets() throws {
@@ -158,6 +157,21 @@ import Testing
     }
 
     /// Your own PRs' search decides the snapshot; another search that fails keeps its last list, and the snapshot says why.
+    /// A merge goes out the way you picked, and only of the head you saw.
+    @Test func aMergeIsTheMethodYouPickedOfTheHeadYouSaw() async throws {
+        let calls = Calls()
+        let gh = GitHubProvider(ghPath: "/gh", org: "o") { _, arguments, _, _, _, _ in
+            _ = await calls.add(arguments.joined(separator: " "))
+            return .ok("")
+        }
+        for method in MergeMethod.allCases { try await gh.merge(repo: "o/r", number: 7, headSha: "abc", method: method) }
+        #expect(await calls.list == [
+            "pr merge 7 --repo o/r --squash --match-head-commit abc",
+            "pr merge 7 --repo o/r --merge --match-head-commit abc",
+            "pr merge 7 --repo o/r --rebase --match-head-commit abc",
+        ])
+    }
+
     @Test func aFailedSearchKeepsItsLastListAndYoursAlone() async throws {
         @Sendable func search(_ number: Int) -> ShellResult {
             .ok(#"""

@@ -63,8 +63,9 @@ public struct DeskState: Sendable {
     public var claudeJobs: [ClaudeJob] = []
     /// Your Claude plan's limits, for the sidebar. Rides the git poll as well.
     public var claudeLimits: [ClaudeLimit] = []
-    /// Whether each clone's sessions can run the team review skill, by repo root. Read with the git poll.
-    public var reviewSkills: [String: ReviewSkill] = [:]
+    /// Whether review sessions can run the team review skill: the plugin as installed for your user. Read with the git
+    /// poll.
+    public var workflowSkill: ReviewSkill?
     public var errors: [Source: String] = [:]
     public var lastRefresh: [Source: Date] = [:]
 
@@ -249,7 +250,7 @@ public struct DeskState: Sendable {
         ))
         tasks = Linker.tasks(
             mine: mine, allOpen: openAll, merged: merged, ticketKeys: ticketKeys, tickets: tickets, sessions: claudeJobs,
-            trackedRoots: gitScan?.repos.map(\.root) ?? [], keep: askedTasks, now: now
+            trackedRoots: gitScan?.repos.map(\.root) ?? [], repoRoots: config.expandedRepoRoots, keep: askedTasks, now: now
         )
     }
 
@@ -324,14 +325,8 @@ public struct DeskState: Sendable {
         gitScan.flatMap { Linker.repo(for: pr, in: $0.repos) }
     }
 
-    /// Whether a session on this PR's clone can run the team review skill; nil without a clone.
-    public func reviewSkill(for pr: PullRequest) -> ReviewSkill? { localRepo(for: pr).flatMap { reviewSkills[$0.root] } }
-
-    /// The same, for a tracked `owner/name`.
-    public func reviewSkill(forSlug slug: String) -> ReviewSkill? {
-        let repo = gitScan?.repos.first { GitParsing.repoSlug(fromRemote: $0.remote) == slug.lowercased() }
-        return repo.flatMap { reviewSkills[$0.root] }
-    }
+    /// Whether a review session on this PR can run the team review skill; nil without a clone to run it in.
+    public func reviewSkill(for pr: PullRequest) -> ReviewSkill? { localRepo(for: pr) == nil ? nil : workflowSkill }
 
     /// Why this PR waits on your review, or nil when it does not.
     public func reviewNeed(for pr: PullRequest) -> ReviewNeed? { reviewNeeds[pr.url] }

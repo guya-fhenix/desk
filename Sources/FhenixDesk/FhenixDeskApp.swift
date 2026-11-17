@@ -65,24 +65,9 @@ struct FhenixDeskApp: App {
                     if model.visibleSearchBoxes > 0 { model.searchFocusRequest += 1 } else { model.showingFinder = true }
                 }
                 .keyboardShortcut("f", modifiers: .command)
-                Button("Show/Hide Terminal") { model.terminals.visible.toggle() }
-                    .keyboardShortcut("`", modifiers: .control)
-                    .disabled(model.terminals.tabs.isEmpty)
-                Button(model.terminals.expanded ? "Put Terminal Beside the Screen" : "Expand Terminal") {
-                    model.terminals.expanded.toggle()
-                    model.terminals.visible = true
-                }
-                .keyboardShortcut("`", modifiers: [.control, .shift])
-                .disabled(model.terminals.tabs.isEmpty)
-                Button("Terminal Text Bigger") { model.terminals.zoom(1) }
-                    .keyboardShortcut("=", modifiers: .command)
-                    .disabled(model.terminals.fontSize >= TerminalPanel.fontSizes.upperBound)
-                Button("Terminal Text Smaller") { model.terminals.zoom(-1) }
-                    .keyboardShortcut("-", modifiers: .command)
-                    .disabled(model.terminals.fontSize <= TerminalPanel.fontSizes.lowerBound)
-                Button("Terminal Text Default Size") { model.terminals.fontSize = TerminalPanel.defaultFontSize }
-                    .keyboardShortcut("0", modifiers: .command)
-                    .disabled(model.terminals.fontSize == TerminalPanel.defaultFontSize)
+                // The master and its workers run in iTerm: this puts the layout in front, on the master's pane.
+                Button("Show Master in iTerm") { model.openMaster() }
+                    .keyboardShortcut("m", modifiers: [.command, .shift])
                 Divider()
             }
         }
@@ -128,10 +113,16 @@ private struct DeskRoot: View {
 /// Owns the menu bar item. It is built by hand rather than with `MenuBarExtra` because that one
 /// answers every click the same way, and the two buttons have to mean different things here.
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     static var openDesk: (() -> Void)?
-    private var statusItem: NSStatusItem?
+    /// Read by the snapshot harness, which clicks its button with real mouse events.
+    private(set) var statusItem: NSStatusItem?
     private var model: AppModel?
+    /// Read by the snapshot harness, which presses the item the way a click does.
+    private(set) var popover: NSPopover?
+    /// When the popover last closed: a click on the item while it shows closes it on the press, and the click's release
+    /// must not open it again.
+    private var popoverClosed = Date.distantPast
 
     /// This is a menu bar app first: closing the Desk window leaves it running behind the status item.
     /// Without this a lone `Window` scene takes the app down with it — `MenuBarExtra` used to be what
@@ -154,7 +145,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// `openWindow` re-shows a window that was closed, but does nothing for one that is merely buried
     /// behind another app's, and activating the app alone does not reorder it. Raising it by hand is what
-    /// makes a primary click mean "show me the Desk" in every state it can be in.
+    /// makes Open Desk mean "show me the Desk" in every state it can be in.
     static func raiseDeskWindow() {
         NSApp.windows.first { $0.identifier?.rawValue == DeskWindow.id }?.makeKeyAndOrderFront(nil)
     }
@@ -169,7 +160,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Without this a button only reports the primary button, and the secondary one opens nothing.
         item.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
         // The two clicks mean different things, which nothing else on the button says.
-        item.button?.toolTip = "Click: open Desk · Right-click: menu"
+        item.button?.toolTip = "Click: what needs you · Right-click: menu"
         statusItem = item
     }
 
@@ -182,13 +173,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if event.type == .rightMouseUp || event.modifierFlags.contains(.control) {
             showMenu()
         } else {
-            Self.openDesk?()
+            togglePopover()
         }
     }
 
+    /// What needs you, the master and its workers, in a popover under the item; Open Desk in it opens the window. Built
+    /// afresh on each click, so it never shows an old list.
+    func togglePopover() {
+        guard let button = statusItem?.button, let model else { return }
+        if popover?.isShown == true {
+            popover?.performClose(nil)
+            return
+        }
+        guard Date().timeIntervalSince(popoverClosed) > 0.3 else { return }
+        let popover = NSPopover()
+        popover.behavior = .transient
+        popover.delegate = self
+        let host = NSHostingController(rootView: SettingsMenuBarPopover { [weak popover] in popover?.performClose(nil) }.environment(model))
+        host.sizingOptions = .preferredContentSize
+        popover.contentViewController = host
+        self.popover = popover
+        // Active, so a click anywhere else closes it and its buttons answer the first click.
+        NSApp.activate()
+        popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+    }
+
+    func popoverDidClose(_ notification: Notification) { popoverClosed = Date() }
+
     /// A plain macOS menu, built afresh on each click: open the Desk, quit, then your open PRs and the review queue
     /// inside the Reviews screen's filters, each opening the Desk on that PR's page. Set on the item only while it
-    /// shows, so a primary click goes on opening the Desk rather than the menu.
+    /// shows, so a primary click goes on showing the popover rather than the menu.
     private func showMenu() {
         guard let item = statusItem, let model else { return }
         let menu = NSMenu()

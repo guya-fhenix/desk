@@ -11,14 +11,17 @@ public struct DeskConfig: Codable, Sendable, Equatable {
     public var botLogins: [String] = ["claude", "github-actions", "dependabot", "renovate"]
     /// PRs a workflow opens under a human token: recognised by title and kept out of the review queue too.
     public var automatedTitlePrefixes: [String] = ["Update Submodule from"]
-    public var jiraProjectKeys: [String] = ["PRO"]
-    /// The status a ticket takes while one of its pull requests waits for review, and the one it takes
-    /// once they have all landed. Names, not ids: they are what `acli jira workitem transition --status`
-    /// wants, emoji and all. Empty turns that half of the sync off.
-    /// Where a ticket goes when you start planning it, so the next glance says somebody is on it.
-    public var jiraInProgressStatus: String = "In Progress"
-    public var jiraReviewStatus: String = "👀 Review Ready"
-    public var jiraDoneStatus: String = "Done"
+    /// The one Jira project Desk reads, by key: PRO. Empty until Setup or Settings picks one.
+    public var jiraProjectKey: String = ""
+    /// The project as a list, for the matchers and searches that take several.
+    public var jiraProjectKeys: [String] { jiraProjectKey.isEmpty ? [] : [jiraProjectKey] }
+    /// Where a ticket goes when you start on it, while one of its pull requests waits for review, and once they have
+    /// all landed: names of the project's own statuses, picked from what Jira lists for it, since every project calls
+    /// them something else. Names, not ids: they are what `acli jira workitem transition --status` wants, emoji and
+    /// all. Empty turns that move off.
+    public var jiraInProgressStatus: String = ""
+    public var jiraReviewStatus: String = ""
+    public var jiraDoneStatus: String = ""
     public var githubPollSeconds: Int = 180
     /// The local scan, worktrees and Claude Code's sessions with them: 15 s, so a session going to work, asking you
     /// something or finishing shows within moments. It runs no network calls, and one scan is a few git processes per
@@ -38,17 +41,37 @@ public struct DeskConfig: Codable, Sendable, Equatable {
     /// A folder of plugins the master and review sessions load in place of the installed ones (`--plugin-dir`), and the
     /// master passes on to every worker: for trying skill changes before they ship. Empty uses the installed plugins.
     public var pluginDir: String = ""
+    /// Light, Dark, or whatever macOS is set to.
+    public var appearance: Appearance = .system
+    /// The accent as `#RRGGBB`: the primary buttons, the selected row, the app's mark.
+    public var accent: String = DeskConfig.accents[0]
+    /// Where the master and its workers show: iTerm2, through tmux's control mode, or Terminal.app.
+    public var terminalApp: TerminalApp = .iTerm
+
+    /// The accents Settings offers: Instrument's indigo first, then teal, violet and graphite.
+    public static let accents = ["#4453D6", "#0F766E", "#7C3AED", "#1F2937"]
+
+    public enum Appearance: String, Codable, Sendable, CaseIterable {
+        case system, light, dark
+    }
+
+    public enum TerminalApp: String, Codable, Sendable, CaseIterable {
+        case iTerm, terminal
+    }
 
     public init() {}
 
     private enum CodingKeys: String, CodingKey {
-        case repoRoots, githubOrg, trackedRepos, ghPath, botLogins, automatedTitlePrefixes, jiraProjectKeys
+        case repoRoots, githubOrg, trackedRepos, ghPath, botLogins, automatedTitlePrefixes, jiraProjectKey
         case jiraInProgressStatus, jiraReviewStatus, jiraDoneStatus
         case githubPollSeconds, gitPollSeconds, jiraPollSeconds
         case notificationsEnabled
         case claudePath, acliPath
         case sendEvents, masterFolders, pluginDir
+        case appearance, accent, terminalApp
     }
+
+    private enum LegacyKeys: String, CodingKey { case jiraProjectKeys }
 
     /// Every key is optional and read on its own, so a config.json written before a field existed, or edited by hand to
     /// one value of the wrong type, keeps every other setting. Synthesized decoding would fail the whole file on either.
@@ -61,7 +84,9 @@ public struct DeskConfig: Codable, Sendable, Equatable {
         ghPath = (try? c.decodeIfPresent(String.self, forKey: .ghPath)) ?? d.ghPath
         botLogins = (try? c.decodeIfPresent([String].self, forKey: .botLogins)) ?? d.botLogins
         automatedTitlePrefixes = (try? c.decodeIfPresent([String].self, forKey: .automatedTitlePrefixes)) ?? d.automatedTitlePrefixes
-        jiraProjectKeys = (try? c.decodeIfPresent([String].self, forKey: .jiraProjectKeys)) ?? d.jiraProjectKeys
+        // A config from when Desk read several projects keeps the first.
+        let legacy = try? decoder.container(keyedBy: LegacyKeys.self).decodeIfPresent([String].self, forKey: .jiraProjectKeys)
+        jiraProjectKey = (try? c.decodeIfPresent(String.self, forKey: .jiraProjectKey)) ?? legacy?.first ?? d.jiraProjectKey
         jiraInProgressStatus = (try? c.decodeIfPresent(String.self, forKey: .jiraInProgressStatus)) ?? d.jiraInProgressStatus
         jiraReviewStatus = (try? c.decodeIfPresent(String.self, forKey: .jiraReviewStatus)) ?? d.jiraReviewStatus
         jiraDoneStatus = (try? c.decodeIfPresent(String.self, forKey: .jiraDoneStatus)) ?? d.jiraDoneStatus
@@ -74,6 +99,16 @@ public struct DeskConfig: Codable, Sendable, Equatable {
         sendEvents = (try? c.decodeIfPresent(Bool.self, forKey: .sendEvents)) ?? d.sendEvents
         masterFolders = (try? c.decodeIfPresent([String].self, forKey: .masterFolders)) ?? d.masterFolders
         pluginDir = (try? c.decodeIfPresent(String.self, forKey: .pluginDir)) ?? d.pluginDir
+        appearance = (try? c.decodeIfPresent(Appearance.self, forKey: .appearance)) ?? d.appearance
+        accent = (try? c.decodeIfPresent(String.self, forKey: .accent)).flatMap { $0 }.flatMap(Self.validAccent) ?? d.accent
+        terminalApp = (try? c.decodeIfPresent(TerminalApp.self, forKey: .terminalApp)) ?? d.terminalApp
+    }
+
+    /// `#RRGGBB`, upper-cased, or nil for anything else: a hand-edited accent that isn't a colour falls back to the default.
+    public static func validAccent(_ value: String) -> String? {
+        let hex = value.trimmingCharacters(in: .whitespaces).uppercased()
+        guard hex.count == 7, hex.first == "#", hex.dropFirst().allSatisfy(\.isHexDigit) else { return nil }
+        return hex
     }
 
     /// The folders the master can see: the ones you listed, or your repo roots.

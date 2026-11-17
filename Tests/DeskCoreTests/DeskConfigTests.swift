@@ -3,6 +3,18 @@ import Foundation
 import Testing
 
 @Suite struct DeskConfigTests {
+    /// One project now: a config from when there could be several keeps its first, and a new one has none; nor are any
+    /// statuses assumed, since every project names them its own way.
+    @Test func oneJiraProjectAndNoStatusesAssumed() throws {
+        let old = try JSONDecoder().decode(DeskConfig.self, from: Data(#"{"jiraProjectKeys": ["PRO", "OPS"]}"#.utf8))
+        #expect(old.jiraProjectKey == "PRO" && old.jiraProjectKeys == ["PRO"])
+        let saved = try JSONDecoder().decode(DeskConfig.self, from: JSONEncoder().encode(old))
+        #expect(saved.jiraProjectKey == "PRO")
+        let fresh = DeskConfig()
+        #expect(fresh.jiraProjectKeys.isEmpty)
+        #expect([fresh.jiraInProgressStatus, fresh.jiraReviewStatus, fresh.jiraDoneStatus] == ["", "", ""])
+    }
+
     /// A source that keeps failing is asked half as often each time, up to every 30 minutes, which lets a throttle on
     /// the account lift; one success puts it back on its own interval.
     @Test func aFailingPollBacksOffToThirtyMinutes() {
@@ -57,6 +69,16 @@ import Testing
         let config = try JSON.decoder().decode(DeskConfig.self, from: Data(json.utf8))
         #expect(config.trackedRepos == ["FhenixProtocol/cofhe"])
         #expect(config.githubPollSeconds == DeskConfig().githubPollSeconds)
+    }
+
+    /// Appearance, accent and terminal read back; an accent that is not `#RRGGBB` and an unknown appearance fall back alone.
+    @Test func appearanceAccentAndTerminal() throws {
+        let json = ##"{"appearance":"dark","accent":"#0f766e","terminalApp":"terminal"}"##
+        let config = try JSON.decoder().decode(DeskConfig.self, from: Data(json.utf8))
+        #expect(config.appearance == .dark && config.accent == "#0F766E" && config.terminalApp == .terminal)
+        let bad = try JSON.decoder().decode(DeskConfig.self, from: Data(##"{"appearance":"dim","accent":"teal"}"##.utf8))
+        #expect(bad.appearance == .system && bad.accent == "#4453D6" && bad.terminalApp == .iTerm)
+        #expect(DeskConfig.validAccent(" #7c3aed ") == "#7C3AED" && DeskConfig.validAccent("#12345") == nil)
     }
 
     /// A file that is not JSON at all is kept as config.json.bad and left alone, and the error says so; no file is no error.

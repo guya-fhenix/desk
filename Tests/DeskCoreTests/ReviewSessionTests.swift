@@ -137,7 +137,7 @@ import Testing
         try FileManager.default.createDirectory(at: skill, withIntermediateDirectories: true)
         try "---\nname: review-teammate-task\n---\n".write(to: skill.appendingPathComponent("SKILL.md"), atomically: true, encoding: .utf8)
         let home = folder.appendingPathComponent("home").path
-        #expect(ClaudePlugins.reviewSkill(repoRoot: "/nowhere", pluginDir: folder.path, home: home).groupReview)
-        #expect(!ClaudePlugins.reviewSkill(repoRoot: "/nowhere", home: home).groupReview)
+        #expect(ClaudePlugins.reviewSkill(pluginDir: folder.path, home: home).groupReview)
+        #expect(!ClaudePlugins.reviewSkill(home: home).groupReview)
     }
 }
