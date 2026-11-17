@@ -557,7 +557,7 @@ struct SearchBox: View {
             }
         }
         .padding(.horizontal, 10)
-        .frame(width: 260, height: 30)
+        .scaledFrame(width: 260, height: 30)
         .background(Theme.surface, in: RoundedRectangle(cornerRadius: 7))
         .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(Theme.control))
         .onAppear { model.visibleSearchBoxes += 1 }
@@ -955,7 +955,7 @@ private struct SyncDetail: View {
             }
         }
         .padding(14)
-        .frame(width: 300, alignment: .leading)
+        .scaledFrame(width: 300, alignment: .leading)
     }
 
     private func heading(_ title: String) -> some View {

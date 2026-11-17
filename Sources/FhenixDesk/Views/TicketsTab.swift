@@ -58,11 +58,11 @@ struct TicketsTab: View {
             filterBar.padding(.top, 18)
             // The columns of `TicketRow`.
             HStack(spacing: 12) {
-                Text("Key").frame(width: 72, alignment: .leading)
+                Text("Key").scaledFrame(width: 72, alignment: .leading)
                 Text("Summary").frame(maxWidth: .infinity, alignment: .leading)
-                Text("Status").frame(width: 108, alignment: .leading)
-                Text("Priority").frame(width: 84, alignment: .leading)
-                Text("PRs").frame(width: 84, alignment: .leading)
+                Text("Status").scaledFrame(width: 108, alignment: .leading)
+                Text("Priority").scaledFrame(width: 84, alignment: .leading)
+                Text("PRs").scaledFrame(width: 84, alignment: .leading)
             }
                 .scaled(.secondary).foregroundStyle(Theme.quiet)
                 .padding(EdgeInsets(top: 0, leading: 10, bottom: 6, trailing: 10 + Theme.Space.m))
@@ -267,18 +267,18 @@ struct TicketRow: View {
     var body: some View {
         let linked = model.state.pullRequests(forTicket: ticket.key).count
         HStack(spacing: 12) {
-            Text(ticket.key).scaled(.code).foregroundStyle(Theme.quiet).lineLimit(1).frame(width: 72, alignment: .leading)
+            Text(ticket.key).scaled(.code).foregroundStyle(Theme.quiet).lineLimit(1).scaledFrame(width: 72, alignment: .leading)
             Text(ticket.summary).scaled(selected ? .body.weight(.semibold) : .body).lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .help(ticket.assignedToMe ? ticket.summary : "\(ticket.summary) · \(ticket.assignee ?? "Unassigned")")
             Text(ticket.status).scaled(.caption.weight(.medium)).lineLimit(1)
                 .padding(.horizontal, 6).padding(.vertical, 1)
                 .background(selected ? Theme.chipOn : Theme.chip, in: RoundedRectangle(cornerRadius: 4))
-                .frame(width: 108, alignment: .leading)
+                .scaledFrame(width: 108, alignment: .leading)
             (ticket.priority.map(PriorityMark.text) ?? Text("–").foregroundStyle(Theme.quiet)).lineLimit(1)
-                .frame(width: 84, alignment: .leading)
+                .scaledFrame(width: 84, alignment: .leading)
             Text(linked > 0 ? "\(linked) open" : "None").scaled(.secondary).foregroundStyle(linked > 0 ? Theme.ink : Theme.quiet)
-                .frame(width: 84, alignment: .leading)
+                .scaledFrame(width: 84, alignment: .leading)
         }
     }
 }
@@ -315,7 +315,7 @@ private struct TicketDetails: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
                     VStack(alignment: .leading, spacing: 6) {
-                        Text("\(Text(ticket.key).font(AppTextStyle.code.font(scale: 1))) · Jira\(ticket.reporter.map { " · opened by \($0)" } ?? "")")
+                        Text("\(Text(ticket.key).font(AppTextStyle.code.font(scale: model.textScale))) · Jira\(ticket.reporter.map { " · opened by \($0)" } ?? "")")
                             .scaled(.secondary).foregroundStyle(Theme.quiet)
                         Text(ticket.summary).scaled(.heading).fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
                     }
@@ -424,7 +424,7 @@ private struct TicketSessionRow: View {
         let stage = model.state.stage(of: session).title.lowercased()
         RuledRow(minHeight: 38) {
             SessionMark(job: session).frame(width: 16)
-            Text("\(Text(session.name).font(AppTextStyle.code.font(scale: 1))) \(Text("· \(session.role.rawValue) · \(session.status)\(pr.map { " · \($0.repoName) #\($0.number)" } ?? "") · \(stage)").foregroundStyle(Theme.quiet))")
+            Text("\(Text(session.name).font(AppTextStyle.code.font(scale: model.textScale))) \(Text("· \(session.role.rawValue) · \(session.status)\(pr.map { " · \($0.repoName) #\($0.number)" } ?? "") · \(stage)").foregroundStyle(Theme.quiet))")
                 .lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .help("\(session.name) · \(session.role.rawValue) · \(session.status)\(session.detail.map { " · \($0)" } ?? "")")
@@ -510,7 +510,7 @@ struct TicketPage: View {
     var body: some View {
         DetailPage(back: back, onBack: onBack) {
             VStack(alignment: .leading, spacing: 6) {
-                Text("\(Text(ticket.key).font(AppTextStyle.code.font(scale: 1))) · Jira\(ticket.reporter.map { " · opened by \($0)" } ?? "")")
+                Text("\(Text(ticket.key).font(AppTextStyle.code.font(scale: model.textScale))) · Jira\(ticket.reporter.map { " · opened by \($0)" } ?? "")")
                     .scaled(.secondary).foregroundStyle(Theme.quiet)
                 EditableTitle(prefix: "", title: ticket.summary, what: "the ticket", editable: true) {
                     await model.editTicket(ticket, summary: $0)
@@ -613,7 +613,7 @@ private struct AssigneeFilter: View {
                 }
                 .padding(12)
             }
-            .frame(width: 240)
+            .scaledFrame(width: 240)
             .frame(maxHeight: 320)
         }
     }

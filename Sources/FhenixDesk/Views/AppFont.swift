@@ -1,3 +1,5 @@
+import AppKit
+import DeskCore
 import SwiftUI
 
 /// One of the app's text styles, held as a point size rather than a `Font` so every size can be set at
@@ -73,4 +75,56 @@ extension View {
     func scaled(_ style: AppTextStyle) -> some View { modifier(ScaledFont(style: style)) }
 
     /// The default font that unstyled text, button titles and fields fall back on.
-    func appFont() -> some View { modifier(ScaledFont(style: .body)) }}
+    func appFont() -> some View { modifier(ScaledFont(style: .body)) }
+
+    /// A fixed frame for text — a column of keys, a details column — that grows with the app's text.
+    func scaledFrame(width: CGFloat, height: CGFloat? = nil, alignment: Alignment = .center) -> some View {
+        modifier(ScaledFrame(width: width, height: height, alignment: alignment))
+    }
+}
+
+private struct ScaledFrame: ViewModifier {
+    @Environment(\.textScale) private var scale
+    var width: CGFloat
+    var height: CGFloat?
+    var alignment: Alignment
+
+    func body(content: Content) -> some View {
+        content.frame(width: width * scale, height: height.map { $0 * scale }, alignment: alignment)
+    }
+}
+
+/// Tells its view the screen its window is on: when the window shows, when it moves to another screen, and when the
+/// screens change. Not while the window is on none.
+struct ScreenReader: NSViewRepresentable {
+    var changed: @MainActor (NSScreen) -> Void
+
+    func makeNSView(context: Context) -> ScreenView {
+        let view = ScreenView()
+        view.changed = changed
+        return view
+    }
+
+    func updateNSView(_ view: ScreenView, context: Context) { view.changed = changed }
+
+    final class ScreenView: NSView {
+        var changed: (@MainActor (NSScreen) -> Void)?
+        private var observers: [NSObjectProtocol] = []
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            observers.forEach(NotificationCenter.default.removeObserver)
+            observers = []
+            guard let window else { return }
+            let report: @Sendable (Notification) -> Void = { [weak self] _ in
+                MainActor.assumeIsolated { if let self, let screen = self.window?.screen { self.changed?(screen) } }
+            }
+            observers = [
+                NotificationCenter.default.addObserver(forName: NSWindow.didChangeScreenNotification, object: window, queue: .main, using: report),
+                NotificationCenter.default.addObserver(
+                    forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main, using: report),
+            ]
+            if let screen = window.screen { changed?(screen) }
+        }
+    }
+}

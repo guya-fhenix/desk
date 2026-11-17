@@ -65,7 +65,7 @@ struct TaskPageFrame<Crumb: View, Title: View, Actions: View, Main: View, Detail
                     .padding(EdgeInsets(top: 18, leading: 22, bottom: 16, trailing: 22))
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .frame(width: 360)
+            .scaledFrame(width: 360)
             .frame(maxHeight: .infinity)
             .background(Theme.surface)
             .overlay(alignment: .leading) { Rectangle().fill(Theme.rule).frame(width: 1) }
@@ -167,7 +167,7 @@ struct TaskPage: View {
             ForEach(task.dependsOn, id: \.self) { dependency in
                 HStack(alignment: .firstTextBaseline, spacing: 10) {
                     Image(systemName: "exclamationmark.circle").foregroundStyle(Theme.warn)
-                    Text("Depends on \(Text(TaskHeader.dependency(dependency)).font(AppTextStyle.code.font(scale: 1))): \(dependency.contains("@") ? "no open pull request opens that branch yet." : "an open pull request that isn't yours.")")
+                    Text("Depends on \(Text(TaskHeader.dependency(dependency)).font(AppTextStyle.code.font(scale: model.textScale))): \(dependency.contains("@") ? "no open pull request opens that branch yet." : "an open pull request that isn't yours.")")
                         .fixedSize(horizontal: false, vertical: true)
                         .help(dependency)
                 }
@@ -191,10 +191,10 @@ struct TaskPage: View {
                 HStack(alignment: .firstTextBaseline, spacing: 10) {
                     SessionMark(job: job).frame(width: 18)
                     VStack(alignment: .leading, spacing: 1) {
-                        Text("\(Text(role(job)).fontWeight(.medium)) \(Text(job.name).font(AppTextStyle.code.font(scale: 1)))").lineLimit(1)
+                        Text("\(Text(role(job)).fontWeight(.medium)) \(Text(job.name).font(AppTextStyle.code.font(scale: model.textScale)))").lineLimit(1)
                         Text("\(job.status) · \(TaskText.when(job.updatedAt))").scaled(.code).foregroundStyle(Theme.quiet).lineLimit(1)
                     }
-                    .frame(width: 172, alignment: .leading)
+                    .scaledFrame(width: 172, alignment: .leading)
                     Text(job.detail ?? "").frame(maxWidth: 560, alignment: .leading).fixedSize(horizontal: false, vertical: true)
                     Spacer(minLength: 8)
                     Button("Show in iTerm") { model.show(jobId: job.id) }.buttonStyle(.desk(.secondary, .small))
@@ -251,7 +251,7 @@ struct TaskPage: View {
                 SectionLabel("Activity")
                 ForEach(Array(items.enumerated()), id: \.offset) { _, item in
                     HStack(alignment: .firstTextBaseline, spacing: 10) {
-                        Text(TaskText.stamp(item.at)).scaled(.code).foregroundStyle(Theme.quiet).frame(width: 52, alignment: .leading)
+                        Text(TaskText.stamp(item.at)).scaled(.code).foregroundStyle(Theme.quiet).scaledFrame(width: 52, alignment: .leading)
                             .help(Format.date(item.at))
                         Text(item.text).fixedSize(horizontal: false, vertical: true)
                     }
@@ -275,21 +275,21 @@ private struct TaskPullRequestRow: View {
         Button(action: open) {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 12) {
-                    StackRef(pr: pr, depth: depth, name: pr.taskRef).scaled(.code).frame(width: 124, alignment: .leading)
+                    StackRef(pr: pr, depth: depth, name: pr.taskRef).scaled(.code).scaledFrame(width: 124, alignment: .leading)
                     Text(pr.title).scaled(.rowTitle).lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
                     Text(verbatim: "+\(pr.additions) −\(pr.deletions)").scaled(.code).foregroundStyle(Theme.quiet)
-                        .frame(width: 84, alignment: .leading)
+                        .scaledFrame(width: 84, alignment: .leading)
                     HStack(spacing: 5) {
                         Circle().fill(TaskText.checksColor(pr)).frame(width: 6, height: 6)
                         Text(TaskText.checks(pr))
                     }
                     .scaled(.secondary)
-                    .frame(width: 72, alignment: .leading)
-                    Text(Format.age(pr.updatedAt)).scaled(.code).foregroundStyle(Theme.quiet).frame(width: 36, alignment: .trailing)
+                    .scaledFrame(width: 72, alignment: .leading)
+                    Text(Format.age(pr.updatedAt)).scaled(.code).foregroundStyle(Theme.quiet).scaledFrame(width: 36, alignment: .trailing)
                 }
                 HStack(spacing: 12) {
-                    Text(pr.headRef).font(AppTextStyle.code.font(scale: 1)).lineLimit(1).truncationMode(.tail)
-                        .frame(width: 124, alignment: .leading)
+                    Text(pr.headRef).font(AppTextStyle.code.font(scale: model.textScale)).lineLimit(1).truncationMode(.tail)
+                        .scaledFrame(width: 124, alignment: .leading)
                         .help("\(pr.baseRef) ← \(pr.headRef)")
                     Text("\(Text(state.title).foregroundStyle(Theme.ink).fontWeight(.medium))\(note(state))").lineLimit(1)
                 }

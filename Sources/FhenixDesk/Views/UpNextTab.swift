@@ -313,7 +313,7 @@ private struct UpNextRow: View {
         HStack(spacing: 10) {
             UpNextMark(mark: mark)
             if let name {
-                Text(name).scaled(.code).foregroundStyle(Theme.quiet).lineLimit(1).frame(width: 150, alignment: .leading)
+                Text(name).scaled(.code).foregroundStyle(Theme.quiet).lineLimit(1).scaledFrame(width: 150, alignment: .leading)
                 Text("\(title)\(Text(line.map { " · \($0)" } ?? "").foregroundStyle(Theme.quiet))").lineLimit(1)
                     .frame(maxWidth: .infinity, alignment: .leading)
             } else {
@@ -324,7 +324,7 @@ private struct UpNextRow: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             StageChip2(text: chip, onTint: selected)
-            if let date { AgeText(date: date) } else { Color.clear.frame(width: 34, height: 1) }
+            if let date { AgeText(date: date) } else { Color.clear.scaledFrame(width: 34, height: 1) }
         }
     }
 }

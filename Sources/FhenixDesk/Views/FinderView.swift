@@ -111,7 +111,7 @@ struct FinderView: View {
                     .padding(.bottom, 10)
                     .background(Theme.ground)
             }
-            .frame(width: 640)
+            .scaledFrame(width: 640)
             .background(Theme.surface)
             .clipShape(RoundedRectangle(cornerRadius: 12))
             .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Theme.ruleStrong))
@@ -212,7 +212,7 @@ struct FinderView: View {
     }
 
     private func name(_ text: String) -> some View {
-        Text(text).scaled(.code).foregroundStyle(Theme.quiet).lineLimit(1).frame(width: 150, alignment: .leading)
+        Text(text).scaled(.code).foregroundStyle(Theme.quiet).lineLimit(1).scaledFrame(width: 150, alignment: .leading)
     }
 
     private func facts(_ text: String) -> some View {

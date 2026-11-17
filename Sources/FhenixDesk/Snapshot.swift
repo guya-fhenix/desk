@@ -94,6 +94,8 @@ enum Snapshot {
             try? await Task.sleep(for: .milliseconds(500))
         }
         if let open = arguments.first(where: { $0.hasPrefix("open=") }) { model.selectPullRequest = String(open.dropFirst(5)) }
+        // `scale=1.2`: the text as on a screen that wide; off screen, the window has no screen to read it from.
+        if let scale = value("scale").flatMap(Double.init) { model.textScale = CGFloat(scale) }
         // `tab=files`: a PR's page opens on Files changed.
         if value("tab") == "files" { PullRequestPage.openingTab = .files }
         if let pane = value("pane").flatMap(SettingsPane.init(rawValue:)) { model.settings.pane = pane }

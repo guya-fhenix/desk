@@ -298,10 +298,11 @@ private struct SetupCheckRow: View {
     var kind: SetupCheck.Kind
     var check: SetupCheck?
     var run: ((SetupFix) -> Void)?
+    @Environment(\.textScale) private var scale
 
     var body: some View {
         SetupRow(title: kind.title, ok: check?.ok, required: kind.isRequired) {
-            Text("\(Text(command).font(AppTextStyle.code.font(scale: 1)).foregroundStyle(Theme.ink)) · \(check?.detail ?? "Checking…")")
+            Text("\(Text(command).font(AppTextStyle.code.font(scale: scale)).foregroundStyle(Theme.ink)) · \(check?.detail ?? "Checking…")")
                 .foregroundStyle(Theme.quiet).fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
             if check?.ok == false {
                 Text(kind.without).scaled(.secondary).foregroundStyle(kind.isRequired ? Theme.danger : Theme.warn)

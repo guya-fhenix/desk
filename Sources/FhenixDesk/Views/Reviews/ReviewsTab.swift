@@ -399,7 +399,7 @@ private struct ReviewQueueRow: View {
                 .help("Pick it to review with others (X)")
             }
             StackRef(pr: pr, depth: depth, name: "\(pr.repoName) #\(pr.number)").scaled(.code).truncationMode(.head)
-                .frame(width: 150, alignment: .leading)
+                .scaledFrame(width: 150, alignment: .leading)
             HStack(spacing: 6) {
                 // Plain text, so a click on it selects the row; Return or a double-click opens its page.
                 Text(pr.title).lineLimit(1)
@@ -417,7 +417,7 @@ private struct ReviewQueueRow: View {
                 Text("+\(pr.additions) −\(pr.deletions)")
             }
             .scaled(.code).foregroundStyle(Theme.quiet).lineLimit(1)
-            .frame(width: 112, alignment: .leading)
+            .scaledFrame(width: 112, alignment: .leading)
             AgeText(date: pr.createdAt).help("Waiting since it was opened, \(Format.date(pr.createdAt))")
         }
         .padding(.horizontal, 6)
@@ -477,7 +477,7 @@ private struct ReviewQueueDetails: View {
                             Spacer(minLength: 8)
                             Text("\(Format.sizeBucket(part.size)) +\(part.additions) −\(part.deletions)").foregroundStyle(Theme.quiet)
                             Text(Self.checks(part)).foregroundStyle(part.checks.isRed ? Theme.danger : Theme.ink)
-                                .frame(width: 72, alignment: .trailing)
+                                .scaledFrame(width: 72, alignment: .trailing)
                         }
                         .scaled(.code)
                         .contentShape(Rectangle())
@@ -714,7 +714,7 @@ private struct FiltersMenu: View {
                 TextField("Days", value: filters.$days, format: .number)
                     .textFieldStyle(.roundedBorder)
                     .multilineTextAlignment(.trailing)
-                    .frame(width: 52)
+                    .scaledFrame(width: 52)
                 Stepper("Days", value: filters.$days, in: 1...365).labelsHidden()
                 Text(filters.days == 1 ? "day" : "days").foregroundStyle(Theme.quiet)
             }
@@ -751,7 +751,7 @@ struct QueueRow: View {
             // Against an age of fixed width, so the state's right edge is the same on every row.
             QueueReviewCell(pr: pr, model: model).fixedSize()
             Text(Format.age(pr.createdAt)).monospacedDigit().foregroundStyle(.secondary)
-                .frame(width: 40, alignment: .trailing)
+                .scaledFrame(width: 40, alignment: .trailing)
                 .help("Waiting since it was opened, \(Format.date(pr.createdAt))")
         }
     }
@@ -927,7 +927,7 @@ struct ReviewTogetherSheet: View {
                 .padding(EdgeInsets(top: 14, leading: 22, bottom: 14, trailing: 22))
                 .overlay(alignment: .top) { Rectangle().fill(Theme.ruleSoft).frame(height: 1) }
             }
-            .frame(width: 560)
+            .scaledFrame(width: 560)
             .background(Theme.surface, in: RoundedRectangle(cornerRadius: 12))
             .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Theme.rule))
             .shadow(color: .black.opacity(0.2), radius: 20, y: 12)

@@ -42,7 +42,7 @@ struct DeskWindow: View {
             if Self.flat {
                 HStack(spacing: 0) {
                     if !model.showingSetup {
-                        sidebar.frame(width: Theme.sidebarWidth)
+                        sidebar.frame(width: Theme.sidebarWidth * model.textScale)
                         Rectangle().fill(Theme.rule).frame(width: 1)
                     }
                     detail
@@ -62,6 +62,12 @@ struct DeskWindow: View {
         // image, and its text comes out soft.
         .overlay { if model.showingFinder { FinderView() } }
         .appFont()
+        // A wider screen, larger text: the scale follows the screen the window is on.
+        .environment(\.textScale, model.textScale)
+        .background(ScreenReader { screen in
+            let scale = CGFloat(ScreenTextScale.scale(forWidth: Double(screen.frame.width)))
+            if model.textScale != scale { model.textScale = scale }
+        })
         .foregroundStyle(Theme.ink)
         .tint(Theme.accent)
         // The accent is read as a colour draws: a new one rebuilds the window.
@@ -136,7 +142,7 @@ struct DeskWindow: View {
         .background(Theme.panel.ignoresSafeArea())
         .toolbar(removing: model.showingSetup ? .sidebarToggle : nil)
         // Outermost, or the split view does not see it.
-        .navigationSplitViewColumnWidth(min: 212, ideal: Theme.sidebarWidth, max: 300)
+        .navigationSplitViewColumnWidth(min: 212 * model.textScale, ideal: Theme.sidebarWidth * model.textScale, max: 300 * model.textScale)
     }
 
     private func navItem(_ item: Tab) -> some View {

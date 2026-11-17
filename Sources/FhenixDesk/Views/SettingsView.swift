@@ -170,7 +170,7 @@ private struct SettingsPaneList: View {
             Spacer(minLength: 0)
         }
         .padding(EdgeInsets(top: 18, leading: 10, bottom: 14, trailing: 10))
-        .frame(width: 200)
+        .scaledFrame(width: 200)
         .frame(maxHeight: .infinity, alignment: .top)
         .background(Theme.panel)
         .overlay(alignment: .trailing) { Rectangle().fill(Theme.rule).frame(width: 1) }
@@ -253,7 +253,7 @@ private struct SettingsRow<Value: View, Trailing: View>: View {
 
     var body: some View {
         HStack(spacing: 16) {
-            Text(label).fontWeight(.medium).frame(width: 136, alignment: .leading)
+            Text(label).fontWeight(.medium).scaledFrame(width: 136, alignment: .leading)
             VStack(alignment: .leading, spacing: 4) {
                 value
                 if let note {

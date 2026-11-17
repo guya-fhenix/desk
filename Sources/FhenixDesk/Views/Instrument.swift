@@ -83,11 +83,12 @@ struct ButtonKey: View {
 struct DetailColumn<Content: View>: View {
     var width: CGFloat = 360
     @ViewBuilder var content: Content
+    @Environment(\.textScale) private var scale
 
     var body: some View {
         VStack(alignment: .leading, spacing: 22) { content }
             .padding(EdgeInsets(top: 18, leading: 22, bottom: 16, trailing: 22))
-            .frame(width: width, alignment: .topLeading)
+            .frame(width: width * scale, alignment: .topLeading)
             .frame(maxHeight: .infinity, alignment: .topLeading)
             .background(Theme.surface)
             .overlay(alignment: .leading) { Rectangle().fill(Theme.rule).frame(width: 1) }
@@ -139,29 +140,32 @@ struct DetailHeader: View {
 struct FieldRows<Content: View>: View {
     var labelWidth: CGFloat = 88
     @ViewBuilder var content: Content
+    @Environment(\.textScale) private var scale
 
     var body: some View {
         Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 12, verticalSpacing: 8) { content }
-            .environment(\.fieldLabelWidth, labelWidth)
+            .environment(\.fieldLabelWidth, labelWidth * scale)
     }
 }
 
 struct FieldRow<Value: View>: View {
     var label: String
+    /// The value in DM Mono, at the app's scale.
+    var mono = false
     @ViewBuilder var value: Value
     @Environment(\.fieldLabelWidth) private var width
 
     var body: some View {
         GridRow {
             Text(label).foregroundStyle(Theme.quiet).frame(width: width, alignment: .leading)
-            value.frame(maxWidth: .infinity, alignment: .leading)
+            Group { if mono { value.scaled(.code) } else { value } }.frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 }
 
 extension FieldRow where Value == Text {
     init(_ label: String, _ value: String, mono: Bool = false) {
-        self.init(label: label) { mono ? Text(value).font(AppTextStyle.code.font(scale: 1)) : Text(value) }
+        self.init(label: label, mono: mono) { Text(value) }
     }
 }
 
@@ -256,7 +260,7 @@ struct AgeText: View {
     var date: Date?
 
     var body: some View {
-        Text(Format.age(date)).scaled(.code).foregroundStyle(Theme.quiet).frame(width: 34, alignment: .trailing)
+        Text(Format.age(date)).scaled(.code).foregroundStyle(Theme.quiet).scaledFrame(width: 34, alignment: .trailing)
             .help(Format.date(date))
     }
 }

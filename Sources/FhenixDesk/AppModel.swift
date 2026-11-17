@@ -22,6 +22,9 @@ final class AppModel {
     var configErrorDetail: String?
     /// The Atlassian account acli is signed in as, or nil when nobody is.
     var jiraAccount: JiraAccount?
+    /// The app's text at this multiple of the boards' sizes, as wide as the window's screen calls for
+    /// (`ScreenTextScale`): the window sets it, and every view reads it through `\.textScale`, or here, inside a `Text`.
+    var textScale: CGFloat = 1
     /// The org's repositories, for the Settings picker. Fetched on demand: the list changes rarely and
     /// the app needs no repo it is not tracking.
     var repositories: [GitHubRepo] = []

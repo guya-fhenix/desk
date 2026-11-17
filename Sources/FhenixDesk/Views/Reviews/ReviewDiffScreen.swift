@@ -163,7 +163,7 @@ struct ReviewDiffScreen: View {
                 .padding(EdgeInsets(top: 12, leading: 8, bottom: 0, trailing: 8))
         }
         .padding(EdgeInsets(top: 16, leading: 12, bottom: 16, trailing: 12))
-        .frame(width: 232)
+        .scaledFrame(width: 232)
         .frame(maxHeight: .infinity, alignment: .top)
         .overlay(alignment: .trailing) { Rectangle().fill(Theme.rule).frame(width: 1) }
     }
@@ -498,7 +498,7 @@ private struct ReviewSessionPanel: View {
                             ForEach(drafts, id: \.url) { part in
                                 let comments = part.pendingReview?.comments ?? 0
                                 RuledRow {
-                                    Text(verbatim: "#\(part.number)").scaled(.code).foregroundStyle(Theme.quiet).frame(width: 44, alignment: .leading)
+                                    Text(verbatim: "#\(part.number)").scaled(.code).foregroundStyle(Theme.quiet).scaledFrame(width: 44, alignment: .leading)
                                     Text("\(comments) comment\(comments == 1 ? "" : "s") in your pending review")
                                 }
                             }
@@ -539,7 +539,7 @@ private struct ReviewSessionPanel: View {
             .padding(EdgeInsets(top: 12, leading: 16, bottom: 16, trailing: 16))
             .overlay(alignment: .top) { Rectangle().fill(Theme.ruleSoft).frame(height: 1) }
         }
-        .frame(width: 320)
+        .scaledFrame(width: 320)
         .frame(maxHeight: .infinity)
         .background(Theme.surface)
         .overlay(alignment: .leading) { Rectangle().fill(Theme.rule).frame(width: 1) }

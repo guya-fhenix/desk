@@ -398,7 +398,7 @@ private struct TaskRow: View {
                 Image(systemName: TaskHeader.icon(task)).font(.system(size: 12)).foregroundStyle(Theme.quiet)
                     .frame(width: 18, height: 20)
                 Text(TaskHeader.label(task)).scaled(.code).foregroundStyle(Theme.quiet).lineLimit(1)
-                    .frame(width: 160, height: 20, alignment: .leading)
+                    .scaledFrame(width: 160, height: 20, alignment: .leading)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(task.title).scaled(.rowTitle.weight(selected ? .semibold : .medium)).lineLimit(1)
                     TaskHeader.line(task, model: model).foregroundStyle(Theme.quiet).lineLimit(1)
@@ -434,7 +434,7 @@ struct PullRequestRow: View {
                     .frame(width: 18, height: 20)
                     .opacity(row.depth > 0 ? 0 : 1)
                 StackRef(pr: pr, depth: row.depth, name: pr.taskRef).scaled(.code).foregroundStyle(Theme.quiet)
-                    .frame(width: 160, height: 20, alignment: .leading)
+                    .scaledFrame(width: 160, height: 20, alignment: .leading)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(pr.title).scaled(.rowTitle.weight(selected ? .semibold : .medium)).lineLimit(1)
                     HStack(spacing: 6) {
@@ -480,7 +480,7 @@ private struct MergedRow: View {
                 Image(systemName: "arrow.triangle.merge").font(.system(size: 12)).foregroundStyle(Theme.quiet)
                     .frame(width: 18, height: 20)
                 Text(pr.taskRef).scaled(.code).foregroundStyle(Theme.quiet).lineLimit(1)
-                    .frame(width: 160, height: 20, alignment: .leading)
+                    .scaledFrame(width: 160, height: 20, alignment: .leading)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(pr.title).scaled(.rowTitle.weight(selected ? .semibold : .medium)).lineLimit(1)
                     HStack(spacing: 6) {
@@ -599,6 +599,7 @@ struct TaskKicker: View {
     var task: WorkTask
     var ticket: Ticket?
     var priority = false
+    @Environment(\.textScale) private var scale
 
     var body: some View {
         let rest: String = switch task.origin {
@@ -606,7 +607,7 @@ struct TaskKicker: View {
         case .pullRequest: " · Pull request, no ticket"
         case .session: " · Session, no ticket"
         }
-        Text("\(Text(TaskHeader.label(task)).font(AppTextStyle.code.font(scale: 1)))\(rest)").lineLimit(1)
+        Text("\(Text(TaskHeader.label(task)).font(AppTextStyle.code.font(scale: scale)))\(rest)").lineLimit(1)
     }
 }
 
@@ -789,7 +790,7 @@ struct PullRequestPage: View {
         let task = pr.state == .open ? model.state.task(for: pr) : nil
         let shown = picked ?? tab
         TaskPageFrame(model: model, back: back, onBack: onBack, mainScrolls: shown != .files) {
-            Text(pr.taskRef).font(AppTextStyle.code.font(scale: 1))
+            Text(pr.taskRef).font(AppTextStyle.code.font(scale: model.textScale))
         } title: {
             EditableTitle(prefix: "", title: pr.title, what: "the PR", editable: pr.state == .open, style: .taskPageTitle) {
                 await model.retitle(pr, to: $0)
@@ -835,7 +836,7 @@ private struct TaskOfPullRequest: View {
                 FieldRow("Task", TaskHeader.label(task), mono: true)
                 if let worker = task.worker {
                     FieldRow(label: "Worker") {
-                        Text("\(Text(worker.name).font(AppTextStyle.code.font(scale: 1))) \(Text("· \(worker.status)").foregroundStyle(Theme.quiet))")
+                        Text("\(Text(worker.name).font(AppTextStyle.code.font(scale: model.textScale))) \(Text("· \(worker.status)").foregroundStyle(Theme.quiet))")
                             .fixedSize(horizontal: false, vertical: true)
                     }
                     if let detail = worker.detail, !detail.isEmpty {

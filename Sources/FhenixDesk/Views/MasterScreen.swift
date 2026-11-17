@@ -68,10 +68,10 @@ struct MasterScreen: View {
             ForEach(asks) { ask in
                 RuledRow(minHeight: 44) {
                     HStack(spacing: 8) {
-                        StageChip2(text: ask.task).font(AppTextStyle.code.font(scale: 1))
+                        StageChip2(text: ask.task).font(AppTextStyle.code.font(scale: model.textScale))
                         Text(Format.age(ask.askedAt)).scaled(.code).foregroundStyle(Theme.quiet)
                     }
-                    .frame(width: 140, alignment: .leading)
+                    .scaledFrame(width: 140, alignment: .leading)
                     Text(ask.text).fixedSize(horizontal: false, vertical: true).frame(maxWidth: .infinity, alignment: .leading)
                     Button("Answer in iTerm") { model.openMaster() }.buttonStyle(.desk(.secondary, .small))
                 }
@@ -92,7 +92,7 @@ struct MasterScreen: View {
             }
             ForEach(Array(today.enumerated()), id: \.offset) { _, event in
                 HStack(alignment: .firstTextBaseline, spacing: 12) {
-                    Text(event.at.clock).foregroundStyle(Theme.quiet).frame(width: 44, alignment: .leading)
+                    Text(event.at.clock).foregroundStyle(Theme.quiet).scaledFrame(width: 44, alignment: .leading)
                     Text(event.title).fixedSize(horizontal: false, vertical: true)
                 }
                 .scaled(.code)
@@ -134,7 +134,7 @@ private struct SessionsColumn: View {
                 .overlay(alignment: .top) { Rectangle().fill(Theme.ruleSoft).frame(height: 1) }
         }
         .padding(EdgeInsets(top: 18, leading: 10, bottom: 16, trailing: 10))
-        .frame(width: 264)
+        .scaledFrame(width: 264)
         .frame(maxHeight: .infinity, alignment: .top)
         .background(Theme.panel)
         .overlay(alignment: .trailing) { Rectangle().fill(Theme.rule).frame(width: 1) }
@@ -320,7 +320,7 @@ private struct MasterDetails: View {
                     FieldRow(label: "Plugins") {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(config.pluginDir.isEmpty ? "The installed plugins" : (config.pluginDir as NSString).abbreviatingWithTildeInPath)
-                                .font(config.pluginDir.isEmpty ? nil : AppTextStyle.code.font(scale: 1))
+                                .font(config.pluginDir.isEmpty ? nil : AppTextStyle.code.font(scale: model.textScale))
                             if !config.pluginDir.isEmpty { Text("A plugin folder, for trying skill changes").scaled(.secondary).foregroundStyle(Theme.quiet) }
                         }
                     }
