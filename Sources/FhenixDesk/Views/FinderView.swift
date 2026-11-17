@@ -14,16 +14,20 @@ struct FinderView: View {
     @State private var resultsHeight: CGFloat = 0
     @FocusState private var focused: Bool
 
-    /// One result: a pull request, a ticket, or a command.
+    /// One result: a task, a ticket, a pull request, a session, or a command.
     private enum Hit: Identifiable {
-        case pullRequest(PullRequest)
+        case task(WorkTask)
         case ticket(Ticket)
+        case pullRequest(PullRequest)
+        case session(ClaudeJob)
         case command(Command)
 
         var id: String {
             switch self {
-            case .pullRequest(let pr): return pr.url
+            case .task(let task): return "task:\(task.id)"
             case .ticket(let ticket): return "ticket:\(ticket.key)"
+            case .pullRequest(let pr): return pr.url
+            case .session(let job): return "session:\(job.id)"
             case .command(let command): return "command:\(command.title)"
             }
         }
@@ -31,8 +35,10 @@ struct FinderView: View {
         /// The label its group goes under.
         var group: String {
             switch self {
-            case .pullRequest: return "Pull requests"
+            case .task: return "Tasks"
             case .ticket: return "Jira"
+            case .pullRequest: return "Pull requests"
+            case .session: return "Sessions"
             case .command: return "Commands"
             }
         }
@@ -62,14 +68,14 @@ struct FinderView: View {
             VStack(spacing: 0) {
                 HStack(spacing: 10) {
                     Image(systemName: "magnifyingglass").font(.system(size: 14, weight: .medium)).foregroundStyle(Theme.quiet)
-                    TextField("PR, review, ticket, command, or #", text: $query)
+                    TextField("Task, PR, ticket, session, command, or #", text: $query)
                         .textFieldStyle(.plain)
                         .scaled(AppTextStyle(size: 16))
                         .focused($focused)
                         .onSubmit { open(hits, inBrowser: false) }
                         .onKeyPress(.downArrow) { move(1, in: hits) }
                         .onKeyPress(.upArrow) { move(-1, in: hits) }
-                        .accessibilityLabel("Search pull requests, tickets and commands")
+                        .accessibilityLabel("Search tasks, tickets, pull requests, sessions and commands")
                     Button(action: close) { InstrumentKey(key: "esc") }
                         .buttonStyle(.plain)
                         .accessibilityLabel("Close search")
@@ -122,8 +128,9 @@ struct FinderView: View {
         .onChange(of: query) { index = 0 }
     }
 
-    /// The PRs, then your tickets, each ranked by how well it matches and, for PRs, most recently updated first among
-    /// equals; then the commands whose name matches. With nothing typed, every open PR and every command.
+    /// As the board orders them: your tasks, your tickets, the PRs, the sessions, each ranked by how well it matches and,
+    /// for PRs, most recently updated first among equals; then the commands, the ones whose name matches first. With
+    /// nothing typed, every open PR and every command.
     private var hits: [Hit] {
         let typed = query.trimmingCharacters(in: .whitespaces)
         let open = (model.state.github?.allOpen ?? []).sorted { $0.updatedAt > $1.updatedAt }
@@ -131,8 +138,12 @@ struct FinderView: View {
         // `repo#number` and branch names are matched exactly; the title loosely.
         let prs = Self.ranked(open) { pr in pr.matches(search: typed) ? 500 : FuzzyMatch.score(pr.title, typed) }
         let tickets = Self.ranked(model.state.openTickets) { FuzzyMatch.score("\($0.key) \($0.summary)", typed) }
-        let commands = Self.ranked(Self.commands) { FuzzyMatch.score($0.title, typed) }
-        return prs.map(Hit.pullRequest) + tickets.map(Hit.ticket) + commands.map(Hit.command)
+        let tasks = Self.ranked(model.state.tasks) { FuzzyMatch.score("\($0.id) \($0.title)", typed) }
+        let sessions = Self.ranked(model.state.claudeJobs) { FuzzyMatch.score("\($0.name) \($0.detail ?? "")", typed) }
+        let matched = Self.ranked(Self.commands) { FuzzyMatch.score($0.title, typed) }
+        let commands = matched + Self.commands.filter { command in !matched.contains { $0.title == command.title } }
+        return tasks.map(Hit.task) + tickets.map(Hit.ticket) + prs.map(Hit.pullRequest) + sessions.map(Hit.session)
+            + commands.map(Hit.command)
     }
 
     /// The items that match, best first; a stable sort, so equals keep the order they came in.
@@ -163,6 +174,14 @@ struct FinderView: View {
     @ViewBuilder private func row(_ hit: Hit, selected: Bool) -> some View {
         HStack(spacing: 10) {
             switch hit {
+            case .task(let task):
+                name(TaskHeader.label(task))
+                Text(task.title).lineLimit(1).truncationMode(.tail).frame(maxWidth: .infinity, alignment: .leading)
+                facts(waits(task) + " · \(task.pullRequests.count) pull request\(task.pullRequests.count == 1 ? "" : "s")")
+            case .session(let job):
+                name(job.name)
+                Text(job.detail ?? job.request ?? "").lineLimit(1).truncationMode(.tail).frame(maxWidth: .infinity, alignment: .leading)
+                facts("\(job.isAsking ? "Waiting for you" : job.isRunning ? "Working" : "Done") · \(Format.age(job.updatedAt))")
             case .ticket(let ticket):
                 name(ticket.key)
                 Text(ticket.summary).lineLimit(1).truncationMode(.tail).frame(maxWidth: .infinity, alignment: .leading)
@@ -213,6 +232,16 @@ struct FinderView: View {
         }
         guard hits.indices.contains(index) else { return }
         switch hits[index] {
+        case .task(let task):
+            if inBrowser, let ticket = model.state.ticket(task.id) {
+                model.open(ticket.url)
+            } else {
+                // The Tasks screen opens a task's page from its id, as it does a PR's from its url.
+                model.selectPullRequest = task.id
+                model.pendingTab = .pullRequests
+            }
+        case .session(let job):
+            model.show(jobId: job.id)
         case .ticket(let ticket):
             if inBrowser {
                 model.open(ticket.url)
@@ -234,6 +263,16 @@ struct FinderView: View {
     }
 
     private func close() { model.showingFinder = false }
+
+    /// Who a task waits on, in a few words.
+    private func waits(_ task: WorkTask) -> String {
+        switch task.waitingOn(asked: model.state.askedTasks) {
+        case .you: return "waits on you"
+        case .worker: return "worker on it"
+        case .reviewers: return "in review"
+        case .nobody: return "no pull request yet"
+        }
+    }
 
     /// The screen a PR has a page on: yours on Tasks, the review queue's on Reviews; nil for any other.
     private func screen(of pr: PullRequest) -> DeskWindow.Tab? {
