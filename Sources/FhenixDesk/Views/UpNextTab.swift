@@ -209,8 +209,8 @@ struct UpNextTab: View {
         }
     }
 
-    /// Its page, with its row selected behind it for the way back: a PR's or a ticket's. A question of the master's
-    /// shows the master in iTerm, where it is answered, and a worker its own pane.
+    /// A PR's page, with its row selected behind it for the way back, or a ticket in Jira, which has no page here. A
+    /// question of the master's shows the master in iTerm, where it is answered, and a worker its own pane.
     private func open(_ id: String) {
         selection = id
         if id.hasPrefix("ask:") {
@@ -218,7 +218,7 @@ struct UpNextTab: View {
         } else if id.hasPrefix("job:") {
             model.show(jobId: String(id.dropFirst(4)))
         } else {
-            path.append(model.state.ticket(id) == nil ? .pr(id) : .ticket(id))
+            if let ticket = model.state.ticket(id) { model.open(ticket.url) } else { path.append(.pr(id)) }
         }
     }
 }

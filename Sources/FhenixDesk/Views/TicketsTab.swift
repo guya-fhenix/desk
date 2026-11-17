@@ -4,7 +4,7 @@ import SwiftUI
 /// Jira tickets as a table: the running sprint or the backlog, one group per status in workflow order, yours unless the
 /// assignee filter picks others. Done is left out: the list is about what is still open. Above the groups, the moves the
 /// app suggests for your tickets, each waiting for your Move or Dismiss. The selected ticket's details sit in the column
-/// on the right; Return, → or a double-click opens its page, and ⌘↩ opens it in Jira, as Search does.
+/// on the right, which is all a ticket has here: Return or a double-click opens it in Jira, as ⌘↩ does in Search.
 struct TicketsTab: View {
     @Environment(AppModel.self) private var model
     private var filters = TicketFilters()
@@ -24,23 +24,22 @@ struct TicketsTab: View {
             HStack(spacing: 0) {
                 list(groups: groups, moves: moves)
                 if let ticket = selection.flatMap(ticket(for:)) {
-                    TicketDetails(ticket: ticket, model: model) { open(selection ?? ticket.key) }.id(ticket.key)
+                    TicketDetails(ticket: ticket, model: model).id(ticket.key)
                 }
             }
             .background(Theme.ground)
         }
         .focusedSceneValue(\.routePath, $path)
-        // Search lands here with a ticket: its page, with its row behind it wherever it is — its sprint or backlog, your
-        // tickets in the filter, the search box cleared — selected for the way back.
+        // Search lands here with a ticket: its row selected wherever it is — its sprint or backlog, your tickets in the
+        // filter, the search box cleared — with it in the details column.
         .onChange(of: model.selectTicket, initial: true) { _, key in
             guard let key, let ticket = model.state.ticket(key) else { return }
-            // One Jira places in neither has no row, but its page still shows it.
             if ticket.placement != .unknown { filters.placement = ticket.placement }
             if !assignees.isEmpty, !assignees.contains(.me) { filters.assignees = assignees.union([.me]) }
             search = ""
             selection = key
             scrollTarget = key
-            path = [.ticket(key)]
+            path = []
             model.selectTicket = nil
         }
         .selectsFirstRow(moves.first?.moveKey ?? groups.first?.tickets.first?.key, selection: $selection)
@@ -108,11 +107,6 @@ struct TicketsTab: View {
                     // Focused on arrival and on the way back from a page, so the keys work without a click first.
                     .focused($listFocused)
                     .task(id: path.isEmpty) { if path.isEmpty { listFocused = true } }
-                    .onKeyPress(.rightArrow) {
-                        guard let selection else { return .ignored }
-                        open(selection)
-                        return .handled
-                    }
                     .onKeyPress(keys: ["j", "k"]) { press in
                         guard press.modifiers.isEmpty else { return .ignored }
                         selection = UpNextTab.step(rows, from: selection, by: press.key == "j" ? 1 : -1)
@@ -141,7 +135,7 @@ struct TicketsTab: View {
                 }
             }
             KeyHints(
-                hints: [(["J", "K"], "move"), (["↩"], "open ticket"), (["⌘↩"], "open in Jira")],
+                hints: [(["J", "K"], "move"), (["↩"], "open in Jira")],
                 trailing: "Tickets are created in Jira; Desk moves one only when you press Move."
             )
         }
@@ -177,11 +171,11 @@ struct TicketsTab: View {
         }
     }
 
-    /// Its page, with its row selected behind it for the way back: a ticket's row, or a suggested move's.
+    /// A row's ticket in Jira, a ticket's or a suggested move's: here it has only its details column.
     private func open(_ id: String) {
         guard let ticket = ticket(for: id) else { return }
         selection = id
-        path.append(.ticket(ticket.key))
+        model.open(ticket.url)
     }
 
     /// A row's ticket, from its key or, on a suggested move's row, its move.
@@ -303,13 +297,12 @@ enum PriorityMark {
     }
 }
 
-/// The selected ticket in full: who opened it, its fields and the task it belongs to, the pull requests and sessions
-/// behind it, the move the app suggests with its presses, and the description, editable; at the foot, the ways to its
-/// page and to Jira.
+/// The selected ticket in full, all a ticket has here: who opened it, its summary and description, both editable, its
+/// fields and the task it belongs to, the pull requests and sessions behind it, and the move the app suggests with its
+/// presses; at the foot, the way to Jira.
 private struct TicketDetails: View {
     var ticket: Ticket
     var model: AppModel
-    var openPage: () -> Void
 
     var body: some View {
         DetailColumn(width: 380) {
@@ -318,7 +311,11 @@ private struct TicketDetails: View {
                     VStack(alignment: .leading, spacing: 6) {
                         Text("\(Text(ticket.key).font(AppTextStyle.code.font(scale: model.textScale))) · Jira\(ticket.reporter.map { " · opened by \($0)" } ?? "")")
                             .scaled(.secondary).foregroundStyle(Theme.quiet)
-                        Text(ticket.summary).scaled(.heading).fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
+                        EditableTitle(prefix: "", title: ticket.summary, what: "the ticket", editable: true, style: .heading) {
+                            await model.editTicket(ticket, summary: $0)
+                        } trailing: {
+                            EmptyView()
+                        }
                     }
                     TicketFields(ticket: ticket, model: model)
                     TicketLinks(ticket: ticket, model: model)
@@ -334,14 +331,11 @@ private struct TicketDetails: View {
             }
             .scrollIndicators(.automatic)
             HStack(spacing: 8) {
-                Button(action: openPage) { HStack(spacing: 8) { Text("Open ticket"); ButtonKey(key: "↩") } }
-                    .buttonStyle(.desk(.primary, .large, wide: true))
-                    .help("The ticket's page (↩ or →)")
                 Button { model.open(ticket.url) } label: {
-                    HStack(spacing: 6) { Text("Open in Jira"); Image(systemName: "arrow.up.right.square").scaled(.caption) }
+                    HStack(spacing: 8) { SidebarIcon(name: SidebarIcon.jira); Text("Open in Jira"); ButtonKey(key: "↩") }
                 }
-                .buttonStyle(.desk(.secondary, .large))
-                .help("⌘↩")
+                .buttonStyle(.desk(.primary, .large, wide: true))
+                .help("Open it in Jira (↩)")
             }
         }
     }
@@ -482,7 +476,7 @@ struct MoveButtons: View {
     }
 }
 
-/// The ticket page's and the details column's suggested move: why, in a sentence, why Jira refused it if it did, and
+/// The details column's suggested move: why, in a sentence, why Jira refused it if it did, and
 /// the presses.
 struct MoveSuggestion: View {
     var drift: TicketDrift
@@ -495,65 +489,6 @@ struct MoveSuggestion: View {
             Text("Jira refused: \(error)").scaled(.secondary).foregroundStyle(Theme.danger).textSelection(.enabled)
         }
         MoveButtons(drift: drift, model: model, prominent: true)
-    }
-}
-
-/// A ticket's own page, opened from Up Next or the Jira screen and laid out as a PR's: its key set apart from its summary
-/// with Jira's mark to open it there, a line of where it stands; the description in the wide column; its fields, pull
-/// requests, sessions and the move the app suggests beside it.
-struct TicketPage: View {
-    var ticket: Ticket
-    var model: AppModel
-    /// The screen it was opened from, which its back link names and returns to.
-    var back: String
-    var onBack: () -> Void
-
-    var body: some View {
-        DetailPage(back: back, onBack: onBack) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("\(Text(ticket.key).font(AppTextStyle.code.font(scale: model.textScale))) · Jira\(ticket.reporter.map { " · opened by \($0)" } ?? "")")
-                    .scaled(.secondary).foregroundStyle(Theme.quiet)
-                EditableTitle(prefix: "", title: ticket.summary, what: "the ticket", editable: true) {
-                    await model.editTicket(ticket, summary: $0)
-                } trailing: {
-                    Button { model.open(ticket.url) } label: {
-                        HStack(spacing: 6) { SidebarIcon(name: SidebarIcon.jira); Text("Open in Jira") }
-                    }
-                    .buttonStyle(.desk(.secondary, .small))
-                    .help("Open in Jira")
-                }
-            }
-            HStack(spacing: 8) {
-                StageChip2(text: ticket.status, color: ticket.statusTone)
-                if let priority = ticket.priority { PriorityMark.text(priority).scaled(.secondary) }
-                HStack(spacing: 6) {
-                    AssigneeAvatar(ticket: ticket, size: 16)
-                    Text(ticket.assignedToMe ? "You" : ticket.assignee ?? "Unassigned").scaled(.secondary)
-                }
-                if let drift = model.state.drift(forKey: ticket.key) { DriftBadge(drift: drift, model: model) }
-                Spacer(minLength: 8)
-            }
-        } main: {
-            TicketDescription(ticket: ticket, model: model)
-        } side: {
-            VStack(alignment: .leading, spacing: 22) {
-                TicketFields(ticket: ticket, model: model)
-                if model.state.pullRequests(forTicket: ticket.key).isEmpty {
-                    VStack(alignment: .leading, spacing: 6) {
-                        SectionLabel("Pull requests")
-                        Text("None open").foregroundStyle(Theme.quiet)
-                    }
-                }
-                TicketLinks(ticket: ticket, model: model)
-                if let drift = model.state.drift(forKey: ticket.key) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        SectionLabel("Suggested move")
-                        MoveSuggestion(drift: drift, model: model)
-                    }
-                }
-            }
-            .sideCard()
-        }
     }
 }
 

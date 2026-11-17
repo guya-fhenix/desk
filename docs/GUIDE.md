@@ -219,10 +219,9 @@ The Jira screen lists the running sprint or the backlog, one group per status in
 assignee filter (the row of pictures) picks others. Done is left out. A row has the key, summary, status, priority and
 how many open PRs name it, under a column header. The selected ticket opens in the details column on the right: who
 opened it, its status, priority, assignee and the task it belongs to, its PRs and sessions (Show in iTerm), the move
-Desk suggests with Move and Dismiss, and its description, editable; at the foot Open ticket (↩, its page) and Open in
-Jira (⌘↩). A ticket's page shows its key and summary,
-where it stands, its description, and beside it the PRs that name it, the sessions started on it, and the move Desk
-suggests for it, if any. To start work on one, tell the master: "start PRO-123".
+Desk suggests with Move and Dismiss, and its summary and description, both editable; at the foot Open in Jira (↩, or a
+double-click). A ticket has no page of its own: the details column is it. To start work on one, tell the master:
+"start PRO-123".
 
 ## Ticket sync
 
@@ -231,8 +230,8 @@ tickets. From the PRs it works out where the ticket should be: `👀 Review Read
 ready, `Done` once they have all merged and one of them landed on the repo's default branch. A revert lands nothing.
 
 Where Jira is behind, Desk suggests the move; it never makes it. Each suggestion waits for your **Move** or
-**Dismiss**: on the Jira screen above the status groups (Move all moves every one), under Jira moves on Up Next, and on
-the ticket's page and under its row. Move runs `acli jira workitem transition`; a ticket still in To Do passes through
+**Dismiss**: on the Jira screen above the status groups (Move all moves every one), under Jira moves on Up Next, and in
+the ticket's details column and under its row. Move runs `acli jira workitem transition`; a ticket still in To Do passes through
 the in-progress status on its way. If Jira refuses, the suggestion turns red with Jira's reason, and Move becomes Retry.
 Dismiss hides the suggestion until the ticket's PRs point it somewhere else. A Jira row shows the suggested status as a
 chip, and a Tasks row an orange arrow beside the ticket key.

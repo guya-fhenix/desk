@@ -266,11 +266,10 @@ private struct AccountFooter: View {
 
 }
 
-/// A page a tab opens over its list: a PR's, by url, or a ticket's, by key. Each tab keeps a path of these, so Back,
-/// ⌘[ and ← return to the list with its row still selected.
+/// A page a tab opens over its list: a PR's, by url. Each tab keeps a path of these, so Back, ⌘[ and ← return to the
+/// list with its row still selected. A task and a ticket have none: their details column is them.
 enum Route: Hashable {
     case pr(String)
-    case ticket(String)
 }
 
 extension FocusedValues {
@@ -311,12 +310,6 @@ struct RoutePage: View {
     var body: some View {
         Group {
             switch route {
-            case .ticket(let key):
-                if let ticket = model.state.ticket(key) {
-                    TicketPage(ticket: ticket, model: model, back: back, onBack: pop)
-                } else {
-                    gone
-                }
             case .pr(let url):
                 if let pr = model.yourPullRequest(url) {
                     PullRequestPage(pr: pr, model: model, back: back, onBack: pop)
