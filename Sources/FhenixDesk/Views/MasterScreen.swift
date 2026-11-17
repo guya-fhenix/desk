@@ -67,8 +67,10 @@ struct MasterScreen: View {
             }
             ForEach(asks) { ask in
                 RuledRow(minHeight: 44) {
+                    // Orange, as the master's own dot is while it waits for you.
                     HStack(spacing: 8) {
-                        StageChip2(text: ask.task).font(AppTextStyle.code.font(scale: model.textScale))
+                        Circle().fill(Theme.warn).frame(width: 8, height: 8)
+                        StageChip2(text: ask.task, color: Theme.warn).font(AppTextStyle.code.font(scale: model.textScale))
                         Text(Format.age(ask.askedAt)).scaled(.code).foregroundStyle(Theme.quiet)
                     }
                     .scaledFrame(width: 140, alignment: .leading)
