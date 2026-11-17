@@ -181,7 +181,8 @@ private struct SessionRow2: View {
                     Spacer(minLength: 4)
                     if job.isBusy { Text(Format.age(job.updatedAt)).scaled(.caption.monospaced()).foregroundStyle(Theme.quiet) }
                 }
-                Text(line).scaled(.secondary).foregroundStyle(Theme.quiet).lineLimit(2).padding(.leading, 20)
+                Text("\(Text(state).foregroundStyle(SessionMark.tone(job)))\(job.detail.map { " · \($0)" } ?? "")")
+                    .scaled(.secondary).foregroundStyle(Theme.quiet).lineLimit(2).padding(.leading, 20)
             }
             .padding(8)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -191,10 +192,7 @@ private struct SessionRow2: View {
         .help("Show \(job.name) in iTerm")
     }
 
-    private var line: String {
-        let state = job.isAsking ? "Waiting for you" : job.isRunning ? "Working" : "Done"
-        return job.detail.map { "\(state) · \($0)" } ?? state
-    }
+    private var state: String { job.isAsking ? "Waiting for you" : job.isRunning ? "Working" : "Done" }
 }
 
 /// A session's state as a small mark: an arc while it works, a filled dot while it waits for you, a tick when done.
@@ -216,6 +214,11 @@ struct SessionMark: View {
             }
         }
         .accessibilityLabel(job.isAsking ? "Waiting for you" : job.isRunning ? "Working" : "Done")
+    }
+
+    /// The mark's colour, for the word that says the same: orange while it waits for you, the accent while it works.
+    static func tone(_ job: ClaudeJob) -> Color {
+        job.isAsking ? Theme.warn : job.isRunning ? Theme.accentInk : Theme.quiet
     }
 }
 

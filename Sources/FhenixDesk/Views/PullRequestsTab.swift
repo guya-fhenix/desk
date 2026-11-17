@@ -786,7 +786,8 @@ struct TaskWorkerLine: View {
                 SessionMark(job: job).frame(width: 12)
                 Text(job.name).scaled(AppTextStyle(size: 12.5, weight: .medium, design: .monospaced)).lineLimit(1)
                 Spacer(minLength: 4)
-                Text("\(job.status) · \(TaskText.when(job.updatedAt))").scaled(.code).foregroundStyle(Theme.quiet).fixedSize()
+                Text("\(Text(job.status).foregroundStyle(SessionMark.tone(job))) · \(TaskText.when(job.updatedAt))")
+                    .scaled(.code).foregroundStyle(Theme.quiet).fixedSize()
             }
             if let detail = job.detail, !detail.isEmpty {
                 Text(detail).fixedSize(horizontal: false, vertical: true).padding(.leading, 20)
