@@ -63,9 +63,9 @@ public enum RowState: Sendable, Equatable {
         case .ciFailed: return "CI failed"
         case .changesRequested: return "Changes requested"
         case .readyToMerge: return "Ready to merge"
-        case .draft(.notRun): return "Draft · run /pre-pr"
+        case .draft(.notRun): return "Draft · not self-reviewed"
         case .draft(.importantOpen): return "Draft · finding open"
-        case .draft(.passed): return "Draft · mark ready"
+        case .draft(.passed): return "Draft · self-reviewed"
         case .openThreads(let count): return count == 1 ? "1 open thread" : "\(count) open threads"
         case .waitingOnReview: return "Waiting on review"
         }
@@ -81,37 +81,12 @@ public enum RowState: Sendable, Equatable {
     }
 }
 
-/// Where /pre-pr stands on your draft: never run (no evidence comment), passed (its `local-reviewed` label), or ran and
-/// left an Important finding open (evidence, no label). Run /pre-pr and Mark ready are both yours to press, in any order.
+/// Where the self-review stands on your draft: passed (its `local-reviewed` label), or not. A finding left open shows only
+/// on a PR an older /pre-pr posted its evidence comment on; the self-review now keeps its findings in the worker's session.
 public enum PrePRStatus: Sendable, Equatable {
     case notRun, passed, importantOpen
 
     public static func of(_ pr: PullRequest) -> PrePRStatus {
         pr.isLocallyReviewed ? .passed : pr.evidence == nil ? .notRun : .importantOpen
-    }
-}
-
-extension DeskState {
-    /// Why nothing can be sent to this PR's session now, in the words beside the button that would; nil when it can.
-    /// An instruction never cuts in: the session must be done with its turn. `sending` is one going out already.
-    public func sendBlocker(_ pr: PullRequest, sending: Bool) -> String? {
-        guard let session = session(for: pr) else { return "No session" }
-        if sending { return "Sending…" }
-        if session.isAsking { return "The session is asking you something" }
-        if !session.isIdle || session.sessionId == nil { return "The session is busy" }
-        return nil
-    }
-
-    /// Why Run /pre-pr is dead on a draft; nil when it may be pressed. Without a session it starts one, which needs a
-    /// clone of the repo; `startingSession` is one starting already.
-    public func prePRBlocker(_ pr: PullRequest, sending: Bool, startingSession: Bool) -> String? {
-        if session(for: pr) == nil {
-            if startingSession { return "Starting a session…" }
-            if localRepo(for: pr) == nil { return "No clone of \(pr.repoName) here" }
-        } else if let blocker = sendBlocker(pr, sending: sending) {
-            return blocker
-        }
-        guard let skill = reviewSkill(for: pr), skill.has(skill.selfReview) else { return "Self-review skill missing" }
-        return nil
     }
 }

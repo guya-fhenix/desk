@@ -47,11 +47,11 @@ public struct SetupCheck: Identifiable, Sendable, Equatable {
             case .commandLineTools: return "Required: git reads every clone and worktree."
             case .gh: return "Required: every pull request comes through gh."
             case .acli: return "Jira tickets and the ticket sync stay off."
-            case .claude: return "No sessions: Start, Run /pre-pr, Fix it and review sessions stay off."
+            case .claude: return "No sessions: the master, its workers and review sessions stay off."
             case .github: return "Required: gh must be signed in, with the read:org scope, to list the org's pull requests."
             case .jira: return "Jira tickets and the ticket sync stay off."
             case .claudeAccount: return "Sessions cannot start."
-            case .workflowPlugin: return "Run /pre-pr and Start review need it; Start review needs 0.8.0 or later."
+            case .workflowPlugin: return "The master, its workers and Start review run on its skills: 1.0 or later reviews several PRs together."
             }
         }
     }
@@ -251,8 +251,8 @@ public enum Setup {
     }
 
     /// Installed anywhere, user-wide or for one repo, is enough here: Fhenix repos turn the plugin on in their own
-    /// settings, and Settings → Repos says per repo whether it is there. An install without the review-pr skill, before
-    /// 0.8.0, is flagged: Run /pre-pr works with it, but Start review stays off.
+    /// settings, and Settings → Repos says per repo whether it is there. An install with no review skill, neither
+    /// review-teammate-task (1.0) nor review-pr (0.8), is flagged: Start review stays off.
     public static func workflowPlugin(marketplaces: Data?, installed: Data?) -> SetupCheck {
         let known = (marketplaces.flatMap { try? JSONSerialization.jsonObject(with: $0) } as? [String: Any]) ?? [:]
         let name = known.first { _, value in
@@ -264,12 +264,13 @@ public enum Setup {
         if !versions.isEmpty {
             let detail = "\(ClaudePlugins.plugin) \(Array(Set(versions)).sorted().joined(separator: ", "))"
             let reviews = records.contains { record in
-                (record["installPath"] as? String)
-                    .map { FileManager.default.fileExists(atPath: "\($0)/skills/\(ClaudePlugins.reviewPR)/SKILL.md") } ?? false
+                guard let path = record["installPath"] as? String else { return false }
+                return [ClaudePlugins.reviewTeammateTask, ClaudePlugins.reviewPR]
+                    .contains { FileManager.default.fileExists(atPath: "\(path)/skills/\($0)/SKILL.md") }
             }
             guard reviews else {
                 return SetupCheck(.workflowPlugin, ok: false,
-                                  detail: "\(detail), without the \(ClaudePlugins.reviewPR) skill: update it to 0.8.0 or later for Start review.")
+                                  detail: "\(detail), without a review skill: update it to 1.0 or later for Start review.")
             }
             return SetupCheck(.workflowPlugin, ok: true, detail: detail)
         }

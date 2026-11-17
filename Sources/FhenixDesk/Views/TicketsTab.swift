@@ -14,16 +14,13 @@ struct TicketsTab: View {
     @State private var path: [Route] = []
     @FocusState private var listFocused: Bool
     @State private var search = ""
-    /// The ticket and repository a plan has been asked for, while the note is still being written.
-    @State private var planning: PlanRequest?
-    @State private var planNote = ""
     /// A row to bring into view: the ticket Search picked, which may sit far down the list.
     @State private var scrollTarget: String?
 
     var body: some View {
         let groups = filtered(model.state.ticketGroups(filters.placement, assignees: assignees))
         let moves = suggestedMoves
-        RouteStack(path: $path, back: "Jira", plan: plan) {
+        RouteStack(path: $path, back: "Jira") {
             list(groups: groups, moves: moves)
         }
         .focusedSceneValue(\.routePath, $path)
@@ -45,9 +42,6 @@ struct TicketsTab: View {
         // poll.
         .onChange(of: filters.showsTeamBacklog) { _, shows in
             if shows { Task { await model.refresh(.jira) } }
-        }
-        .sheet(item: $planning) { request in
-            PlanSheet(request: request, model: model, note: $planNote) { planning = nil }
         }
     }
 
@@ -122,7 +116,7 @@ struct TicketsTab: View {
         // ticket's page shows all of it.
         .deskInspector("tickets", width: 420) {
             if let ticket = selection.flatMap(ticket(for:)) {
-                TicketInspector(ticket: ticket, model: model, plan: plan).id(ticket.key)
+                TicketInspector(ticket: ticket, model: model).id(ticket.key)
             } else {
                 EmptyState(text: "Select a ticket to read it.").padding()
                 Spacer()
@@ -151,11 +145,6 @@ struct TicketsTab: View {
     }
 
     private var assignees: Set<TicketAssignee> { filters.assignees }
-
-    private func plan(_ ticket: Ticket, _ repo: RepoRef) {
-        planNote = ""
-        planning = PlanRequest(ticket: ticket, repo: repo)
-    }
 
     private func filtered(_ groups: [TicketGroup]) -> [TicketGroup] {
         let needle = search.trimmingCharacters(in: .whitespaces).lowercased()
@@ -254,7 +243,6 @@ struct TicketRow: View {
                     + (linked > 0 ? [Text("\(linked) open \(linked == 1 ? "PR" : "PRs")")] : []))
             }
             Spacer(minLength: 8)
-            // Start in… is on the ticket's details panel and page, not repeated on every row.
             if let drift = model.state.drift(forKey: ticket.key) {
                 DriftBadge(drift: drift, model: model)
             }
@@ -296,7 +284,6 @@ enum TicketColor {
 private struct TicketInspector: View {
     var ticket: Ticket
     var model: AppModel
-    var plan: (Ticket, RepoRef) -> Void
 
     var body: some View {
         Panel {
@@ -322,11 +309,8 @@ private struct TicketInspector: View {
                     }
                 }
                 if let reporter = ticket.reporter { LabeledContent("Opened by", value: reporter) }
-                HStack {
-                    Button("Open in Jira") { model.open(ticket.url) }
-                    StartInMenu(ticket: ticket, model: model, plan: plan)
-                }
-                .controlSize(.small)
+                Button("Open in Jira") { model.open(ticket.url) }
+                    .controlSize(.small)
             }
             if let drift = model.state.drift(forKey: ticket.key) {
                 PanelSection("Suggested move") { MoveSuggestion(drift: drift, model: model) }
@@ -426,40 +410,14 @@ struct MoveSuggestion: View {
     }
 }
 
-/// "Start in…": the repositories a ticket can be planned in, each opening the sheet that asks what the plan is for.
-/// Filled on a ticket's page, where it is the page's action.
-struct StartInMenu: View {
-    var ticket: Ticket
-    var model: AppModel
-    var plan: (Ticket, RepoRef) -> Void
-    var prominent = false
-
-    var body: some View {
-        let repos = (model.state.gitScan?.repos ?? []).sorted { $0.name < $1.name }
-        if model.planningTickets.contains(ticket.key) {
-            ProgressView().controlSize(.mini)
-        } else if !repos.isEmpty {
-            let menu = Menu("Start in…") {
-                ForEach(repos, id: \.root) { repo in RepoMenuItem(repo: repo, model: model) { plan(ticket, repo) } }
-            }
-            Group {
-                if prominent { menu.menuStyle(.button).buttonStyle(.borderedProminent) } else { menu }
-            }
-            .fixedSize()
-            .help(model.sessionErrors[ticket.key] ?? "Start \(ticket.key) in a background Claude session")
-        }
-    }
-}
-
 /// A ticket's own page, opened from Up Next or the Jira screen and laid out as a PR's: its key set apart from its summary with Jira's
-/// mark to open it there, a status line of where it stands with Start in… on the right; the description in the wide
+/// mark to open it there, a status line of where it stands; the description in the wide
 /// column; its pull requests, sessions and how Jira has fallen behind beside it.
 struct TicketPage: View {
     var ticket: Ticket
     var model: AppModel
     /// The screen it was opened from, which its back link names and returns to.
     var back: String
-    var plan: (Ticket, RepoRef) -> Void
     var onBack: () -> Void
 
     var body: some View {
@@ -492,9 +450,7 @@ struct TicketPage: View {
                 }
                 .pill()
                 if let drift = model.state.drift(forKey: ticket.key) { DriftBadge(drift: drift, model: model) }
-                // The page's action on the right, where a status line's presses go.
                 Spacer(minLength: 8)
-                StartInMenu(ticket: ticket, model: model, plan: plan, prominent: true)
             }
             if let error = model.sessionErrors[ticket.key] {
                 Text(error).scaled(.caption).foregroundStyle(.red).textSelection(.enabled)
@@ -545,98 +501,6 @@ private struct SessionRow: View {
                 Text(session.status).scaled(.caption).foregroundStyle(.secondary)
             }
         }
-    }
-}
-
-/// A repo in the menus that start a session. One whose sessions cannot run the team review skill says why on a
-/// second line, in the menu's subtitle style, behind an orange warning: the session would start, but its
-/// self-review would have no skill to call.
-private struct RepoMenuItem: View {
-    var repo: RepoRef
-    var model: AppModel
-    var action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            if let skill = model.state.reviewSkills[repo.root], !skill.has(skill.selfReview) {
-                Label {
-                    Text(repo.name)
-                    Text(skill.text)
-                } icon: {
-                    Image(nsImage: Self.warning)
-                }
-            } else {
-                Text(repo.name)
-            }
-        }
-    }
-
-    /// Menus draw symbols as templates, in the text colour; a palette image that is not a template keeps its orange.
-    private static let warning: NSImage = {
-        let symbol = NSImage(systemSymbolName: "exclamationmark.triangle.fill", accessibilityDescription: "Warning")
-        let image = symbol?.withSymbolConfiguration(.init(paletteColors: [.systemOrange])) ?? NSImage()
-        image.isTemplate = false
-        return image
-    }()
-}
-
-/// A plan asked for but not yet started: the repository is chosen, the note is not yet written.
-struct PlanRequest: Identifiable {
-    var ticket: Ticket
-    var repo: RepoRef
-
-    var id: String { "\(ticket.key)|\(repo.root)" }
-}
-
-/// The last step before a planning session starts. The ticket and its description go along whatever
-/// happens here; this is for the part the ticket does not say — what to focus on, what to leave alone,
-/// how far to take it.
-struct PlanSheet: View {
-    var request: PlanRequest
-    var model: AppModel
-    @Binding var note: String
-    var dismiss: () -> Void
-
-    @FocusState private var writing: Bool
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Start \(request.ticket.key) in \(request.repo.name)").scaled(.headline)
-            Text(request.ticket.summary).scaled(.secondary).foregroundStyle(.secondary).lineLimit(2)
-            if let skill = model.state.reviewSkills[request.repo.root], !skill.has(skill.selfReview) {
-                Label(skill.text, systemImage: "exclamationmark.triangle.fill").scaled(.caption).foregroundStyle(.orange)
-            }
-            Text("Anything you want from the plan? The ticket and its description are sent either way.")
-                .scaled(.caption)
-                .foregroundStyle(.secondary)
-            TextEditor(text: $note)
-                .scaled(.secondary)
-                .focused($writing)
-                .frame(minHeight: 96)
-                .padding(4)
-                .overlay(RoundedRectangle(cornerRadius: 5).stroke(.quaternary))
-            HStack(spacing: 8) {
-                Text(model.config.jiraInProgressStatus.isEmpty
-                    ? "Starts a background session."
-                    : "Starts a background session and moves the ticket to “\(model.config.jiraInProgressStatus)”.")
-                    .scaled(.caption)
-                    .foregroundStyle(.secondary)
-                Spacer()
-                Button("Cancel", role: .cancel) { dismiss() }
-                    .keyboardShortcut(.cancelAction)
-                Button("Start") {
-                    model.planTicket(request.ticket, in: request.repo, note: note)
-                    dismiss()
-                }
-                .buttonStyle(.borderedProminent)
-                // Return belongs to the editor, so the press that starts it is ⌘-Return.
-                .keyboardShortcut(.return, modifiers: .command)
-            }
-        }
-        .padding(16)
-        .frame(width: 460)
-        .background(Theme.background)
-        .onAppear { writing = true }
     }
 }
 

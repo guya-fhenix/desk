@@ -13,9 +13,6 @@ struct UpNextTab: View {
     /// The pages open over the list; empty shows the list.
     @State private var path: [Route] = []
     @FocusState private var listFocused: Bool
-    /// The ticket and repository a plan has been asked for, while the note is still being written.
-    @State private var planning: PlanRequest?
-    @State private var planNote = ""
     /// With Reduce Motion on, the list jumps to the selected row instead of sliding there.
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private var filters = ReviewFilters()
@@ -28,14 +25,11 @@ struct UpNextTab: View {
         let early = plan.filter { $0.section != .waiting }.flatMap(\.pullRequests).map(\.url)
         let waiting = plan.filter { $0.section == .waiting }.flatMap(\.pullRequests).map(\.url)
         let rows = model.state.asks.map { Self.askID($0) } + early + drifts.map(\.id) + tickets.map(\.key) + waiting
-        RouteStack(path: $path, back: "Up Next", plan: startPlan) {
+        RouteStack(path: $path, back: "Up Next") {
             list(plan: plan, tickets: tickets, drifts: drifts)
         }
         .focusedSceneValue(\.routePath, $path)
         .selectsFirstRow(rows.first, selection: $selection)
-        .sheet(item: $planning) { request in
-            PlanSheet(request: request, model: model, note: $planNote) { planning = nil }
-        }
     }
 
     @ViewBuilder private func list(plan: [UpNextGroup], tickets: [Ticket], drifts: [TicketDrift]) -> some View {
@@ -202,12 +196,6 @@ struct UpNextTab: View {
             return
         }
         path.append(model.state.ticket(id) == nil ? .pr(id) : .ticket(id))
-    }
-
-    /// Picking a repository from Start in… opens the sheet that asks what the plan is for.
-    private func startPlan(_ ticket: Ticket, _ repo: RepoRef) {
-        planNote = ""
-        planning = PlanRequest(ticket: ticket, repo: repo)
     }
 
     /// GitHub put it on you, as opposed to its being open for anyone to review.

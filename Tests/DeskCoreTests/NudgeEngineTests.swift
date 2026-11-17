@@ -36,7 +36,7 @@ import Testing
         withFlow.sessions = [session("working")]
         #expect(NudgeEngine.nudges(withFlow).isEmpty)
         withFlow.sessions = [session("done")]
-        #expect(NudgeEngine.nudges(withFlow).first?.title == "cofhe#3 is a draft: run /pre-pr, or mark it ready")
+        #expect(NudgeEngine.nudges(withFlow).first?.title == "cofhe#3 is a draft: its self-review hasn't run")
 
         // Red CI is no flow's to fix on its own any more: it is nudged as on any PR, and a red PR is not ready to merge.
         var red = pr
@@ -50,7 +50,7 @@ import Testing
         #expect(NudgeEngine.nudges(withFlow).map(\.title) == ["PRO-1: the session is asking you something"])
     }
 
-    /// A draft /pre-pr ran on says whether it passed: its label, or an Important finding still open.
+    /// A draft says whether its self-review passed: its label, or, from an older /pre-pr, an Important finding still open.
     @Test func aDraftSaysWhetherPrePRPassed() {
         var pr = Fixtures.pr(number: 4, head: "d", draft: true)
         pr.evidence = "<!-- pre-pr:start -->\n## Testing"
@@ -59,11 +59,11 @@ import Testing
         flow.sessions = [ClaudeJob(id: "aaaaaaaa", name: "s", state: "done", cwd: "/r/cofhe", prKeys: [key], updatedAt: Fixtures.t0, startedOn: [key])]
         let waiting = { NudgeEngine.nudges(flow).first { $0.kind == .flowWaiting }?.title }
         #expect(PrePRStatus.of(pr) == .importantOpen)
-        #expect(waiting() == "cofhe#4: /pre-pr left an Important finding open")
+        #expect(waiting() == "cofhe#4: its self-review left an Important finding open")
         pr.labels = [PrePR.reviewedLabel]
         flow.mine = [pr]
         #expect(PrePRStatus.of(pr) == .passed)
-        #expect(waiting() == "cofhe#4 passed /pre-pr: mark it ready")
+        #expect(waiting() == "cofhe#4 passed its self-review: mark it ready")
         #expect(pr.isLocallyReviewed)
     }
 

@@ -506,19 +506,13 @@ struct PullRequestPage: View {
                 if let task = model.state.task(for: pr), TaskCard.hasMore(task, than: pr, asks: model.state.asks) {
                     TaskCard(task: task, pr: pr, model: model)
                 }
-                // Every open PR of yours, session or not: Mark ready and Merge need none, and Run /pre-pr starts one.
+                // Every open PR of yours, session or not: what it waits on, and Merge once it is ready.
                 NextStepCard(pr: pr, session: model.state.session(for: pr), model: model)
                 WorkflowsSection(pr: pr, model: model)
             }
             AboutCard(pr: pr, model: model)
         } accessory: {
-            if let skill = model.state.reviewSkill(for: pr), !skill.has(skill.selfReview) {
-                Label(skill.text, systemImage: "exclamationmark.triangle.fill")
-                    .scaled(.caption)
-                    .foregroundStyle(.orange)
-                    .lineLimit(1)
-                    .help(skill.text)
-            }
+            EmptyView()
         }
     }
 

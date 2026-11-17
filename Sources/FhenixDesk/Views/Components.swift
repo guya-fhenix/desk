@@ -238,27 +238,8 @@ struct PullRequestMenu: View {
             Divider()
             if let job = model.state.claudeJobs(for: pr).first {
                 Button("Attach to Session") { model.attach(job, for: pr) }
-            } else {
-                Button("Start Session") { model.startSession(for: pr) }.disabled(model.state.localRepo(for: pr) == nil)
             }
         }
-    }
-}
-
-extension View {
-    /// Filled for the one press a screen leads with, bordered for the rest: six filled buttons are six focal points.
-    @ViewBuilder func primaryStyle(_ prominent: Bool) -> some View {
-        if prominent { buttonStyle(.borderedProminent) } else { buttonStyle(.bordered) }
-    }
-}
-
-/// Why the button beside it is dead, in words next to it rather than in a tooltip: a greyed-out press that does not
-/// say why reads as broken.
-struct DisabledReason: View {
-    var text: String?
-
-    var body: some View {
-        if let text { Text(text).scaled(.caption).foregroundStyle(.secondary).lineLimit(1) }
     }
 }
 
@@ -350,9 +331,9 @@ struct ReviewStatusChip: View {
     }
 }
 
-/// The background Claude sessions that worked on a PR, and the way in. A filled terminal means there is
-/// one — pressing it attaches, which is the only way into a background session from outside the terminal
-/// that started it. A hollow one means there is none, and pressing it starts one on the PR's branch.
+/// The background Claude sessions that worked on a PR, and the way in: pressing it attaches, which is the only way
+/// into a background session from outside the terminal that started it. With none it shows nothing: the master starts
+/// the workers.
 ///
 /// Interactive sessions never appear here: nothing outside their own terminal can reach them.
 struct ClaudeSessionButton: View {
@@ -363,9 +344,7 @@ struct ClaudeSessionButton: View {
 
     var body: some View {
         let jobs = model.state.claudeJobs(for: pr)
-        if model.startingSessions.contains(pr.url) {
-            ProgressView().controlSize(.mini).help("Starting a session on \(pr.headRef)")
-        } else if jobs.count > 1, let newest = jobs.first {
+        if jobs.count > 1, let newest = jobs.first {
             Menu {
                 ForEach(jobs) { job in
                     Button("\(job.name) — \(job.status)") { model.attach(job, for: pr) }
@@ -384,23 +363,13 @@ struct ClaudeSessionButton: View {
             .sessionStyle(prominent)
             .labelStyle(.titleAndIcon)
             .help(failure ?? "Attach to “\(job.name)” (\(job.status)) in Desk’s terminal panel")
-        } else {
-            // Words, not only a hollow or filled terminal: which one it is was a tooltip's secret.
-            Button { model.startSession(for: pr) } label: {
-                Label { Text("Start session") } icon: { icon("terminal", .secondary) }
-            }
-            .sessionStyle(prominent)
-            .labelStyle(.titleAndIcon)
-            .disabled(model.state.localRepo(for: pr) == nil)
-            .help(failure ?? startHelp)
         }
     }
 
     /// The last failure on this PR's button, which takes over the tooltip until the next press works.
     private var failure: String? { model.sessionErrors[pr.url] }
 
-    /// Green while a session is running, the accent colour for one that has finished, grey for the button
-    /// that would start the first — and red once a press has failed, whichever it was. On a filled button it takes
+    /// Green while a session is running, the accent colour for one that has finished, and red once a press has failed. On a filled button it takes
     /// the button's own text colour: none of those reads on the accent fill.
     @ViewBuilder private func icon(_ name: String, _ tint: Color) -> some View {
         if prominent {
@@ -408,11 +377,6 @@ struct ClaudeSessionButton: View {
         } else {
             Image(systemName: name).foregroundStyle(failure == nil ? tint : .red)
         }
-    }
-
-    private var startHelp: String {
-        guard model.state.localRepo(for: pr) != nil else { return "No local clone of \(pr.repo) to start a session in" }
-        return "Start a background Claude session on \(pr.headRef)"
     }
 }
 

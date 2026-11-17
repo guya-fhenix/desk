@@ -142,22 +142,6 @@ public enum ClaudeJobs {
         return line.matches(of: /\b[0-9a-f]{8}\b/).first.map { String($0.output) }
     }
 
-    /// Where the session writes the result of instruction `step`: its own scratch folder, which it may always
-    /// write to, and which goes when the session is deleted. The app reads nothing from it — the stage follows the
-    /// session and the PR — and writing it is the instruction's last step.
-    public static func resultFile(jobId: String, step: Int, home: String = ClaudeJobs.home) -> String {
-        "\(home)/jobs/\(jobId)/tmp/desk-step-\(step).json"
-    }
-
-    /// The directory to resume a session from: the one whose Claude Code project folder holds its transcript. A
-    /// session that entered a worktree keeps its conversation under that worktree, not where it started.
-    public static func resumeDirectory(sessionId: String, candidates: [String], home: String = ClaudeJobs.home) -> String? {
-        candidates.first { dir in
-            let folder = dir.replacing(/[^A-Za-z0-9-]/, with: "-")
-            return FileManager.default.fileExists(atPath: "\(home)/projects/\(folder)/\(sessionId).jsonl")
-        }
-    }
-
     /// What the person asked a worker for, out of the prompt the master started it with:
     /// "Use the fhenix-workflow:work-on-task skill: find why X. Report to master." gives "find why X".
     public static func request(in intent: String) -> String? {
@@ -244,86 +228,43 @@ public struct ClaudeCLI: Sendable {
         guard let id = ClaudeJobs.startedID(in: output) else { throw DeskError.sessionNotStarted(output) }
         return id
     }
-
-    /// Sends an idle background session its next instruction, keeping its id and its conversation. A session that
-    /// has finished its turn is still alive, and resuming a live one starts a copy instead, so it is stopped first
-    /// and resumed only once `claude agents` no longer lists it running. Callers send only to a session that is
-    /// `done`: stopping one that is working or asking something would cut it off.
-    public func send(_ prompt: String, to job: ClaudeJob, cwd: String) async throws {
-        guard let sessionId = job.sessionId else { throw DeskError.sessionNotResumed("no session id recorded for \(job.id) yet") }
-        // Its exit status is not the test: a session that is not running may refuse the stop. Not running is the test.
-        let pid = await agents()?.first { $0["id"] as? String == job.id }?["pid"] as? Int32
-        _ = try await run(path, ["stop", job.id], nil, nil, [:], 30)
-        guard await waitUntilStopped(job.id, pid: pid) else { throw DeskError.sessionStillRunning(job.id) }
-        let output = try await Shell.output(path, ["--bg", "--resume", sessionId, prompt], cwd: cwd, timeout: 120, run: run)
-        guard let id = ClaudeJobs.startedID(in: output), id == job.id else {
-            // A copy would run the instruction beside the real session; it goes before anything else happens.
-            if let copy = ClaudeJobs.startedID(in: output) {
-                _ = try? await run(path, ["stop", copy], nil, nil, [:], 30)
-                _ = try? await run(path, ["rm", copy], nil, nil, [:], 30)
-            }
-            throw DeskError.sessionNotResumed(output)
-        }
-    }
-
-    /// `claude agents` drops a stopped session a second or two before its process exits, and a resume in that gap
-    /// starts a copy: so the process `pid` going is the test too.
-    private func waitUntilStopped(_ id: String, pid: Int32?) async -> Bool {
-        for _ in 0..<30 {
-            guard let list = await agents() else { return false }
-            let listed = list.contains { $0["id"] as? String == id && $0["pid"] != nil }
-            if !listed, pid.map({ kill($0, 0) != 0 }) ?? true { return true }
-            try? await Task.sleep(for: .milliseconds(500))
-        }
-        return false
-    }
-
-    private func agents() async -> [[String: Any]]? {
-        guard let output = try? await Shell.output(path, ["agents", "--json"], timeout: 30, run: run) else { return nil }
-        return (try? JSONSerialization.jsonObject(with: Data(output.utf8))) as? [[String: Any]] ?? []
-    }
 }
 
-/// Whether a repository's sessions can run the two skills Desk's presses call by name: `fhenix-workflow` enabled for the
-/// repo and installed at a version that ships them. Run /pre-pr on a draft runs the self-review — /pre-pr where the repo has
-/// adopted the review flow, reviewing-code elsewhere — and Start review runs review-pr.
+/// Whether a repository's review sessions can start: `fhenix-workflow` enabled for the repo and installed at a version
+/// with a review skill, and which one they start on.
 public struct ReviewSkill: Sendable, Hashable {
     public enum State: Sendable, Hashable { case ready, noSkill, notInstalled, notEnabled }
 
     public var state: State
     /// The installed plugin version, when there is one.
     public var version: String?
-    /// `REVIEW.md` and `.github/review/tier.sh` in the repo: what decides which skill the self-review runs.
-    public var adopted: Bool
-    /// The skills the installed version lacks.
+    /// The review skill the installed version lacks: `review-pr`, when it has no `review-teammate-task` either.
     public var missing: [String]
     /// Whether review sessions here can run `review-teammate-task`, which reviews any set of PRs with your notes: from
     /// the plugin folder Desk loads plugins from, when one is set, or else the installed plugin. Without it, a review is
     /// one PR on `review-pr`, as before.
     public var groupReview: Bool
 
-    public init(state: State, version: String? = nil, adopted: Bool = false, missing: [String] = [], groupReview: Bool = false) {
+    public init(state: State, version: String? = nil, missing: [String] = [], groupReview: Bool = false) {
         self.state = state
         self.version = version
-        self.adopted = adopted
         self.missing = missing
         self.groupReview = groupReview
     }
 
-    /// The skill Run /pre-pr on a draft runs here.
-    public var selfReview: String { adopted ? ClaudePlugins.prePR : ClaudePlugins.reviewingCode }
-    public var skills: [String] { [selfReview, ClaudePlugins.reviewPR] }
+    /// The skill a review session here starts on.
+    public var reviewSkill: String { groupReview ? ClaudePlugins.reviewTeammateTask : ClaudePlugins.reviewPR }
 
-    /// Every skill there.
+    /// A review session can start here.
     public var isReady: Bool { state == .ready }
 
-    /// One skill there, whatever the other.
+    /// One skill there.
     public func has(_ skill: String) -> Bool { (state == .ready || state == .noSkill) && !missing.contains(skill) }
 
     public var text: String {
         let plugin = ClaudePlugins.plugin
         switch state {
-        case .ready: return "\(plugin) \(version ?? "") · \(skills.joined(separator: ", "))"
+        case .ready: return "\(plugin) \(version ?? "") · \(reviewSkill)"
         case .noSkill: return "\(plugin) \(version ?? "") has no \(missing.joined(separator: ", ")) — update the plugin"
         case .notInstalled: return "\(plugin) is enabled here but not installed"
         case .notEnabled: return "\(plugin) is not enabled in this repo"
@@ -334,33 +275,29 @@ public struct ReviewSkill: Sendable, Hashable {
 /// Reads the plugin files Claude Code reads, never the plugins themselves.
 public enum ClaudePlugins {
     public static let plugin = "fhenix-workflow"
-    public static let prePR = "pre-pr"
-    public static let reviewingCode = "reviewing-code"
-    /// The skill a review session starts with.
+    /// The skill a one-PR review session starts with, before fhenix-workflow 1.0.
     public static let reviewPR = "review-pr"
-    /// The skill a review of any set of PRs, with your notes, starts with.
+    /// The skill a review of any set of PRs, with your notes, starts with: fhenix-workflow 1.0 and later.
     public static let reviewTeammateTask = "review-teammate-task"
 
     /// `enabledPlugins` decides first, in Claude Code's own order — the repo's local settings, then its shared
     /// settings, then the user's, and the first that names the plugin wins. Then the install record for this
-    /// repo, or for the user, says which version is there and whether it carries the skill. `pluginDir`, a folder of
+    /// repo, or for the user, says which version is there and which review skill it carries. `pluginDir`, a folder of
     /// plugins Desk's sessions load in place of the installed ones, decides whether a group review can run.
-    public static func reviewSkill(repoRoot: String, adopted: Bool = false, pluginDir: String = "", home: String = ClaudeJobs.home) -> ReviewSkill {
+    public static func reviewSkill(repoRoot: String, pluginDir: String = "", home: String = ClaudeJobs.home) -> ReviewSkill {
         let folder = (pluginDir.trimmingCharacters(in: .whitespaces) as NSString).expandingTildeInPath
         let inFolder = !folder.isEmpty && FileManager.default.fileExists(atPath: "\(folder)/\(plugin)/skills/\(reviewTeammateTask)/SKILL.md")
         let files = ["\(repoRoot)/.claude/settings.local.json", "\(repoRoot)/.claude/settings.json", "\(home)/settings.json"]
         guard let enabled = files.lazy.compactMap(enabledEntry(in:)).first, enabled.on else {
-            return ReviewSkill(state: .notEnabled, adopted: adopted, groupReview: inFolder)
+            return ReviewSkill(state: .notEnabled, groupReview: inFolder)
         }
         guard let install = install(of: enabled.name, repoRoot: repoRoot, home: home) else {
-            return ReviewSkill(state: .notInstalled, adopted: adopted, groupReview: inFolder)
+            return ReviewSkill(state: .notInstalled, groupReview: inFolder)
         }
         let has = { (skill: String) in FileManager.default.fileExists(atPath: "\(install.path)/skills/\(skill)/SKILL.md") }
-        let missing = ReviewSkill(state: .ready, adopted: adopted).skills.filter { !has($0) }
-        return ReviewSkill(
-            state: missing.isEmpty ? .ready : .noSkill, version: install.version, adopted: adopted, missing: missing,
-            groupReview: folder.isEmpty ? has(reviewTeammateTask) : inFolder
-        )
+        let group = folder.isEmpty ? has(reviewTeammateTask) : inFolder
+        let missing = group || has(reviewPR) ? [] : [reviewPR]
+        return ReviewSkill(state: missing.isEmpty ? .ready : .noSkill, version: install.version, missing: missing, groupReview: group)
     }
 
     /// `fhenix-workflow@<marketplace>` and whether this file turns it on, or nil when the file does not name it.

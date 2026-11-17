@@ -50,10 +50,6 @@ final class AppModel {
     var movingTickets: Set<String> = []
     /// Why Jira refused the last move of a ticket, by key; cleared by a move that works or a dismissal.
     var ticketMoveErrors: [String: String] = [:]
-    /// Ticket keys with a planning session starting, for the button that must not fire twice.
-    var planningTickets: Set<String> = []
-    /// PR urls with a background session being started, for the same reason.
-    var startingSessions: Set<String> = []
     /// Your PRs this app merged or closed, by url, as they now stand and when. GitHub's search lags a write by up to a
     /// minute or so, and until it agrees each refresh is corrected by these, so a PR's page and the lists show how it
     /// ended at once instead of on some later poll.
@@ -65,7 +61,7 @@ final class AppModel {
     /// GitHub's does, and until it agrees, for five minutes at most, each Jira refresh is corrected by these: a lagging
     /// one would otherwise put the move back on offer.
     private var ticketEdits: [String: (edit: TicketEdit, at: Date)] = [:]
-    /// Your PRs with a flow instruction going out or a GitHub write in flight, by url.
+    /// Your PRs with a GitHub write in flight, a merge or a change to draft or ready, by url.
     var busyFlows: Set<String> = []
     /// Why the last press on a PR's flow failed, by url, until the next press. Like the stage, nothing of it is saved.
     var flowErrors: [String: String] = [:]
@@ -338,14 +334,6 @@ final class AppModel {
         }
     }
 
-    /// Why nothing can be sent to this PR's session now; nil when it can.
-    func sendBlocker(_ pr: PullRequest) -> String? { state.sendBlocker(pr, sending: busyFlows.contains(pr.url)) }
-
-    /// Why Run /pre-pr is dead on a draft; nil when it may be pressed.
-    func prePRBlocker(_ pr: PullRequest) -> String? {
-        state.prePRBlocker(pr, sending: busyFlows.contains(pr.url), startingSession: startingSessions.contains(pr.url))
-    }
-
     /// The PR's Files tab, where a pending review's comments are read, edited and submitted.
     func openDraft(_ pr: PullRequest) { open("\(pr.url)/files") }
 
@@ -395,51 +383,6 @@ final class AppModel {
     }
 
     private static let dismissedMovesKey = "jira.dismissedMoves"
-
-    /// Starts a background Claude session to plan a ticket, then moves the ticket to in progress so a
-    /// later glance says somebody is already on it. The session is tied to nothing: press again and you
-    /// get another, which is the point — it is the pull request it ends in that the app follows.
-    ///
-    /// The ticket only moves once the session is running. A press that started nothing must not leave
-    /// Jira claiming work is underway.
-    func planTicket(_ ticket: Ticket, in repo: RepoRef, note: String = "") {
-        let key = ticket.key
-        guard !planningTickets.contains(key) else { return }
-        planningTickets.insert(key)
-        Task {
-            defer { planningTickets.remove(key) }
-            do {
-                let id = try await service.startTicketSession(ticket: ticket, repoRoot: repo.root, note: note)
-                // Held until the next scan reads the same session off disk, the ticket's key out of its prompt.
-                state.claudeJobs.insert(
-                    ClaudeJob(id: id, name: key, state: "working", cwd: repo.root, prKeys: [], updatedAt: Date(), ticketKey: key), at: 0
-                )
-                sessionErrors[key] = nil
-            } catch {
-                sessionErrors[key] = "\(error)"
-                Self.log.error("plan \(key, privacy: .public): \(String(describing: error), privacy: .public)")
-                return
-            }
-            await startProgress(on: ticket)
-        }
-    }
-
-    /// Moves a ticket to the in-progress status, unless it is already there or already finished. A refusal
-    /// here is worth saying out loud but never undoes the session that has just started. It is the ticket's, beside its
-    /// sessions: on the Jira source it would be cleared by the refresh that follows, and say nothing of the ticket.
-    private func startProgress(on ticket: Ticket) async {
-        let target = config.jiraInProgressStatus
-        guard !target.isEmpty, ticket.status != target, ticket.category != .done else { return }
-        let error = await perform(.jira) {
-            try await service.transitionTicket(key: ticket.key, to: target)
-        } patch: {
-            expect(TicketEdit(status: target), on: ticket.key)
-        }
-        if let error {
-            sessionErrors[ticket.key] = "Session started, but Jira refused the move to \(target): \(error)"
-            Self.log.error("plan \(ticket.key, privacy: .public): \(error, privacy: .public)")
-        }
-    }
 
     func open(_ url: String?) {
         guard let url, let parsed = URL(string: url) else { return }
@@ -587,29 +530,6 @@ final class AppModel {
     }
 
     // MARK: Background sessions
-
-    /// Starts a background Claude session on the PR's branch. The button that calls this is the one shown
-    /// when no session mentions the PR yet; the row flips to Attach as soon as this one lands.
-    func startSession(for pr: PullRequest, flow: PromptID? = nil) {
-        guard let repo = state.localRepo(for: pr), !startingSessions.contains(pr.url) else { return }
-        startingSessions.insert(pr.url)
-        // A checkout the user already has on that branch is the session's home; nothing else touches git. A fork's branch
-        // is never one of yours, whatever its name: it gets its PR head, detached.
-        let existing = pr.isCrossRepository ? nil : state.worktrees.first { $0.repoName == pr.repoName && $0.branch == pr.headRef }?.path
-        Task {
-            defer { startingSessions.remove(pr.url) }
-            do {
-                let job = try await service.startClaudeSession(pr: pr, repoRoot: repo.root, worktree: existing, flow: flow)
-                // Held until the next scan reads the same session off disk. On your own PR it puts the PR in the flow.
-                state.claudeJobs.insert(job, at: 0)
-                sessionErrors[pr.url] = nil
-                if existing == nil { Task { await refresh(.git) } }
-            } catch {
-                sessionErrors[pr.url] = "\(error)"
-                Self.log.error("session: \(String(describing: error), privacy: .public)")
-            }
-        }
-    }
 
     // MARK: Master
 
@@ -763,6 +683,11 @@ final class AppModel {
             terminals.select(tab)
             return
         }
+        // Where review-teammate-task is there, one PR is a group of one: review-pr may not be there any more.
+        if canReviewTogether(pr) {
+            startReview([pr], notes: "")
+            return
+        }
         guard let claude = config.resolvedClaudePath else {
             sessionErrors[pr.url] = DeskError.claudeNotFound.description
             return
@@ -786,7 +711,7 @@ final class AppModel {
         let ticket = DeskService.reviewTicket(for: pr, tickets: state.tickets, projectKeys: config.jiraProjectKeys)
         terminals.open(
             id: Self.reviewTab(pr), title: "Review \(pr.repoName)#\(pr.number)", executable: claude,
-            arguments: DeskService.reviewArguments(for: pr, ticket: ticket, config: config), directory: repo.root
+            arguments: DeskService.reviewArguments(for: pr, ticket: ticket), directory: repo.root
         )
     }
 
@@ -828,20 +753,10 @@ final class AppModel {
         return true
     }
 
-    // MARK: Flows
+    // MARK: Ready and draft
 
-    /// Run /pre-pr on a draft: its session runs it once, or a new background session starts on it when the PR has none.
-    /// Pressed again, it runs again.
-    func runPrePR(_ pr: PullRequest) {
-        guard prePRBlocker(pr) == nil else { return }
-        if state.session(for: pr) == nil {
-            startSession(for: pr, flow: .selfReview)
-        } else {
-            send(.selfReview, for: pr)
-        }
-    }
-
-    /// Mark ready on a draft: it leaves draft and the review team is asked. Shown ready at once.
+    /// Ready for review on a draft, from the ⋯ menu: as GitHub's own button, shown ready at once. Asking reviewers is the
+    /// worker's, on your word through the master.
     func markReady(_ pr: PullRequest) {
         guard busyFlows.insert(pr.url).inserted else { return }
         flowErrors[pr.url] = nil
@@ -849,56 +764,9 @@ final class AppModel {
             defer { busyFlows.remove(pr.url) }
             flowErrors[pr.url] = await perform(.github) {
                 try await service.markReady(pr)
-                // Ready from here on, even if asking the team below fails.
                 readied[pr.url] = Date()
                 applyLanded()
-                try await service.requestTeamReview(pr)
             }
         }
     }
-
-    /// Fix it on a PR that conflicts with its base or whose CI failed: its session gets the fix. Nothing goes out on its
-    /// own: a fix that did not take is pressed again or left, as you choose.
-    func fix(_ prompt: PromptID, for pr: PullRequest) {
-        guard sendBlocker(pr) == nil else { return }
-        send(prompt, for: pr)
-    }
-
-    /// Sends the PR's session one flow instruction; the session going to work is what moves the stage. Not `perform`: the
-    /// press stays busy until the git scan has read the session at work, or a second press could stop it mid-turn.
-    private func send(_ prompt: PromptID, for pr: PullRequest) {
-        guard let session = state.session(for: pr), busyFlows.insert(pr.url).inserted else { return }
-        flowErrors[pr.url] = nil
-        let root = state.localRepo(for: pr)?.root ?? session.cwd
-        // A fork's branch name may be one of this clone's own (its `master`), so a fork's worktree is found by its path.
-        let worktree = pr.isCrossRepository
-            ? state.worktrees.first { $0.path == BranchWorktrees.worktreePath(for: pr, repoRoot: root) }?.path
-            : state.worktrees.first { $0.repoRoot == root && $0.branch == pr.headRef }?.path
-        // Numbered by when it went out, so an earlier instruction's file is never this one's.
-        let resultFile = ClaudeJobs.resultFile(jobId: session.id, step: Int(Date().timeIntervalSince1970))
-        let text = DeskService.flowPrompt(
-            prompt, pr: pr, worktree: worktree, resultFile: resultFile, config: config
-        )
-        let cwd = resumeDirectory(session, for: pr)
-        Task {
-            defer { busyFlows.remove(pr.url) }
-            do {
-                try await service.send(text, to: session, cwd: cwd)
-                Self.log.info("flow \(pr.url, privacy: .public): sent \(prompt.rawValue, privacy: .public)")
-            } catch {
-                flowErrors[pr.url] = "Couldn't send it to the session: \(error)"
-                Self.log.error("flow \(pr.url, privacy: .public): \(String(describing: error), privacy: .public)")
-            }
-            await refresh(.git)
-        }
-    }
-
-    /// Where to resume a PR's session from: whichever of the clone's worktrees, the session's own folder and the clone
-    /// holds its transcript, or the clone.
-    private func resumeDirectory(_ session: ClaudeJob, for pr: PullRequest) -> String {
-        let root = state.localRepo(for: pr)?.root ?? session.cwd
-        let candidates = state.worktrees.filter { $0.repoRoot == root }.map(\.path) + [session.cwd, root].filter { !$0.isEmpty }
-        return session.sessionId.flatMap { ClaudeJobs.resumeDirectory(sessionId: $0, candidates: candidates) } ?? root
-    }
-
 }
