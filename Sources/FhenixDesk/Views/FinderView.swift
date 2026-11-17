@@ -177,11 +177,14 @@ struct FinderView: View {
             case .task(let task):
                 name(TaskHeader.label(task))
                 Text(task.title).lineLimit(1).truncationMode(.tail).frame(maxWidth: .infinity, alignment: .leading)
-                facts(waits(task) + " · \(task.pullRequests.count) pull request\(task.pullRequests.count == 1 ? "" : "s")")
+                facts(waits(task), tone: waitTone(task), " · \(task.pullRequests.count) pull request\(task.pullRequests.count == 1 ? "" : "s")")
             case .session(let job):
                 name(job.name)
                 Text(job.detail ?? job.request ?? "").lineLimit(1).truncationMode(.tail).frame(maxWidth: .infinity, alignment: .leading)
-                facts("\(job.isAsking ? "Waiting for you" : job.isRunning ? "Working" : "Done") · \(Format.age(job.updatedAt))")
+                facts(
+                    job.isAsking ? "Waiting for you" : job.isRunning ? "Working" : "Done",
+                    tone: job.isAsking ? Theme.warn : job.isRunning ? Theme.accentInk : Theme.quiet, " · \(Format.age(job.updatedAt))"
+                )
             case .ticket(let ticket):
                 name(ticket.key)
                 Text(ticket.summary).lineLimit(1).truncationMode(.tail).frame(maxWidth: .infinity, alignment: .leading)
@@ -217,6 +220,11 @@ struct FinderView: View {
 
     private func facts(_ text: String) -> some View {
         Text(text).scaled(.secondary).foregroundStyle(Theme.quiet).lineLimit(1).fixedSize()
+    }
+
+    /// Where it stands in its colour, then the rest quiet: "waits on you · 1 pull request".
+    private func facts(_ lead: String, tone: Color, _ rest: String) -> some View {
+        Text("\(Text(lead).foregroundStyle(tone))\(rest)").scaled(.secondary).foregroundStyle(Theme.quiet).lineLimit(1).fixedSize()
     }
 
     private func move(_ step: Int, in hits: [Hit]) -> KeyPress.Result {
@@ -265,6 +273,15 @@ struct FinderView: View {
     private func close() { model.showingFinder = false }
 
     /// Who a task waits on, in a few words.
+    /// Red when it waits on you, the accent while a worker or reviewers have it.
+    private func waitTone(_ task: WorkTask) -> Color {
+        switch task.waitingOn(asked: model.state.askedTasks) {
+        case .you: return Theme.danger
+        case .worker, .reviewers: return Theme.accentInk
+        case .nobody: return Theme.quiet
+        }
+    }
+
     private func waits(_ task: WorkTask) -> String {
         switch task.waitingOn(asked: model.state.askedTasks) {
         case .you: return "waits on you"
