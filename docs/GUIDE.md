@@ -118,7 +118,8 @@ stacked one a further step in with ↳; a task that is a PR is that PR's row, an
 header names the columns, so the facts line up down the list at any depth. J and K walk tasks and PRs alike; Return or
 a double-click opens a PR's page. A task has no page: the details column is its view, with the ticket's summary, its PRs
 and where each stands (each opens its page), what it depends on (someone else's open PR, or a branch no open PR opens),
-its worker with Show in iTerm, and the master's questions about it, and at its foot Master in iTerm and Open in Jira.
+its worker with Show in iTerm, and the master's questions about it, and at its foot Master in iTerm and Open in Jira. A
+PR's details column is the PR in words, with its task under it; for a task that is a PR, only its worker.
 
 Each PR row leads with the title, and under it its branches, size and ticket. On the right each fact has a column of
 its own: State (Draft or Open), Self (self-reviewed: the `local-reviewed` label), CI, Review (approved, the review

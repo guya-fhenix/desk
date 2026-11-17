@@ -101,9 +101,11 @@ struct PullRequestsTab: View {
                                 .padding(.top, group.id == groups.first?.id ? 2 : 0)
                                 .plainListRow().selectionDisabled()
                             ForEach(group.tasks) { task in
-                                // A task that is a PR is that PR's row: it selects and opens as any PR does.
+                                // A task that is a PR is that PR's row: it selects and opens as any PR does. Tagged with
+                                // the PR, or the arrow keys and clicks select the task, which ForEach tags it with.
                                 if let root = Self.root(of: task) {
                                     PullRequestRow(row: StackedPullRequest(pullRequest: root), model: model, selected: selection == root.url)
+                                        .tag(root.url).id(root.url)
                                 } else {
                                     TaskRow(task: task, model: model, selected: selection == task.id)
                                 }
@@ -835,12 +837,18 @@ private struct TaskPullRequestDetails: View {
                             FieldRow("Updated", "\(Format.age(pr.updatedAt)) ago")
                         }
                     }
-                    if let task {
+                    if let task, task.origin != .pullRequest {
                         VStack(alignment: .leading, spacing: 8) {
                             SectionLabel("Task")
                             TaskKicker(task: task, ticket: model.state.ticket(task.id)).scaled(.secondary).foregroundStyle(Theme.quiet)
                             Text(task.title).fixedSize(horizontal: false, vertical: true)
                             if let worker = task.worker { TaskWorkerLine(job: worker, model: model).padding(.top, 4) }
+                        }
+                    } else if let worker = task?.worker {
+                        // A task that is a PR is this PR or its stack, so only its worker is news here.
+                        VStack(alignment: .leading, spacing: 8) {
+                            SectionLabel("Worker")
+                            TaskWorkerLine(job: worker, model: model)
                         }
                     }
                 }
