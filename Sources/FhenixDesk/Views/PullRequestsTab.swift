@@ -865,37 +865,15 @@ private struct TaskPullRequestDetails: View {
 }
 
 /// Where a PR stands, as its page's header says it: what it waits on for an open one, in the colour of whose move it
-/// is, or how it ended.
+/// is, or how it ended. The chip every status in the app is.
 struct TaskStatePill: View {
     var pr: PullRequest
 
     var body: some View {
-        let (title, color) = look
-        HStack(spacing: 6) {
-            Circle().fill(color).frame(width: 6, height: 6)
-            Text(title)
-        }
-        .scaled(.secondary.weight(.semibold))
-        .foregroundStyle(color)
-        .padding(.horizontal, 9)
-        .frame(height: 24)
-        .overlay(Capsule().strokeBorder(color))
-        .fixedSize()
-        .help(pr.state == .merged ? pr.mergedAt.map { "Merged \(Format.date($0))" } ?? "Merged" : title)
-    }
-
-    private var look: (String, Color) {
         switch pr.state {
-        case .merged: return ("Merged", Theme.merged)
-        case .closed: return ("Closed", Theme.closed)
-        case .open:
-            let state = RowState.of(pr)
-            switch state.move {
-            case .yoursToFix: return (state.title, Theme.danger)
-            case .yoursToMerge: return (state.title, Theme.ok)
-            case .others: return (state.title, Theme.accentInk)
-            case .draft: return (state.title, Theme.quiet)
-            }
+        case .open: StatePill(state: RowState.of(pr))
+        case .merged: StageChip2(text: "Merged", color: Theme.merged).help(pr.mergedAt.map { "Merged \(Format.date($0))" } ?? "Merged")
+        case .closed: StageChip2(text: "Closed", color: Theme.closed)
         }
     }
 }
