@@ -36,10 +36,12 @@ final class Notifier {
     }
 
     /// Marks every current nudge as seen. Posts a notification only when `post` is true, so
-    /// nudges that exist before all sources report once never fire.
-    func deliver(_ nudges: [Nudge], post: Bool) {
+    /// nudges that exist before all sources report once never fire. Returns the ones it posted, which go to the master
+    /// as events too.
+    @discardableResult
+    func deliver(_ nudges: [Nudge], post: Bool) -> [Nudge] {
         // A run without a bundle posts nothing, and must not mark nudges seen in the file the installed app reads.
-        guard let center else { return }
+        guard let center else { return [] }
         let now = Date()
         let fresh = nudges.filter { delivered[$0.id] == nil && Self.notifiedKinds.contains($0.kind) && ($0.severity >= .warning || $0.kind == .readyToMerge) }
         for nudge in fresh {
@@ -56,6 +58,7 @@ final class Notifier {
         let cutoff = now.addingTimeInterval(-Self.retention)
         delivered = delivered.filter { $0.value > cutoff }
         try? support.save(delivered, to: Self.deliveredFile)
+        return post ? fresh : []
     }
 }
 

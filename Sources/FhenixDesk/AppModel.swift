@@ -95,6 +95,10 @@ final class AppModel {
     private var savedConfig: DeskConfig
     private let service: DeskService
     private let notifier: Notifier
+    /// Where the master session runs, and the files Desk writes for it.
+    var masterFolder: MasterFolder { MasterFolder(support: support) }
+    /// The last `graph.json` written, so an unchanged one is not written again every 15 seconds.
+    private var writtenGraph: TaskGraph?
     private var loops: [Source: Task<Void, Never>] = [:]
     private var updateCheck: Task<Void, Never>?
     /// A newer Desk, once GitHub's latest release is later than this app; the sidebar suggests updating to it.
@@ -108,6 +112,8 @@ final class AppModel {
         service = DeskService(config: config, support: support)
         notifier = Notifier(support: support)
         state.dismissedMoves = Set(UserDefaults.standard.stringArray(forKey: Self.dismissedMovesKey) ?? [])
+        try? masterFolder.trimEvents()
+        writeMasterSettings()
         Task { await self.start() }
         Notifier.onShow = { [weak self] url in self?.show(url) }
         // Settings is where the sentence shows.
@@ -203,7 +209,8 @@ final class AppModel {
             case .git:
                 let scan = await service.refreshGit()
                 state.gitScan = scan
-                state.claudeJobs = await service.claudeJobs()
+                state.claudeJobs = await service.claudeJobs(keepIn: scan.repos.map(\.root))
+                state.asks = masterFolder.asks()
                 state.claudeLimits = await service.claudeLimits()
                 state.reviewSkills = await service.reviewSkills(repos: scan.repos)
                 state.errors[.git] = scan.errors.isEmpty ? nil : scan.errors.joined(separator: "\n")
@@ -234,11 +241,42 @@ final class AppModel {
         // Jira failing again and again is asked less and less often, which is what lets a throttle on the account lift.
         if source == .jira { jiraFailures = state.errors[.jira] == nil ? 0 : jiraFailures + 1 }
         state.recompute()
-        notifier.deliver(state.nudges, post: config.notificationsEnabled && allSourcesReported)
+        let posted = notifier.deliver(state.nudges, post: config.notificationsEnabled && allSourcesReported)
+        writeMasterFiles(posted: posted)
     }
 
     private var allSourcesReported: Bool {
         Source.allCases.allSatisfy { state.lastRefresh[$0] != nil || state.errors[$0] != nil }
+    }
+
+    /// `graph.json` once every source has answered, so the master never routes by half a graph, and again whenever the
+    /// tasks change; and each nudge just posted as a line of `events.jsonl`, while events are on.
+    private func writeMasterFiles(posted: [Nudge]) {
+        guard allSourcesReported else { return }
+        let graph = state.taskGraph()
+        if graph.tasks != writtenGraph?.tasks || graph.prs != writtenGraph?.prs {
+            do {
+                try masterFolder.write(graph)
+                writtenGraph = graph
+            } catch {
+                Self.log.error("graph.json: \(String(describing: error), privacy: .public)")
+            }
+        }
+        guard config.sendEvents, !posted.isEmpty else { return }
+        do {
+            try masterFolder.append(state.masterEvents(for: posted))
+        } catch {
+            Self.log.error("events.jsonl: \(String(describing: error), privacy: .public)")
+        }
+    }
+
+    /// The master folder's `.claude/settings.json`, with the folders the master can see.
+    private func writeMasterSettings() {
+        do {
+            try masterFolder.writeSettings(additionalDirectories: config.masterFolderList)
+        } catch {
+            Self.log.error("master settings: \(String(describing: error), privacy: .public)")
+        }
     }
 
     func loadRepositories(force: Bool = false) {
@@ -260,6 +298,7 @@ final class AppModel {
         do {
             if config != savedConfig {
                 try support.save(config, to: DeskService.configFile)
+                if config.masterFolderList != savedConfig.masterFolderList { writeMasterSettings() }
                 savedConfig = config
                 configError = nil
                 configErrorDetail = nil

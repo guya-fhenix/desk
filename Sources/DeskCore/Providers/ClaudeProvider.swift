@@ -33,11 +33,17 @@ public struct ClaudeJob: Sendable, Hashable, Identifiable {
     /// What it is asking, as Claude Code sums it up (`needs`), while it asks. Often the last line of a long message, which
     /// reads as the end of a report rather than a question, so Desk says it outright.
     public var question: String?
+    /// What it is doing, in a line, as Claude Code keeps it up to date (`detail`).
+    public var detail: String?
+    /// What it was started as, read off the prompt it started from.
+    public var role: SessionRole
+    /// For a worker started on what the person asked rather than on a ticket, the ask: "find why decrypt requests fail".
+    public var request: String?
 
     public init(
         id: String, name: String, state: String, cwd: String, prKeys: Set<String>, updatedAt: Date, createdAt: Date? = nil,
         sessionId: String? = nil, ticketKey: String? = nil, startedOn: Set<String> = [], linked: Set<String> = [],
-        question: String? = nil
+        question: String? = nil, detail: String? = nil, role: SessionRole = .other, request: String? = nil
     ) {
         self.id = id
         self.name = name
@@ -51,6 +57,9 @@ public struct ClaudeJob: Sendable, Hashable, Identifiable {
         self.startedOn = startedOn
         self.linked = linked
         self.question = question
+        self.detail = detail
+        self.role = role
+        self.request = request
     }
 
     public var isRunning: Bool { state == "working" }
@@ -67,15 +76,33 @@ public struct ClaudeJob: Sendable, Hashable, Identifiable {
     public var isIdle: Bool { state == "done" }
 }
 
+/// What a session was started as, by the skill its prompt names: the master the person talks to, a worker on one task, a
+/// review of a teammate's PRs, or anything else.
+public enum SessionRole: String, Sendable, Codable {
+    case master, worker, review, other
+
+    /// The master is also known by its name, which Desk and the person give it.
+    public static func of(name: String?, intent: String?) -> SessionRole {
+        let prompt = intent ?? ""
+        if name == "master" || prompt.contains("coordinate-tasks") { return .master }
+        if prompt.contains("work-on-task") { return .worker }
+        if prompt.contains("review-teammate-task") { return .review }
+        return .other
+    }
+}
+
 /// Reads the background sessions off disk. Only the small per-job state files, never a transcript: the
 /// PR links in them are already the product of Claude Code's own link scan.
 public enum ClaudeJobs {
     public static let home = ("~/.claude" as NSString).expandingTildeInPath
 
-    /// Background sessions that mention a pull request, or whose prompt names a ticket, newest first. The rest are
-    /// dropped: nothing on a PR or ticket screen could show them. A ticket's session is shown on the ticket before it
-    /// has opened anything.
-    public static func scan(home: String = ClaudeJobs.home, tickets: TicketKeyMatcher = TicketKeyMatcher(projectKeys: [])) -> [ClaudeJob] {
+    /// Background sessions that mention a pull request, whose prompt names a ticket, that run a Fhenix Desk role (the
+    /// master, a worker, a review), or that run in one of `keepIn`, the tracked clones: a session started there with no
+    /// ticket is still a task. Newest first. The rest, a session in some other folder about nothing Desk tracks, are
+    /// dropped.
+    public static func scan(
+        home: String = ClaudeJobs.home, tickets: TicketKeyMatcher = TicketKeyMatcher(projectKeys: []), keepIn: [String] = []
+    ) -> [ClaudeJob] {
         let root = URL(fileURLWithPath: home).appendingPathComponent("jobs")
         guard let ids = try? FileManager.default.contentsOfDirectory(atPath: root.path) else { return [] }
         let decoder = JSON.decoder()
@@ -84,12 +111,15 @@ public enum ClaudeJobs {
             guard let data = try? Data(contentsOf: file), let state = try? decoder.decode(JobState.self, from: data) else { return nil }
             let keys = state.prKeys
             let ticketKey = state.intent.flatMap { tickets.keys(in: $0).first }
-            guard !keys.isEmpty || ticketKey != nil else { return nil }
+            let role = SessionRole.of(name: state.name, intent: state.intent)
+            let cwd = state.cwd ?? ""
+            guard !keys.isEmpty || ticketKey != nil || role != .other || ClaudePaths.path(cwd, isUnder: keepIn) else { return nil }
             return ClaudeJob(
-                id: id, name: state.label(fallback: id), state: state.state ?? "unknown", cwd: state.cwd ?? "",
+                id: id, name: state.label(fallback: id), state: state.state ?? "unknown", cwd: cwd,
                 prKeys: keys, updatedAt: state.updatedAt ?? .distantPast, createdAt: state.createdAt, sessionId: state.sessionId,
                 ticketKey: ticketKey, startedOn: state.intent.map(ClaudeJobs.prKeys(in:)) ?? [], linked: state.linked,
-                question: state.question
+                question: state.question, detail: state.detail?.trimmingCharacters(in: .whitespacesAndNewlines),
+                role: role, request: role == .worker && ticketKey == nil ? state.intent.flatMap(request(in:)) : nil
             )
         }
         .sorted { $0.updatedAt > $1.updatedAt }
@@ -128,6 +158,16 @@ public enum ClaudeJobs {
         }
     }
 
+    /// What the person asked a worker for, out of the prompt the master started it with:
+    /// "Use the fhenix-workflow:work-on-task skill: find why X. Report to master." gives "find why X".
+    public static func request(in intent: String) -> String? {
+        guard let skill = intent.range(of: "work-on-task skill") else { return nil }
+        var rest = intent[skill.upperBound...].drop { $0 == ":" || $0.isWhitespace }
+        if let report = rest.range(of: "Report to") { rest = rest[..<report.lowerBound] }
+        let text = rest.trimmingCharacters(in: .whitespacesAndNewlines.union(CharacterSet(charactersIn: ".")))
+        return text.isEmpty ? nil : text
+    }
+
     /// Every PR url in a piece of text, for the prompt a session was started from.
     public static func prKeys(in text: String) -> Set<String> {
         Set(text.matches(of: /https:\/\/github\.com\/[^\/\s]+\/[^\/\s]+\/pull\/\d+/).compactMap { prKey(String($0.output)) })
@@ -158,6 +198,8 @@ public enum ClaudeJobs {
         var createdAt: Date?
         /// What a blocked session waits on you for, in a line.
         var needs: String?
+        /// What it is doing, in a line.
+        var detail: String?
 
         /// `needs` while it is blocked; Claude Code may leave it behind once the session moves on.
         var question: String? {

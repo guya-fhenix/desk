@@ -23,6 +23,22 @@ import Testing
         #expect(config.repoRoots == DeskConfig().repoRoots)
     }
 
+    /// A config from before the master: events go out, the master sees the repo roots and follows them, and plugins load
+    /// from the installed ones. A folder set for plugins becomes `--plugin-dir`.
+    @Test func theMastersSettingsDefaultToTheRepoRoots() throws {
+        var config = try JSON.decoder().decode(DeskConfig.self, from: Data(#"{"repoRoots":["~/Code"]}"#.utf8))
+        #expect(config.sendEvents)
+        #expect(config.masterFolderList == ["~/Code"])
+        #expect(config.pluginDirFlags.isEmpty)
+        config.masterFolders = ["~/Code", "/work"]
+        config.repoRoots = ["~/Other"]
+        config.pluginDir = "~/mp/plugins"
+        #expect(config.masterFolderList == ["~/Code", "/work"])
+        #expect(config.pluginDirFlags == ["--plugin-dir", ("~/mp/plugins" as NSString).expandingTildeInPath])
+        let again = try JSON.decoder().decode(DeskConfig.self, from: JSON.encoder().encode(config))
+        #expect(again == config)
+    }
+
     /// A value of the wrong type, as a hand edit leaves one, costs that key alone.
     @Test func aWrongTypedValueFallsBackAlone() throws {
         let json = #"{"githubPollSeconds":"120","trackedRepos":["FhenixProtocol/cofhe"]}"#
