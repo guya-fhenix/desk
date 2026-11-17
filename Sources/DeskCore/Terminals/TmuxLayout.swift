@@ -22,25 +22,28 @@ public struct PaneSpec: Equatable, Sendable {
     public var isReview: Bool { key.hasPrefix("review:") }
 }
 
-/// A pane of the `desk` session as tmux lists it: its window's name, and the key Desk tagged it with, empty for a pane
-/// Desk did not make.
+/// A pane of the `desk` session as tmux lists it: its window's name, the key Desk tagged it with, empty for a pane Desk
+/// did not make, and for `claude agents`' pane, the session it shows in its place, if any.
 public struct TmuxPane: Equatable, Sendable {
     public var paneId: String
     public var index: Int
     public var key: String
     public var window: String
+    public var showing: String
 
-    public init(paneId: String, index: Int, key: String, window: String = TmuxLayout.window) {
+    public init(paneId: String, index: Int, key: String, window: String = TmuxLayout.window, showing: String = "") {
         self.paneId = paneId
         self.index = index
         self.key = key
         self.window = window
+        self.showing = showing
     }
 }
 
 /// The `desk` tmux session. Its first window, `agents`, is always the master in its left half and `claude agents` in its
-/// right — every background session, to open one or start one from. A worker or review session you show opens in a
-/// window of its own, so those two stay as they are. iTerm2 shows it through tmux's control mode (`tmux -CC attach`): each
+/// right — every background session, to open one or start one from. A background session you show takes `claude
+/// agents`' place in the right half until you leave it, when `claude agents` comes back; a review session, which isn't
+/// one to attach to, runs in a window of its own. iTerm2 shows it through tmux's control mode (`tmux -CC attach`): each
 /// pane a native split, each window a tab or window of iTerm's, and closing iTerm leaves every session running.
 public enum TmuxLayout {
     public static let session = "desk"
@@ -48,7 +51,9 @@ public enum TmuxLayout {
     public static var target: String { "\(session):\(window)" }
     /// The pane option that says which session a pane is.
     public static let option = "@desk-session"
-    public static let listFormat = "#{pane_id}\t#{pane_index}\t#{\(option)}\t#{window_name}"
+    /// The pane option that says which session `claude agents`' pane shows in its place.
+    public static let showingOption = "@desk-showing"
+    public static let listFormat = "#{pane_id}\t#{pane_index}\t#{\(option)}\t#{window_name}\t#{\(showingOption)}"
 
     /// The `desk` window's two panes: the master's, while one runs, and `claude agents`.
     public static func panes(master: ClaudeJob?) -> [PaneSpec] {
@@ -60,12 +65,21 @@ public enum TmuxLayout {
         output.split(separator: "\n").compactMap { line in
             let parts = line.split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
             guard parts.count >= 2, parts[0].hasPrefix("%"), let index = Int(parts[1]) else { return nil }
-            return TmuxPane(paneId: parts[0], index: index, key: parts.count > 2 ? parts[2] : "", window: parts.count > 3 ? parts[3] : window)
+            return TmuxPane(
+                paneId: parts[0], index: index, key: parts.count > 2 ? parts[2] : "", window: parts.count > 3 ? parts[3] : window,
+                showing: parts.count > 4 ? parts[4] : ""
+            )
         }
     }
 
     /// `claude agents`, quoted for the shell tmux runs a pane's command in.
     public static func agentsCommand(claude: String) -> String { "\(quote(claude)) agents" }
+
+    /// A background session in `claude agents`' place: attached until you detach or it ends, then the pane forgets it and
+    /// is `claude agents` again.
+    public static func showCommand(claude: String, tmux: String, id: String) -> String {
+        "\(attachCommand(claude: claude, id: id)); \(quote(tmux)) set-option -p -u \(quote(showingOption)); exec \(agentsCommand(claude: claude))"
+    }
 
     /// `claude attach <id>`, quoted for the shell tmux runs a pane's command in.
     public static func attachCommand(claude: String, id: String) -> String { "\(quote(claude)) attach \(quote(id))" }
@@ -134,6 +148,12 @@ public struct Tmux: Sendable {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         try await tag(pane, spec)
         return pane
+    }
+
+    /// `pane` running `command` in place of what it ran, which is ended, and saying it shows `key`.
+    public func show(_ key: String, in pane: String, command: String) async throws {
+        try await call(["respawn-pane", "-k", "-t", pane, command])
+        try await call(["set-option", "-p", "-t", pane, TmuxLayout.showingOption, key])
     }
 
     /// A window of its own for `spec`, named after it, beside the `agents` window.

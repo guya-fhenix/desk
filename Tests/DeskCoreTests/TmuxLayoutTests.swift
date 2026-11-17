@@ -16,12 +16,15 @@ struct TmuxLayoutTests {
         #expect(TmuxLayout.panes(master: nil) == [.agents])
         #expect(TmuxLayout.agentsCommand(claude: "/a b/claude") == "'/a b/claude' agents")
         #expect(TerminalOpener.iTermBuryArguments == ["write", "com.googlecode.iterm2", "AutoHideTmuxClientSession", "-bool", "true"])
+        // A session in claude agents' place: attached, then forgotten and claude agents again.
+        #expect(TmuxLayout.showCommand(claude: "/c", tmux: "/t", id: "w1")
+            == "'/c' attach 'w1'; '/t' set-option -p -u '@desk-showing'; exec '/c' agents")
     }
 
     @Test func parsesPanes() {
-        let output = "%1\t0\tm1\tagents\n%4\t1\tagents\tagents\n%7\t0\tw1\tcofhe-1154\n%9\t2\t\nnot a pane\n"
+        let output = "%1\t0\tm1\tagents\t\n%4\t1\tagents\tagents\tw2\n%7\t0\tw1\tcofhe-1154\n%9\t2\t\nnot a pane\n"
         #expect(TmuxLayout.parse(output) == [
-            TmuxPane(paneId: "%1", index: 0, key: "m1"), TmuxPane(paneId: "%4", index: 1, key: "agents"),
+            TmuxPane(paneId: "%1", index: 0, key: "m1"), TmuxPane(paneId: "%4", index: 1, key: "agents", showing: "w2"),
             TmuxPane(paneId: "%7", index: 0, key: "w1", window: "cofhe-1154"), TmuxPane(paneId: "%9", index: 2, key: ""),
         ])
     }
@@ -60,6 +63,11 @@ struct TmuxLayoutTests {
         #expect(panes.first { $0.key == "w1" }?.window == "cofhe-1154")
         #expect(try await tmux.focus("w1"))
         #expect(try await !tmux.focus("gone"))
+        // A session in claude agents' place: the pane keeps its key and says what it shows.
+        let agents = try #require(panes.first { $0.key == PaneSpec.agentsKey })
+        try await tmux.show("w2", in: agents.paneId, command: "sleep 600")
+        #expect(try await tmux.panes().first { $0.key == PaneSpec.agentsKey }?.showing == "w2")
+        panes = try await tmux.panes()
         // The window closed: opening a pane makes it again.
         for pane in panes where pane.window == TmuxLayout.window { try await tmux.close(pane.paneId) }
         try await tmux.open(.agents, command: "sleep 600")

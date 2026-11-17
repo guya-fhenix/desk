@@ -253,16 +253,18 @@ private struct LayoutSketch: View {
                     ForEach(windows.prefix(6), id: \.self) { key in window(key) }
                 }
             }
-            Text("Desk keeps the master on the left and claude agents, every background session, on the right. A worker or review you show opens in a window of its own; Show brings iTerm forward on it.")
+            Text("Desk keeps the master on the left and claude agents, every background session, on the right. A session you show takes claude agents' place until you leave it; a review runs in a window of its own.")
                 .scaled(.secondary).foregroundStyle(Theme.quiet)
         }
     }
 
     private var agentsPane: some View {
         let running = model.state.claudeJobs.filter { $0.role != .master && $0.isBusy }
+        let showing = model.agentsShowing.flatMap { id in model.state.claudeJobs.first { $0.id == id } }
         return VStack(alignment: .leading, spacing: 8) {
-            paneHeader(name: "claude agents", state: "\(running.count) at work", dot: Theme.accentInk) { model.openMaster() }
-            Text("claude agents").foregroundStyle(Theme.quiet)
+            paneHeader(name: showing?.name ?? "claude agents", state: showing.map { _ in "in claude agents' place" } ?? "\(running.count) at work",
+                       dot: Theme.accentInk) { model.openMaster() }
+            Text(showing.map { "claude attach \($0.name)" } ?? "claude agents").foregroundStyle(Theme.quiet)
             ForEach(running.prefix(6)) { job in
                 HStack(spacing: 6) {
                     Circle().fill(job.isAsking ? Theme.warn : Theme.accentInk).frame(width: 6, height: 6)

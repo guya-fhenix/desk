@@ -109,6 +109,9 @@ final class AppModel {
     /// The keys of the panes the `desk` tmux layout has, as of the last sync: which sessions show there, and which review
     /// sessions run.
     var panes: Set<String> = []
+    /// The session showing in `claude agents`' place in the right half, as of the last sync; nil while `claude agents`
+    /// shows.
+    var agentsShowing: String?
     /// Why the last Show in iTerm failed, in a sentence; nil once one works.
     var terminalError: String?
     /// A sync of the `desk` layout under way, so the next waits for it.
@@ -667,7 +670,7 @@ final class AppModel {
         } catch {
             Self.log.error("tmux: \(String(describing: error), privacy: .public)")
         }
-        panes = Set(((try? await tmux.panes()) ?? []).map(\.key))
+        await readPanes(tmux)
     }
 
     /// The `desk` window's two panes and nothing else of Desk's: `claude agents` opened when it's gone, the master's when
@@ -693,7 +696,8 @@ final class AppModel {
         if changed { try? await tmux.arrange() }
     }
 
-    /// A background session in front: the master in its half of the `desk` window, any other in a window of its own.
+    /// A background session in front: the master in its half of the `desk` window, any other in `claude agents`' place in
+    /// the other half.
     func show(jobId: String) { Task { await showNow(jobId: jobId) } }
 
     /// `show(jobId:)`, waited for: what `--terminals show` runs.
@@ -746,22 +750,39 @@ final class AppModel {
             guard let claude = config.resolvedClaudePath else { throw DeskError.claudeNotFound }
             if !(await tmux.hasSession()) { try await tmux.create(.agents, command: TmuxLayout.agentsCommand(claude: claude)) }
             try await keepLayout(tmux, claude: claude)
-            if !(try await tmux.panes()).contains(where: { $0.key == spec.key }) {
-                if spec.isMaster {
-                    try await tmux.open(spec, command: command)
-                    try? await tmux.arrange()
-                } else {
-                    try await tmux.openWindow(spec, command: command)
+            let current = try await tmux.panes()
+            if spec.isMaster || spec.isReview {
+                // The master in its half; a review, which runs where it shows, in a window of its own.
+                if !current.contains(where: { $0.key == spec.key }) {
+                    if spec.isMaster {
+                        try await tmux.open(spec, command: command)
+                        try? await tmux.arrange()
+                    } else {
+                        try await tmux.openWindow(spec, command: command)
+                    }
                 }
+                _ = try await tmux.focus(spec.key)
+            } else if let agents = current.first(where: { $0.window == TmuxLayout.window && $0.key == PaneSpec.agentsKey }) {
+                // Any other session in claude agents' place, until you leave it.
+                if agents.showing != spec.key {
+                    try await tmux.show(spec.key, in: agents.paneId, command: TmuxLayout.showCommand(claude: claude, tmux: tmux.path, id: spec.key))
+                }
+                _ = try await tmux.focus(PaneSpec.agentsKey)
             }
-            panes = Set(((try? await tmux.panes()) ?? []).map(\.key))
-            _ = try await tmux.focus(spec.key)
+            await readPanes(tmux)
             try await bringTerminal(tmux)
             terminalError = nil
         } catch {
             terminalError = "Couldn't show it in \(config.terminalApp == .iTerm ? "iTerm" : "Terminal"): \(error)"
             Self.log.error("terminal: \(String(describing: error), privacy: .public)")
         }
+    }
+
+    /// What the layout has, for the screens: its panes' keys, and the session in `claude agents`' place.
+    private func readPanes(_ tmux: Tmux) async {
+        let current = (try? await tmux.panes()) ?? []
+        panes = Set(current.map(\.key))
+        agentsShowing = current.first { $0.key == PaneSpec.agentsKey }.flatMap { $0.showing.isEmpty ? nil : $0.showing }
     }
 
     /// A terminal on the session: attached when none is — iTerm2 through tmux's control mode, its control window set to

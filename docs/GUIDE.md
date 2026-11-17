@@ -193,14 +193,16 @@ the verdict you sent. Nothing of it is stored: every poll reads your pending and
 Desk opens no terminal of its own and sends nothing to a session. The master and its workers run in iTerm2, in one
 tmux session, `desk`. Its window `agents` is always two halves: the master on the left (`claude attach <id>`) and
 `claude agents` on the right, Claude Code's view of every background session, to open one or start one from. A worker
-or review session you show opens in a window of its own, so those two stay as they are. iTerm2 shows the session through
+or any other background session you show takes `claude agents`' place in the right half; when you detach from it, or it
+ends, `claude agents` comes back. A review session, which runs where it shows rather than in the background, opens in a
+window of its own. iTerm2 shows the session through
 tmux's control mode (`tmux -CC attach -t desk`), so the panes are native iTerm splits and the windows iTerm's own, and
 closing iTerm leaves every session running.
 
 Desk makes the layout the first time you ask to see a session: the Master block's Open, a Show in iTerm on a page,
 Answer in iTerm, Start review. Then, on every scan of the sessions, it keeps the `agents` window to its two panes: one
-closed by hand comes back, and a master that restarted gets its new pane. The windows of the sessions you showed are
-yours to close. Show in iTerm focuses the pane, or the session's window, and brings iTerm forward, opening a window on
+closed by hand comes back, and a master that restarted gets its new pane. A review's window is yours to close. Show
+in iTerm focuses the pane, or the review's window, and brings iTerm forward, opening a window on
 the layout when no terminal is attached, through AppleScript (macOS asks once to let Desk control iTerm). Before it
 attaches, Desk turns on iTerm's "Automatically bury the tmux client session after connecting", so the window `tmux -CC`
 runs in, with tmux's command menu, hides as it connects. Settings → Master → Terminal picks Terminal.app instead, with
