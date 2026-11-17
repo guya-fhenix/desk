@@ -94,8 +94,8 @@ struct TaskPageFrame<Crumb: View, Title: View, Actions: View, Main: View, Detail
     }
 }
 
-/// A task's own page: its ticket's first line and the stages its PRs have reached; its PRs, each opening its page, and
-/// what they depend on; the sessions behind it. Beside them its ticket, the master's questions about it, and what
+/// A task's own page: where it stands in a word, as its row says it, and its ticket's first line; its PRs, each opening
+/// its page, and what they depend on; the sessions behind it. Beside them its ticket, the master's questions about it, and what
 /// happened to it lately. Desk sends nothing to a session: the presses show the master's pane, or a worker's, in iTerm.
 struct TaskPage: View {
     var task: WorkTask
@@ -112,6 +112,7 @@ struct TaskPage: View {
         } title: {
             Text(task.title).scaled(.taskPageTitle).tracking(-0.2).lineLimit(2).textSelection(.enabled)
         } actions: {
+            StageChip2(text: TaskHeader.chip(task, asked: model.state.askedTasks))
             if let ticket { Button("Open in Jira") { model.open(ticket.url) }.buttonStyle(.desk) }
             Button("Master in iTerm") { model.openMaster() }.buttonStyle(.deskPrimary).help("Show the master's pane in iTerm (M)")
         } main: {
@@ -120,7 +121,6 @@ struct TaskPage: View {
                     Text("\(Text(first.label.map { "\($0) " } ?? "").fontWeight(.semibold))\(first.text)")
                         .frame(maxWidth: 640, alignment: .leading).fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
                 }
-                TaskStages(stages: TaskText.stages(task, merged: merged))
             }
             pullRequests
             sessions
@@ -129,12 +129,6 @@ struct TaskPage: View {
             ForEach(model.state.asks.filter { $0.task == task.id }) { TaskAskCallout(ask: $0, model: model, tinted: true) }
             activity
         }
-    }
-
-    /// Your PRs on this ticket merged this month: the last stage's count.
-    private var merged: Int {
-        guard task.origin == .ticket else { return 0 }
-        return (model.state.github?.mergedRecent ?? []).filter { model.state.ticketKeys[$0.url]?.contains(task.id) == true }.count
     }
 
     /// Every session behind it, the master aside: its worker first, then any other that touched its PRs or started on its
@@ -314,74 +308,8 @@ private struct TaskPullRequestRow: View {
     }
 }
 
-/// The five stages a task goes through, as a row of bars: done ones with a tick, the current one in the accent, the rest
-/// ahead in grey, each with a line on where it stands.
-private struct TaskStages: View {
-    var stages: [TaskText.Stage]
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 6) {
-            ForEach(stages) { stage in
-                VStack(alignment: .leading, spacing: 6) {
-                    RoundedRectangle(cornerRadius: 2)
-                        .fill(stage.state == .done ? Theme.quiet : stage.state == .current ? Theme.accentInk : Theme.control)
-                        .frame(height: 3)
-                    HStack(spacing: 6) {
-                        if stage.state == .done { Image(systemName: "checkmark").font(.system(size: 10, weight: .semibold)).foregroundStyle(Theme.quiet) }
-                        Text(stage.title)
-                            .fontWeight(stage.state == .current ? .semibold : stage.state == .done ? .medium : .regular)
-                            .foregroundStyle(stage.state == .ahead && stage.id == stages.last?.id ? Theme.quiet : Theme.ink)
-                    }
-                    Text(stage.note).scaled(.secondary).foregroundStyle(stage.state == .current ? Theme.ink : Theme.quiet).lineLimit(2)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .accessibilityElement(children: .combine)
-                .accessibilityValue(stage.state == .done ? "done" : stage.state == .current ? "current" : "ahead")
-            }
-        }
-    }
-}
-
 /// What the task screens say about a task in words, worked out from its PRs and sessions: nothing of it is stored.
 enum TaskText {
-    struct Stage: Identifiable {
-        enum State { case done, current, ahead }
-        var title: String
-        var note: String
-        var state: State
-        var id: String { title }
-    }
-
-    /// Plan, Build, Self-review, In review, Merged, read off the task's open PRs: planned once a worker or a PR exists,
-    /// built once a PR does, self-reviewed once no draft lacks the self-review's label, through review once every PR is
-    /// ready to merge. `merged` counts its PRs merged this month. The first stage not done is the current one.
-    static func stages(_ task: WorkTask, merged: Int) -> [Stage] {
-        let prs = task.pullRequests
-        let drafts = prs.filter { $0.isDraft && !$0.isLocallyReviewed }
-        let inReview = prs.filter { !$0.isDraft }
-        let workerStarted = task.sessions.compactMap(\.createdAt).min()
-        let built = prs.map(\.createdAt).min()
-        let worker = task.worker
-        let done = [
-            !prs.isEmpty || worker != nil,
-            !prs.isEmpty,
-            !prs.isEmpty && drafts.isEmpty,
-            !prs.isEmpty && prs.allSatisfy { FlowStage.of($0) == .approved },
-            !prs.isEmpty && prs.allSatisfy { $0.state == .merged },
-        ]
-        let notes = [
-            workerStarted.map(day) ?? (worker == nil ? "No worker yet" : "Worker started"),
-            built.map(day) ?? (worker?.isRunning == true ? "Worker at it" : "No pull request yet"),
-            drafts.isEmpty ? (prs.isEmpty ? "After a pull request" : "Done") : "Waits on " + drafts.map { "#\($0.number)" }.joined(separator: ", "),
-            inReview.isEmpty ? "None in review" : inReview.map { "#\($0.number) \(RowState.of($0).title.lowercased())" }.joined(separator: ", "),
-            "\(merged) of \(prs.count + merged)",
-        ]
-        let current = done.firstIndex(of: false)
-        return ["Plan", "Build", "Self-review", "In review", "Merged"].enumerated().map { index, title in
-            Stage(title: title, note: notes[index], state: done[index] ? .done : index == current ? .current : .ahead)
-        }
-    }
-
     /// The ticket's TL;DR, or its first line of text: "Pick how the nodes jointly sign…", with "TL;DR" as its label.
     static func firstLine(_ ticket: Ticket) -> (label: String?, text: String)? {
         let lines = ticket.description.split(whereSeparator: \.isNewline)

@@ -120,8 +120,8 @@ column shows the task, or the PR in words with its task. The details column has 
 summary, its PRs and where each stands, what it depends on (someone else's open PR, or a branch no open PR opens), its
 worker with Show in iTerm, and the master's questions about it; Open task (↩) opens the Task page.
 
-A task's page leads with a stage tracker worked out from its PRs: Plan, Build, Self-review, In review, Merged. Under
-it, its PRs as a table (each opens its page), what it depends on, and the sessions behind it with their summaries and
+A task's page says where it stands in its header, with the chip its row has, and leads with its ticket's first line.
+Under it, its PRs as a table (each opens its page), what it depends on, and the sessions behind it with their summaries and
 Show in iTerm; beside them the ticket's fields with Open in Jira, the master's questions, and the activity Desk knows of
 (PRs opened and moved, sessions started and finished).
 
