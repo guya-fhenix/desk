@@ -98,7 +98,7 @@ struct UpNextTab: View {
                 // A click or the arrow keys select a row; Return, → or a double-click opens it.
                 List(selection: $selection) {
                     ForEach(sections) { section in
-                        SectionLabel(section.title, count: section.total)
+                        SectionLabel(section.title, count: section.total, tone: section.title == "Needs you" ? Theme.danger : Theme.quiet)
                             .padding(EdgeInsets(top: section.id == sections.first?.id ? 0 : 24, leading: 10, bottom: 6, trailing: 10))
                             .plainListRow().selectionDisabled()
                         ForEach(section.items) { item in

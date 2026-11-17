@@ -8,10 +8,13 @@ import SwiftUI
 struct SectionLabel: View {
     var text: String
     var count: Int?
+    /// Quiet, or red over a group that waits on you.
+    var tone = Theme.quiet
 
-    init(_ text: String, count: Int? = nil) {
+    init(_ text: String, count: Int? = nil, tone: Color = Theme.quiet) {
         self.text = text
         self.count = count
+        self.tone = tone
     }
 
     var body: some View {
@@ -19,7 +22,7 @@ struct SectionLabel: View {
             .textCase(.uppercase)
             .scaled(.caption.weight(.semibold))
             .tracking(0.44)
-            .foregroundStyle(Theme.quiet)
+            .foregroundStyle(tone)
             .accessibilityAddTraits(.isHeader)
     }
 }

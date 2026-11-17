@@ -97,7 +97,7 @@ struct PullRequestsTab: View {
                     case .open:
                         PullRequestFacets.Header().plainListRow().selectionDisabled()
                         ForEach(groups) { group in
-                            GroupHeader(title: group.title, count: group.tasks.count)
+                            GroupHeader(title: group.title, count: group.tasks.count, tone: group.kind == .you ? Theme.danger : Theme.quiet)
                                 .padding(.top, group.id == groups.first?.id ? 2 : 0)
                                 .plainListRow().selectionDisabled()
                             ForEach(group.tasks) { task in

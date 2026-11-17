@@ -322,12 +322,13 @@ struct Flow: Layout {
 struct GroupHeader<Trailing: View>: View {
     var title: String
     var count: Int?
+    var tone = Theme.quiet
     /// A press for the whole group, after its count.
     @ViewBuilder var trailing: Trailing
 
     var body: some View {
         HStack {
-            SectionLabel(title, count: count)
+            SectionLabel(title, count: count, tone: tone)
             Spacer()
             trailing
         }
@@ -338,8 +339,8 @@ struct GroupHeader<Trailing: View>: View {
 }
 
 extension GroupHeader where Trailing == EmptyView {
-    init(title: String, count: Int? = nil) {
-        self.init(title: title, count: count) { EmptyView() }
+    init(title: String, count: Int? = nil, tone: Color = Theme.quiet) {
+        self.init(title: title, count: count, tone: tone) { EmptyView() }
     }
 }
 
