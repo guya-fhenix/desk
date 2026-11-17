@@ -61,13 +61,18 @@ struct PullRequestsTab: View {
         }
     }
 
+    /// The row `offset` down the list, or up it; the first when none is selected.
+    private func step(_ offset: Int, in shown: [String]) {
+        selection = UpNextTab.step(shown, from: selection, by: offset)
+    }
+
     private func reselect(_ shown: [String]) {
         if !shown.contains(where: { $0 == selection }) { selection = shown.first }
     }
 
     @ViewBuilder private func list(groups: [TaskGroup], merged: [PullRequest], shown: [String]) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            header(open: groups.reduce(0) { $0 + $1.tasks.count }, merged: merged.count)
+            header(open: groups.reduce(0) { $0 + $1.tasks.count }, merged: merged.count, shown: shown)
                 .padding(.bottom, 8)
             if scope == .open ? model.state.mine.isEmpty && model.state.tasks.isEmpty : model.state.recentlyMerged().isEmpty {
                 if let error = model.state.errors[.github] {
@@ -133,13 +138,7 @@ struct PullRequestsTab: View {
                 }
                 .onKeyPress(keys: ["j", "k", "m"]) { press in
                     guard press.modifiers.isEmpty else { return .ignored }
-                    if press.key == "m" {
-                        model.openMaster()
-                    } else {
-                        let index = selection.flatMap(shown.firstIndex(of:)) ?? -1
-                        let next = min(max(index + (press.key == "j" ? 1 : -1), 0), shown.count - 1)
-                        if shown.indices.contains(next) { selection = shown[next] }
-                    }
+                    if press.key == "m" { model.openMaster() } else { step(press.key == "j" ? 1 : -1, in: shown) }
                     return .handled
                 }
                 .contextMenu(forSelectionType: String.self) { ids in
@@ -167,7 +166,7 @@ struct PullRequestsTab: View {
 
     /// "Tasks  6 open · 7 pull requests", and on the right the search, and Open and Merged.
     /// On one line where it fits; else the presses go under the title, on the right.
-    private func header(open: Int, merged: Int) -> some View {
+    private func header(open: Int, merged: Int, shown: [String]) -> some View {
         let title = HStack(alignment: .firstTextBaseline, spacing: 10) {
             Text("Tasks").scaled(.title).tracking(-0.3)
             Text("\(model.state.tasks.count) open · \(model.state.mine.count) pull request\(model.state.mine.count == 1 ? "" : "s")")
@@ -178,18 +177,18 @@ struct PullRequestsTab: View {
             HStack(spacing: 10) {
                 title
                 Spacer(minLength: 8)
-                controls(open: open, merged: merged)
+                controls(open: open, merged: merged, shown: shown)
             }
             VStack(alignment: .trailing, spacing: 10) {
                 HStack { title; Spacer(minLength: 0) }
-                HStack(spacing: 10) { controls(open: open, merged: merged) }
+                HStack(spacing: 10) { controls(open: open, merged: merged, shown: shown) }
             }
         }
         .frame(minHeight: 32)
     }
 
-    @ViewBuilder private func controls(open: Int, merged: Int) -> some View {
-        SearchBox(prompt: "Task, repo, number or title", text: $search)
+    @ViewBuilder private func controls(open: Int, merged: Int, shown: [String]) -> some View {
+        SearchBox(prompt: "Task, repo, number or title", text: $search) { step($0, in: shown) }
         // Counted over what the search leaves, like the Reviews and Jira screens.
         Segmented(options: [.init(value: .open, title: "Open", count: open), .init(value: .merged, title: "Merged", count: merged)], selection: $scope)
             .help("Your open work, or your PRs merged this month (⌃⇥)")
@@ -878,7 +877,7 @@ private struct TaskPullRequestDetails: View {
             HStack(spacing: 8) {
                 Button(action: open) { HStack(spacing: 8) { Text("Open pull request"); ButtonKey(key: "↩") } }
                     .buttonStyle(.desk(.primary, .large, wide: true))
-                Button("Open on GitHub") { model.open(pr.url) }.buttonStyle(.desk(.secondary, .large))
+                Button { model.open(pr.url) } label: { OpenOnGitHubLabel() }.buttonStyle(.desk(.secondary, .large))
             }
         }
     }
@@ -946,8 +945,7 @@ struct PullRequestPage: View {
                 .scaled(.code).foregroundStyle(Theme.quiet).lineLimit(1).textSelection(.enabled)
         } actions: {
             TaskStatePill(pr: pr)
-            Button("Open on GitHub") { model.open(pr.url) }.buttonStyle(.desk)
-            MoreMenu(pr: pr, model: model)
+            PullRequestActions(pr: pr, model: model)
         } main: {
             if let error = model.sessionErrors[pr.url] {
                 Text(error).scaled(.secondary).foregroundStyle(Theme.danger).textSelection(.enabled)
@@ -1130,71 +1128,45 @@ private struct PullRequestFiles: View {
     }
 }
 
-/// ⋯ in the page's header: the presses that change the PR — ready for review or back to a draft, the squash merge, and
-/// Close — each asked about first where it cannot be undone, and the branch and link to copy. A press that does not
-/// apply now stays in the menu, greyed, with why.
-private struct MoreMenu: View {
+/// The page header's presses on an open PR, first: Ready for review on a draft; on a ready PR, Convert to draft and
+/// Merge, a squash unless its arrow picks another way, which asks first. Then Open on GitHub, and ⋯ with the branch and
+/// link to copy and Close. An ended PR has only the last two.
+private struct PullRequestActions: View {
     var pr: PullRequest
     var model: AppModel
     @State private var confirmingClose = false
-    @State private var confirmingMerge = false
+    @State private var merging: MergeMethod?
     @State private var closing = false
     @State private var error: String?
 
     var body: some View {
         let busy = model.busyFlows.contains(pr.url)
-        Menu {
+        HStack(spacing: 8) {
             if pr.state == .open {
-                Button { model.markReady(pr) } label: {
-                    Text("Mark Ready for Review")
-                    if !pr.isDraft { Text("It's ready already") }
+                if pr.isDraft {
+                    Button("Ready for review") { model.markReady(pr) }
+                        .buttonStyle(.desk).disabled(busy)
+                        .help("Mark it ready for review, so reviewers can be asked")
+                } else {
+                    Button("Convert to draft") { Task { error = await model.convertToDraft(pr) } }
+                        .buttonStyle(.desk).disabled(busy)
+                        .help("Turn it back into a draft")
+                    // A merge holds the PR in `busyFlows` until it is done.
+                    MergeButton(base: pr.baseRef, blocker: mergeBlocker, busy: busy) { merging = $0 }
                 }
-                .disabled(!pr.isDraft || busy)
-                Button { Task { error = await model.convertToDraft(pr) } } label: {
-                    Text("Convert to Draft")
-                    if pr.isDraft { Text("It's a draft already") }
-                }
-                .disabled(pr.isDraft || busy)
-                Divider()
-                Button { confirmingMerge = true } label: {
-                    Text("Squash and Merge…")
-                    if let blocker = mergeBlocker { Text(blocker) }
-                }
-                // A merge holds the PR in `busyFlows` until it is done.
-                .disabled(mergeBlocker != nil || busy)
-                Divider()
             }
-            Button("Copy Branch") { Clipboard.copy(pr.headRef) }
-            Button("Copy Link") { Clipboard.copy(pr.url) }
-            if pr.state == .open {
-                Divider()
-                // Not while a merge or a flow press is under way on it.
-                Button("Close Pull Request…", role: .destructive) { confirmingClose = true }
-                    .disabled(closing || busy)
-            }
-        } label: {
-            Group {
-                if closing || busy { ProgressView().controlSize(.small) } else { Image(systemName: "ellipsis").font(.system(size: 13, weight: .semibold)) }
-            }
-            .foregroundStyle(Theme.ink)
-            .frame(width: 32, height: 32)
-            .background(Theme.surface, in: RoundedRectangle(cornerRadius: 7))
-            .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(Theme.control))
-            .contentShape(RoundedRectangle(cornerRadius: 7))
+            Button { model.open(pr.url) } label: { OpenOnGitHubLabel() }.buttonStyle(.desk)
+            more(busy: busy)
         }
-        .menuStyle(.button)
-        .buttonStyle(.plain)
-        .menuIndicator(.hidden)
-        .fixedSize()
-        .help("Ready for review, draft, merge or close; copy its branch or link")
-        .accessibilityLabel("More")
         .confirmationDialog(
             // Verbatim: a localized title prints the number as "1,082".
-            Text(verbatim: "Squash and merge #\(pr.number) into \(pr.baseRef)?"), isPresented: $confirmingMerge
-        ) {
-            Button("Squash and merge") { Task { error = await model.squashMerge(pr) } }
-        } message: {
-            Text(pr.checks.isPending ? "CI is still running, so GitHub may refuse the merge until it passes." : "Its commits become one commit on \(pr.baseRef).")
+            Text(verbatim: merging?.question(pr.number, base: pr.baseRef) ?? ""),
+            isPresented: Binding(get: { merging != nil }, set: { if !$0 { merging = nil } }),
+            presenting: merging
+        ) { method in
+            Button(method.title) { Task { error = await model.merge(pr, method: method) } }
+        } message: { method in
+            Text(pr.checks.isPending ? "CI is still running, so GitHub may refuse the merge until it passes." : method.outcome(pr.baseRef))
         }
         .confirmationDialog(Text(verbatim: "Close #\(pr.number) without merging?"), isPresented: $confirmingClose) {
             Button("Close pull request", role: .destructive) {
@@ -1218,9 +1190,107 @@ private struct MoreMenu: View {
         }
     }
 
-    /// Why Squash and merge is greyed: not ready to merge yet, in the words its row uses, or what GitHub would refuse it for.
+    /// ⋯: the branch and link to copy, and Close, which asks first.
+    private func more(busy: Bool) -> some View {
+        Menu {
+            Button("Copy Branch") { Clipboard.copy(pr.headRef) }
+            Button("Copy Link") { Clipboard.copy(pr.url) }
+            if pr.state == .open {
+                Divider()
+                // Not while a merge or a flow press is under way on it.
+                Button("Close Pull Request…", role: .destructive) { confirmingClose = true }
+                    .disabled(closing || busy)
+            }
+        } label: {
+            Group {
+                if closing || busy { ProgressView().controlSize(.small) } else { Image(systemName: "ellipsis").font(.system(size: 13, weight: .semibold)) }
+            }
+            .foregroundStyle(Theme.ink)
+            .frame(width: 32, height: 32)
+            .background(Theme.surface, in: RoundedRectangle(cornerRadius: 7))
+            .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(Theme.control))
+            .contentShape(RoundedRectangle(cornerRadius: 7))
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help("Copy its branch or link, or close it")
+        .accessibilityLabel("More")
+    }
+
+    /// Why Merge is greyed: not ready to merge yet, in the words its row uses, or what GitHub would refuse it for.
     private var mergeBlocker: String? {
         FlowStage.of(pr) == .approved ? pr.mergeBlocker : RowState.of(pr).title
+    }
+}
+
+/// Merge as GitHub's button has it: Squash and merge on its face, and on its arrow the three ways, each with what it
+/// does to the commits. Greyed, with why, while GitHub would refuse it.
+private struct MergeButton: View {
+    var base: String
+    var blocker: String?
+    var busy: Bool
+    var merge: (MergeMethod) -> Void
+
+    var body: some View {
+        let enabled = blocker == nil && !busy
+        HStack(spacing: 0) {
+            Button { merge(.squash) } label: {
+                Text(MergeMethod.squash.title).padding(.leading, 14).padding(.trailing, 11).frame(height: 32).contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            Rectangle().fill(enabled ? Color.white.opacity(0.4) : Theme.control).frame(width: 1, height: 18)
+            Menu {
+                ForEach(MergeMethod.allCases, id: \.self) { method in
+                    Button { merge(method) } label: {
+                        Text(method.title)
+                        Text(method.outcome(base))
+                    }
+                }
+            } label: {
+                Image(systemName: "chevron.down").font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(enabled ? Color.white : Theme.quiet)
+                    .frame(width: 30, height: 32).contentShape(Rectangle())
+            }
+            .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
+            .accessibilityLabel("Other ways to merge")
+        }
+        .scaled(.body.weight(.semibold))
+        .foregroundStyle(enabled ? Color.white : Theme.quiet)
+        .background(enabled ? Theme.accent : Theme.inset, in: RoundedRectangle(cornerRadius: 7))
+        .disabled(!enabled)
+        .fixedSize()
+        .help(blocker.map { "Can't merge yet: \($0)" } ?? "Squash and merge; the arrow has the other ways")
+    }
+}
+
+extension MergeMethod {
+    /// GitHub's words for it, on the button and in the menu.
+    var title: String {
+        switch self {
+        case .squash: "Squash and merge"
+        case .merge: "Create a merge commit"
+        case .rebase: "Rebase and merge"
+        }
+    }
+
+    /// What it does with the PR's commits, under its title in the menu and in the question before it goes out.
+    func outcome(_ base: String) -> String {
+        switch self {
+        case .squash: "Its commits become one commit on \(base)."
+        case .merge: "Its commits are added to \(base) with a merge commit."
+        case .rebase: "Its commits are rebased onto \(base) one by one, with no merge commit."
+        }
+    }
+
+    /// The question before it goes out.
+    func question(_ number: Int, base: String) -> String {
+        switch self {
+        case .squash: "Squash and merge #\(number) into \(base)?"
+        case .merge: "Merge #\(number) into \(base) with a merge commit?"
+        case .rebase: "Rebase and merge #\(number) onto \(base)?"
+        }
     }
 }
 

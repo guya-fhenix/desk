@@ -353,7 +353,7 @@ extension PullRequest {
             + requestedReviewers.map { ReviewerStatus(name: $0, state: .pending) }
     }
 
-    /// Why GitHub would refuse a squash merge now, in the words the Merge button shows under it; nil when it would
+    /// Why GitHub would refuse a merge now, in the words the Merge button shows under it; nil when it would
     /// take one. Clean, unstable (a check that is not required failed) and hooks-pending all merge.
     public var mergeBlocker: String? {
         if isDraft || mergeState == .draft { return "A draft: mark it ready for review first" }
@@ -414,4 +414,14 @@ extension CheckState {
             self = .success
         }
     }
+}
+
+/// How a PR's commits land on its base, as GitHub's merge button offers them; each is `gh pr merge`'s flag of that name.
+public enum MergeMethod: String, CaseIterable, Sendable {
+    /// One commit on the base: the default.
+    case squash
+    /// The commits as they are, joined by a merge commit.
+    case merge
+    /// The commits replayed onto the base, one by one.
+    case rebase
 }

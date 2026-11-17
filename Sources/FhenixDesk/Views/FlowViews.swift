@@ -3,7 +3,7 @@ import SwiftUI
 
 /// Your open PR's next step, read-only: what it waits on and whose move that is, read off GitHub and the session on each
 /// refresh. Where the move is the master's or its worker's, the press that shows the master's pane, to tell it there; the
-/// presses that change the PR itself are in the page's ⋯. A conflict, red CI or a base to rebase onto shows here at any
+/// presses that change the PR itself are in the page's header. A conflict, red CI or a base to rebase onto shows here at any
 /// stage, and so does a question the session is asking you.
 struct NextStepCard: View {
     var pr: PullRequest
@@ -56,7 +56,7 @@ struct NextStepCard: View {
     }
 
     /// The sentence, and whether the move is one to tell the master: a draft's self-review, threads to answer, CI or a
-    /// conflict to fix. A merge is yours, in ⋯; a wait on reviewers is nobody's here.
+    /// conflict to fix. A merge is yours, in the header; a wait on reviewers is nobody's here.
     private var step: (text: String, master: Bool) {
         let threads = pr.unresolvedThreads == 1 ? "1 open thread" : "\(pr.unresolvedThreads) open threads"
         switch RowState.of(pr) {
@@ -77,11 +77,11 @@ struct NextStepCard: View {
         case .openThreads:
             return ("\(threads) wait on an answer. Tell the master to have its worker answer them.", true)
         case .readyToMerge:
-            return ("\(readiness). Squash and merge is in ⋯.", false)
+            return ("\(readiness). Merge it with Squash and merge above.", false)
         case .draft(.notRun):
             return ("A draft, not self-reviewed yet. Tell the master to have its worker run the self-review.", true)
         case .draft(.passed):
-            return ("Self-reviewed. Mark it ready for review in ⋯, or tell the master to.", true)
+            return ("Self-reviewed. Mark it ready for review above, or tell the master to.", true)
         case .waitingOnReview:
             let asked = names(pr.requestedReviewers, or: "")
             return (asked.isEmpty ? "Waiting on review. Nothing to do until a reviewer answers." : "Waiting on a review from \(asked).", false)

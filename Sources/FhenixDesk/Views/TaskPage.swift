@@ -29,8 +29,14 @@ struct TaskPageFrame<Crumb: View, Title: View, Actions: View, Main: View, Detail
     var body: some View {
         HStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 0) {
-                HStack(alignment: .center, spacing: 12) {
-                    VStack(alignment: .leading, spacing: 2) {
+                // A toolbar row, back and the breadcrumb on the left and the presses on the right, over the title at
+                // the page's full width, so a long title never wraps into a column beside the presses.
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(alignment: .center, spacing: 10) {
+                        Button(action: onBack) { Image(systemName: "chevron.left").font(.system(size: 12, weight: .semibold)) }
+                            .buttonStyle(.desk)
+                            .help("Back to \(back) (←)")
+                            .accessibilityLabel("Back to \(back)")
                         HStack(spacing: 0) {
                             Button(action: onBack) { Text(back) }.buttonStyle(.plain).handCursor().help("Back to \(back) (←)")
                             Text(" / ")
@@ -39,12 +45,12 @@ struct TaskPageFrame<Crumb: View, Title: View, Actions: View, Main: View, Detail
                         .scaled(.secondary)
                         .foregroundStyle(Theme.quiet)
                         .lineLimit(1)
-                        title
+                        Spacer(minLength: 8)
+                        HStack(spacing: 8) { actions }.fixedSize()
                     }
-                    Spacer(minLength: 8)
-                    HStack(spacing: 8) { actions }.fixedSize()
+                    VStack(alignment: .leading, spacing: 2) { title }
                 }
-                .padding(EdgeInsets(top: 14, leading: 24, bottom: 14, trailing: 24))
+                .padding(EdgeInsets(top: 12, leading: 24, bottom: 14, trailing: 24))
                 .overlay(alignment: .bottom) { Rectangle().fill(Theme.rule).frame(height: 1) }
                 if mainScrolls {
                     ScrollView {

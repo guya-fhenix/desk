@@ -810,7 +810,7 @@ private struct QueueActions: View {
 
     var body: some View {
         if model.state.reviewStatus(for: pr).draft != nil {
-            Button("Open on GitHub") { model.openDraft(pr) }
+            Button { model.openDraft(pr) } label: { OpenOnGitHubLabel() }
                 .controlSize(.small)
                 .help(pr.pendingReview != nil
                     ? "Your draft review, in the PR's Files tab: edit or drop comments, then pick the verdict and submit"

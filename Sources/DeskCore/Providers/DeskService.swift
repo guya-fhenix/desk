@@ -196,8 +196,8 @@ public actor DeskService {
         try await gh().close(repo: pr.repo, number: pr.number)
     }
 
-    public func squashMerge(_ pr: PullRequest) async throws {
-        try await gh().squashMerge(repo: pr.repo, number: pr.number, headSha: pr.headSha)
+    public func merge(_ pr: PullRequest, method: MergeMethod) async throws {
+        try await gh().merge(repo: pr.repo, number: pr.number, headSha: pr.headSha, method: method)
     }
 
     /// Your tickets, everyone else's in the projects, and the ones PRs name. Everyone else's backlog only with

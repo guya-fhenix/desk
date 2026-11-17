@@ -55,7 +55,7 @@ struct TicketsTab: View {
         let rows = moves.map(\.moveKey) + groups.flatMap(\.tickets).map(\.key)
         Screen {
             ScreenTitle(title: "Jira", subtitle: subtitle) { placement }
-            filterBar.padding(.top, 18)
+            filterBar(rows: rows).padding(.top, 18)
             // The columns of `TicketRow`.
             HStack(spacing: 12) {
                 Text("Key").scaledFrame(width: 72, alignment: .leading)
@@ -165,9 +165,9 @@ struct TicketsTab: View {
         )
     }
 
-    private var filterBar: some View {
+    private func filterBar(rows: [String]) -> some View {
         HStack(spacing: 20) {
-            SearchBox(prompt: "Key or summary", text: $search)
+            SearchBox(prompt: "Key or summary", text: $search) { selection = UpNextTab.step(rows, from: selection, by: $0) }
             AssigneeFilter(
                 selection: Binding(get: { assignees }, set: { filters.assignees = $0 }),
                 me: model.state.ticketSelf,

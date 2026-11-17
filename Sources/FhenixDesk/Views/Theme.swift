@@ -532,11 +532,13 @@ final class AvatarStore {
     }
 }
 
-/// A search field drawn as a boxed input.
+/// A search field drawn as a boxed input. With `move`, ↑ and ↓ in it walk the list it filters, so a search can go
+/// straight to a row.
 struct SearchBox: View {
     @Environment(AppModel.self) private var model
     var prompt: String
     @Binding var text: String
+    var move: ((Int) -> Void)?
     @FocusState private var focused: Bool
 
     var body: some View {
@@ -546,6 +548,8 @@ struct SearchBox: View {
                 .focused($focused)
                 // View → Find (⌘F) lands here.
                 .onChange(of: model.searchFocusRequest) { focused = true }
+                .onKeyPress(.downArrow) { step(1) }
+                .onKeyPress(.upArrow) { step(-1) }
             if !text.isEmpty {
                 Button { text = "" } label: {
                     // A 24 pt target, pulled into the box's own height so it does not grow when you type.
@@ -563,6 +567,12 @@ struct SearchBox: View {
         .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(Theme.control))
         .onAppear { model.visibleSearchBoxes += 1 }
         .onDisappear { model.visibleSearchBoxes -= 1 }
+    }
+
+    private func step(_ offset: Int) -> KeyPress.Result {
+        guard let move else { return .ignored }
+        move(offset)
+        return .handled
     }
 }
 

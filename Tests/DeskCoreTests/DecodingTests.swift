@@ -157,6 +157,21 @@ import Testing
     }
 
     /// Your own PRs' search decides the snapshot; another search that fails keeps its last list, and the snapshot says why.
+    /// A merge goes out the way you picked, and only of the head you saw.
+    @Test func aMergeIsTheMethodYouPickedOfTheHeadYouSaw() async throws {
+        let calls = Calls()
+        let gh = GitHubProvider(ghPath: "/gh", org: "o") { _, arguments, _, _, _, _ in
+            _ = await calls.add(arguments.joined(separator: " "))
+            return .ok("")
+        }
+        for method in MergeMethod.allCases { try await gh.merge(repo: "o/r", number: 7, headSha: "abc", method: method) }
+        #expect(await calls.list == [
+            "pr merge 7 --repo o/r --squash --match-head-commit abc",
+            "pr merge 7 --repo o/r --merge --match-head-commit abc",
+            "pr merge 7 --repo o/r --rebase --match-head-commit abc",
+        ])
+    }
+
     @Test func aFailedSearchKeepsItsLastListAndYoursAlone() async throws {
         @Sendable func search(_ number: Int) -> ShellResult {
             .ok(#"""

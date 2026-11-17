@@ -855,6 +855,16 @@ struct EditableDescription<Rendered: View>: View {
 }
 
 /// GitHub's mark, from its SVG outline; a template, so it takes the text colour.
+/// "Open on GitHub" with GitHub's mark, on every button that goes there.
+struct OpenOnGitHubLabel: View {
+    var body: some View {
+        HStack(spacing: 6) {
+            GitHubMark()
+            Text("Open on GitHub")
+        }
+    }
+}
+
 struct GitHubMark: View {
     var body: some View {
         Image(nsImage: Self.mark).resizable().scaledToFit().frame(width: 14, height: 14)

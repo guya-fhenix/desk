@@ -479,13 +479,13 @@ final class AppModel {
         return error.map { "Couldn't save it: \($0)" }
     }
 
-    /// Squash-merges a PR from its page, and shows it merged at once. Why it failed, or nil. A press while another write
-    /// to the PR runs does nothing, so a merge never goes out twice. GitHub refuses it if the head moved past the commit
-    /// the page showed.
-    func squashMerge(_ pr: PullRequest) async -> String? {
+    /// Merges a PR from its page the way you picked, and shows it merged at once. Why it failed, or nil. A press while
+    /// another write to the PR runs does nothing, so a merge never goes out twice. GitHub refuses it if the head moved past
+    /// the commit the page showed.
+    func merge(_ pr: PullRequest, method: MergeMethod) async -> String? {
         guard busyFlows.insert(pr.url).inserted else { return nil }
         defer { busyFlows.remove(pr.url) }
-        let error = await perform(.github) { try await service.squashMerge(pr) } patch: { land(pr, as: .merged) }
+        let error = await perform(.github) { try await service.merge(pr, method: method) } patch: { land(pr, as: .merged) }
         return error.map { "Couldn't merge it: \($0)" }
     }
 
