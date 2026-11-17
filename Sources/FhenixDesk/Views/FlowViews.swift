@@ -36,7 +36,19 @@ struct NextStepCard: View {
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Theme.inset, in: RoundedRectangle(cornerRadius: 10))
+        .background(tone.map { $0.opacity(0.08) } ?? Theme.inset, in: RoundedRectangle(cornerRadius: 10))
+        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(tone.map { $0.opacity(0.3) } ?? .clear))
+    }
+
+    /// Whose move it is, as the PR's chip colours it: red for yours to fix, green for yours to merge, the accent while
+    /// it waits on others; a draft keeps the plain card.
+    private var tone: Color? {
+        switch RowState.of(pr).move {
+        case .yoursToFix: return Theme.danger
+        case .yoursToMerge: return Theme.ok
+        case .others: return Theme.accentInk
+        case .draft: return nil
+        }
     }
 
     private func note(_ text: String, _ color: Color) -> some View {
