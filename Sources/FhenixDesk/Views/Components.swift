@@ -74,15 +74,30 @@ struct ChecksPill: View {
     var pr: PullRequest
 
     var body: some View {
-        HStack(spacing: 6) {
+        // The app's status chip, tinted as the checks went, beside the review's own chips.
+        HStack(spacing: 5) {
             ChecksBadge(pr: pr).accessibilityHidden(true)
             Text(sentence)
             if pr.checkCount > 0 {
-                Text("·  \(pr.checkCount) \(pr.checkCount == 1 ? "check" : "checks")").foregroundStyle(.secondary)
+                Text("· \(pr.checkCount) \(pr.checkCount == 1 ? "check" : "checks")").opacity(0.75)
             }
         }
-        .pill()
+        .scaled(.caption.weight(.medium))
+        .foregroundStyle(tone ?? Theme.ink)
+        .padding(.horizontal, 6)
+        .padding(.vertical, 1)
+        .background(tone.map { $0.opacity(0.14) } ?? Theme.chip, in: RoundedRectangle(cornerRadius: 4))
+        .fixedSize()
         .accessibilityElement(children: .combine)
+    }
+
+    private var tone: Color? {
+        switch pr.checks {
+        case .success: return Theme.ok
+        case .failure, .error: return Theme.danger
+        case .pending, .expected: return Theme.warn
+        case .none: return nil
+        }
     }
 
     private var sentence: String {
