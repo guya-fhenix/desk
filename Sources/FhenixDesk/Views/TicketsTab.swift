@@ -272,8 +272,9 @@ struct TicketRow: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .help(ticket.assignedToMe ? ticket.summary : "\(ticket.summary) · \(ticket.assignee ?? "Unassigned")")
             Text(ticket.status).scaled(.caption.weight(.medium)).lineLimit(1)
+                .foregroundStyle(ticket.statusTone ?? Theme.ink)
                 .padding(.horizontal, 6).padding(.vertical, 1)
-                .background(selected ? Theme.chipOn : Theme.chip, in: RoundedRectangle(cornerRadius: 4))
+                .background(ticket.statusTone.map { $0.opacity(0.14) } ?? (selected ? Theme.chipOn : Theme.chip), in: RoundedRectangle(cornerRadius: 4))
                 .scaledFrame(width: 108, alignment: .leading)
             (ticket.priority.map(PriorityMark.text) ?? Text("–").foregroundStyle(Theme.quiet)).lineLimit(1)
                 .scaledFrame(width: 84, alignment: .leading)
@@ -353,7 +354,7 @@ private struct TicketFields: View {
 
     var body: some View {
         FieldRows(labelWidth: 96) {
-            FieldRow("Status", ticket.status)
+            FieldRow(label: "Status") { StageChip2(text: ticket.status, color: ticket.statusTone) }
             if let priority = ticket.priority { FieldRow(label: "Priority") { PriorityMark.text(priority) } }
             FieldRow("Assignee", ticket.assignedToMe ? "You" : ticket.assignee ?? "Unassigned")
             if let task = model.state.tasks.first(where: { $0.id == ticket.key }) {
@@ -523,7 +524,7 @@ struct TicketPage: View {
                 }
             }
             HStack(spacing: 8) {
-                StageChip2(text: ticket.status)
+                StageChip2(text: ticket.status, color: ticket.statusTone)
                 if let priority = ticket.priority { PriorityMark.text(priority).scaled(.secondary) }
                 HStack(spacing: 6) {
                     AssigneeAvatar(ticket: ticket, size: 16)
@@ -660,6 +661,17 @@ private struct AssigneeAvatar: View {
             Avatar(login: name, url: ticket.assigneeAvatar, size: size)
         } else {
             NobodyAvatar(size: size)
+        }
+    }
+}
+
+extension Ticket {
+    /// Its status's colour by Jira's category: grey before work starts, the accent while it is underway, green once done.
+    var statusTone: Color? {
+        switch category {
+        case .inProgress: return Theme.accentInk
+        case .done: return Theme.ok
+        case .todo, .unknown: return nil
         }
     }
 }
