@@ -291,7 +291,9 @@ struct ReviewStatusChip: View {
                 Chip(text: "Draft · \(comments)", color: .blue)
                     .help("Your pending review on GitHub: \(comments) \(comments == 1 ? "comment" : "comments"). Only you can see it.")
             case .submitted(let state):
-                Chip(text: Self.submittedTitle(state), color: .green).help("Your latest review on GitHub")
+                // The verdict's colour, as GitHub shows it: approved green, changes requested red, a comment grey.
+                Chip(text: Self.submittedTitle(state), color: state == .approved ? .green : state == .changesRequested ? .red : .secondary)
+                    .help("Your latest review on GitHub")
             case nil:
                 EmptyView()
             }
