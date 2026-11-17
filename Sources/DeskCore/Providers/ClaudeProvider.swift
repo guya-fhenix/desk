@@ -4,6 +4,12 @@ public enum ClaudePaths {
     public static func path(_ path: String, isUnder prefixes: [String]) -> Bool {
         prefixes.contains { path == $0 || path.hasPrefix($0 + "/") }
     }
+
+    /// Where a session with no PR or ticket is still about your work: in a tracked clone, or in one of your repo roots
+    /// itself, where a session spans the clones under it. An untracked clone under a root is not.
+    public static func isWork(_ path: String, clones: [String], roots: [String]) -> Bool {
+        self.path(path, isUnder: clones) || roots.contains { ($0 as NSString).standardizingPath == path }
+    }
 }
 
 /// One Claude Code background session, as its `~/.claude/jobs/<id>/state.json` records it. Interactive
@@ -97,11 +103,12 @@ public enum ClaudeJobs {
     public static let home = ("~/.claude" as NSString).expandingTildeInPath
 
     /// Background sessions that mention a pull request, whose prompt names a ticket, that run a Fhenix Desk role (the
-    /// master, a worker, a review), or that run in one of `keepIn`, the tracked clones: a session started there with no
-    /// ticket is still a task. Newest first. The rest, a session in some other folder about nothing Desk tracks, are
-    /// dropped.
+    /// master, a worker, a review), or that run in one of `keepIn`, the tracked clones, or in one of `roots`, your repo
+    /// roots: a session started there with no ticket is still a task. Newest first. The rest, a session in some other
+    /// folder about nothing Desk tracks, are dropped.
     public static func scan(
-        home: String = ClaudeJobs.home, tickets: TicketKeyMatcher = TicketKeyMatcher(projectKeys: []), keepIn: [String] = []
+        home: String = ClaudeJobs.home, tickets: TicketKeyMatcher = TicketKeyMatcher(projectKeys: []), keepIn: [String] = [],
+        roots: [String] = []
     ) -> [ClaudeJob] {
         let root = URL(fileURLWithPath: home).appendingPathComponent("jobs")
         guard let ids = try? FileManager.default.contentsOfDirectory(atPath: root.path) else { return [] }
@@ -113,7 +120,8 @@ public enum ClaudeJobs {
             let ticketKey = state.intent.flatMap { tickets.keys(in: $0).first }
             let role = SessionRole.of(name: state.name, intent: state.intent)
             let cwd = state.cwd ?? ""
-            guard !keys.isEmpty || ticketKey != nil || role != .other || ClaudePaths.path(cwd, isUnder: keepIn) else { return nil }
+            guard !keys.isEmpty || ticketKey != nil || role != .other || ClaudePaths.isWork(cwd, clones: keepIn, roots: roots)
+            else { return nil }
             return ClaudeJob(
                 id: id, name: state.label(fallback: id), state: state.state ?? "unknown", cwd: cwd,
                 prKeys: keys, updatedAt: state.updatedAt ?? .distantPast, createdAt: state.createdAt, sessionId: state.sessionId,

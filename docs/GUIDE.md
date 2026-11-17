@@ -254,8 +254,9 @@ works whether the session is still running or has finished. With more than one, 
 never appear: nothing outside their own terminal can reach them.
 
 Desk reads every background session that is about a PR or a ticket, that its prompt names as the master, a worker or a
-review, or that runs in one of your tracked clones. It starts none of them itself, except the master and review
-sessions: the master starts the workers.
+review, or that runs in one of your tracked clones or in a repo root itself (Settings → Local clones), such as a plan
+across repos started in `~/Repos`; one in an untracked clone under a root stays out. It starts none of them itself,
+except the master and review sessions: the master starts the workers.
 
 ## The master and its workers
 

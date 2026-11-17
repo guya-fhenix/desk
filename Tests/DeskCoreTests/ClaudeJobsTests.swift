@@ -82,7 +82,9 @@ import Testing
             {"state": "done", "name": "a question", "cwd": "/r/powershot/sub", "intent": "how does X work", "updatedAt": "2026-11-16T07:00:00Z"}
             """)
         try job(home, id: "dddddddd", body: #"{"state": "done", "name": "openclaw", "cwd": "/r/openclaw", "intent": "server"}"#)
+        try job(home, id: "eeeeeeee", body: #"{"state": "done", "name": "plan", "cwd": "/r", "intent": "a flow across repos"}"#)
 
+        #expect(ClaudeJobs.scan(home: home.path, keepIn: ["/r/powershot"], roots: ["/r"]).map(\.id).contains("eeeeeeee"))
         let jobs = ClaudeJobs.scan(home: home.path, keepIn: ["/r/powershot"])
         #expect(jobs.map(\.id) == ["aaaaaaaa", "bbbbbbbb", "cccccccc"])
         #expect(jobs.map(\.role) == [.master, .worker, .other])

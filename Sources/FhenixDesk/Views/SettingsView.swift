@@ -746,7 +746,7 @@ struct GitHubSettings: View {
         }
         SettingsGroup(
             title: "Local clones",
-            note: "Where your clones live: sessions start in them, and their worktrees show as your work. The list of repos comes from GitHub."
+            note: "Where your clones live: sessions start in them, and their worktrees show as your work. A session started in a root itself or in a tracked clone is a task. The list of repos comes from GitHub."
         ) {
             SettingsRow("Repo roots", note: "Type a path and press Return, or pick one with Add folder.") {
                 RepoRootsField(text: $draft.repoRootsText)

@@ -21,11 +21,11 @@ import Testing
 
     private func tasks(
         _ mine: [PullRequest], others: [PullRequest] = [], sessions: [ClaudeJob] = [], tracked: [String] = [],
-        keep: Set<String> = [], now: Date = Fixtures.t0
+        roots: [String] = [], keep: Set<String> = [], now: Date = Fixtures.t0
     ) -> [WorkTask] {
         Linker.tasks(
             mine: mine, allOpen: mine + others, merged: [], ticketKeys: keys(mine), tickets: [Fixtures.ticket("PRO-650")],
-            sessions: sessions, trackedRoots: tracked, keep: keep, now: now
+            sessions: sessions, trackedRoots: tracked, repoRoots: roots, keep: keep, now: now
         )
     }
 
@@ -94,19 +94,24 @@ import Testing
         #expect(all[0].pullRequests.map(\.number) == [1190])
     }
 
-    /// The master and review sessions are never tasks. Another session is one only when it runs in a tracked clone, and
-    /// drops off once it has sat done for days, unless the master still asks something about it.
+    /// The master and review sessions are never tasks. Another session is one only when it runs in a tracked clone or in
+    /// a repo root itself, not in an untracked clone under one, and drops off once it has sat done for days, unless the
+    /// master still asks something about it.
     @Test func whichOtherSessionsAreTasks() {
         let master = session("m0000000", name: "master", state: "working", role: .master)
         let review = session("r0000000", name: "review-pro-646", state: "working", cwd: "/r/powershot", role: .review)
         let elsewhere = session("e0000000", name: "Openclaw on Hetzner", cwd: "/r/openclaw")
         let tracked = session("t0000000", name: "Powershot PR stack", cwd: "/r/powershot/sub")
+        let acrossRepos = session("p0000000", name: "plan-cofhe-review-flow", cwd: "/r")
         let stale = session("s0000000", name: "old-spike", cwd: "/r/powershot", updated: Fixtures.hours(-100))
         let ids = { (keep: Set<String>) in
-            Set(tasks([], sessions: [master, review, elsewhere, tracked, stale], tracked: ["/r/powershot"], keep: keep).map(\.id))
+            Set(tasks(
+                [], sessions: [master, review, elsewhere, tracked, acrossRepos, stale], tracked: ["/r/powershot"], roots: ["/r/"],
+                keep: keep
+            ).map(\.id))
         }
-        #expect(ids([]) == ["Powershot PR stack"])
-        #expect(ids(["old-spike"]) == ["Powershot PR stack", "old-spike"])
+        #expect(ids([]) == ["Powershot PR stack", "plan-cofhe-review-flow"])
+        #expect(ids(["old-spike"]) == ["Powershot PR stack", "plan-cofhe-review-flow", "old-spike"])
     }
 
     /// A session started on a ticket joins that ticket's task, with or without a PR.

@@ -250,7 +250,7 @@ public struct DeskState: Sendable {
         ))
         tasks = Linker.tasks(
             mine: mine, allOpen: openAll, merged: merged, ticketKeys: ticketKeys, tickets: tickets, sessions: claudeJobs,
-            trackedRoots: gitScan?.repos.map(\.root) ?? [], keep: askedTasks, now: now
+            trackedRoots: gitScan?.repos.map(\.root) ?? [], repoRoots: config.expandedRepoRoots, keep: askedTasks, now: now
         )
     }
 
