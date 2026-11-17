@@ -25,6 +25,31 @@ final class AppModel {
     /// The app's text at this multiple of the boards' sizes, as wide as the window's screen calls for
     /// (`ScreenTextScale`): the window sets it, and every view reads it through `\.textScale`, or here, inside a `Text`.
     var textScale: CGFloat = 1
+
+    /// The Jira projects you can see, for Settings' and Setup's project menu: empty until read, or when the read failed.
+    var jiraProjects: [String] = []
+    /// A project's statuses as Jira lists them, with the key they were read for: Settings and Setup pick the three moves
+    /// from them. The key being read now, and why the last read failed.
+    var jiraStatuses: (key: String, statuses: [JiraStatus])?
+    var readingJiraStatuses: String?
+    var jiraStatusesError: String?
+
+    func loadJiraProjects() {
+        Task { if let keys = try? await service.jiraProjectKeys() { jiraProjects = keys.sorted() } }
+    }
+
+    /// Reads a project's statuses, unless they were read for it already. A search per status: some seconds.
+    func loadJiraStatuses(for key: String, force: Bool = false) async {
+        guard !key.isEmpty, force || jiraStatuses?.key != key, readingJiraStatuses != key else { return }
+        readingJiraStatuses = key
+        defer { if readingJiraStatuses == key { readingJiraStatuses = nil } }
+        do {
+            jiraStatuses = (key, try await service.jiraStatuses(project: key))
+            jiraStatusesError = nil
+        } catch {
+            jiraStatusesError = "Couldn't read \(key)'s statuses: \(error)"
+        }
+    }
     /// The org's repositories, for the Settings picker. Fetched on demand: the list changes rarely and
     /// the app needs no repo it is not tracking.
     var repositories: [GitHubRepo] = []
@@ -227,7 +252,7 @@ final class AppModel {
                 state.claudeJobs = await service.claudeJobs(keepIn: scan.repos.map(\.root))
                 state.asks = masterFolder.asks()
                 state.claudeLimits = await service.claudeLimits()
-                state.reviewSkills = await service.reviewSkills(repos: scan.repos)
+                state.workflowSkill = await service.reviewSkill()
                 state.errors[.git] = scan.errors.isEmpty ? nil : scan.errors.joined(separator: "\n")
                 for error in scan.errors { Self.log.error("git: \(error, privacy: .public)") }
             case .jira:
@@ -873,9 +898,9 @@ final class AppModel {
             return
         }
         // Read again here rather than from the last scan, so a plugin updated a moment ago counts.
-        let skill = ClaudePlugins.reviewSkill(repoRoot: repo.root)
+        let skill = ClaudePlugins.reviewSkill(pluginDir: config.pluginDir)
         guard skill.has(ClaudePlugins.reviewPR) else {
-            sessionErrors[pr.url] = "Can't start the review session: \(skill.text)."
+            sessionErrors[pr.url] = "Can't start the review session: \(skill.text). Settings → Master installs it."
             return
         }
         do {

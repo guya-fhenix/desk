@@ -112,7 +112,7 @@ import Testing
 
     @Test func sessionsPutPullRequestsAndTicketsInTheFlow() {
         var config = DeskConfig()
-        config.jiraProjectKeys = ["PRO"]
+        config.jiraProjectKey = "PRO"
         var state = DeskState(config: config)
         let mine = Fixtures.pr(number: 1, title: "PRO-1 the fix", head: "pro-1", draft: true)
         let other = Fixtures.pr(number: 2, head: "b")

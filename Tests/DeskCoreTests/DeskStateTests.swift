@@ -3,8 +3,12 @@ import Foundation
 import Testing
 
 @Suite struct DeskStateTests {
+    /// PRO, with its statuses picked for the three moves, as Setup leaves them.
     var state: DeskState {
-        var state = DeskState(config: DeskConfig())
+        var config = DeskConfig()
+        config.jiraProjectKey = "PRO"
+        (config.jiraInProgressStatus, config.jiraReviewStatus, config.jiraDoneStatus) = ("In Progress", "👀 Review Ready", "Done")
+        var state = DeskState(config: config)
         state.github = GitHubSnapshot(login: "me", mine: [], reviewRequests: [], mergedRecent: [], fetchedAt: Fixtures.t0)
         return state
     }
@@ -182,7 +186,7 @@ import Testing
     /// Up Next offers your sprint's to-do tickets that nothing has started yet.
     @Test func upNextOffersTheTicketsNothingHasStarted() {
         var config = DeskConfig()
-        config.jiraProjectKeys = ["PRO"]
+        config.jiraProjectKey = "PRO"
         var state = DeskState(config: config)
         state.github = GitHubSnapshot(
             login: "me", mine: [Fixtures.pr(number: 1, title: "PRO-2 the fix", head: "x")], reviewRequests: [],

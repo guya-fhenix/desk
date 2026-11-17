@@ -33,13 +33,17 @@ The window opens on Setup until you finish it once; Settings → General → Run
 bring it back. **Tools** checks Homebrew, the Command Line Tools, `gh` (2.81.0 or later, the first that reports its
 sign-ins as JSON; an older one gets an Upgrade press), `acli` and Claude Code; **Sign in** checks `gh`
 (the active account, with the `repo` and `read:org` scopes), `acli jira`, `claude` and the `fhenix-workflow` plugin,
-which needs a review skill: `review-teammate-task` (1.0, any set of PRs) or `review-pr` (0.8, one PR). Each check is read
+installed for your user in the Claude Code Desk runs (one repo's install doesn't count: the master, its workers and
+review sessions need it in every repo), with a review skill: `review-teammate-task` (1.0, any set of PRs) or `review-pr`
+(0.8, one PR). Settings → Master shows the same check, with Install. Each check is read
 off the tool every time. GitHub and Jira ask for a token there (Create a token opens GitHub with a classic token's scopes
 ticked, or Atlassian's API tokens page), with Use the browser beside it. Install, Use the browser and the other fixes run
 their command in a window of your terminal app (iTerm2 unless Settings → Master says Terminal), in a login shell, so you
 can follow it and type a password; the checks run again when you come back to Desk. Tools also checks tmux and iTerm2,
-which show the master and its workers. Then come Settings' own GitHub, Repos (Track my clones ticks every org repo you have a clone of) and
-Jira pages, and Finish, which needs the Command Line Tools, `gh` signed in and one tracked repo. Later closes Setup until
+which show the master and its workers. Then come Settings' own GitHub, Repositories (Track my clones ticks every org repo you have a clone of) and
+Jira pages, and Finish, which needs the Command Line Tools, `gh` signed in and one tracked repo. On the Jira page you
+pick the project and, from the statuses Jira lists for it, where Desk moves a ticket at each step; Continue waits for
+all three, or for no project, which leaves Jira off. Later closes Setup until
 the next launch. `make doctor` prints the same checks.
 
 Settings → General → Open at login starts Desk when you log in, so nudges keep coming after a restart. It works for
@@ -229,7 +233,11 @@ It only suggests moving a ticket forward, and only your own. A ticket Jira calls
 Progress (in QA, say) is never suggested for review. A PR merged into the branch below it in a stack finishes nothing,
 and an open draft keeps the ticket out of both statuses. The workers never move a ticket: the sync is Desk's.
 
-Set the three status names in Settings → Jira, exactly as Jira spells them. An empty one turns its move off.
+Desk reads one Jira project, picked in Settings → Jira (or Setup) from the projects Jira shows you. Every project
+names its statuses its own way, so they come from Jira: Desk finds the project's statuses (one search per status, a few
+seconds), and you pick each move from them: In progress, Review and Done, grouped as Jira files them. Suggested fills
+the empty ones from the names and Jira's categories. A saved status the project doesn't have is flagged; an empty one
+turns its move off.
 
 ## Background sessions
 
@@ -270,8 +278,10 @@ bundle sends no notifications.
 
 Settings → Master shows whether the master runs and where, the folders it also sees (your repo roots until you list
 others; written to the master folder's `.claude/settings.json`, for the next time it starts), whether Desk sends it
-events, and **Load plugins from**: a folder of plugins the master, its workers and review sessions load in place of the
-installed ones (`--plugin-dir`), for trying skill changes before they ship.
+events, the **fhenix-workflow** check (installed for your user, with Install when it isn't), and under Development the
+**Plugin folder**: a folder of plugins the master, its workers and review sessions load in place of the installed ones
+(`--plugin-dir`), only for trying plugin changes before they're merged into the marketplace. Left empty, as it should be
+day to day, Desk's sessions use the plugins installed for your user.
 
 ## Conversation
 

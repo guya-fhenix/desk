@@ -107,14 +107,9 @@ public actor DeskService {
     /// Your Claude plan's limits, for the sidebar. A local file too, read with the git scan.
     public func claudeLimits() -> [ClaudeLimit] { ClaudeLimits.read() }
 
-    /// Whether each clone's review sessions can start, and on which skill, by repo root. A few small files per repo.
-    public func reviewSkills(repos: [RepoRef]) async -> [String: ReviewSkill] {
-        var skills: [String: ReviewSkill] = [:]
-        for repo in repos where skills[repo.root] == nil {
-            skills[repo.root] = ClaudePlugins.reviewSkill(repoRoot: repo.root, pluginDir: config.pluginDir)
-        }
-        return skills
-    }
+    /// Whether review sessions can start, and on which skill: fhenix-workflow as installed for your user in the Claude
+    /// Code Desk runs, the same in every repo. A couple of small files.
+    public func reviewSkill() -> ReviewSkill { ClaudePlugins.reviewSkill(pluginDir: config.pluginDir) }
 
     /// The GitHub provider, or why there is none.
     private func gh() throws -> GitHubProvider {
@@ -240,6 +235,12 @@ public actor DeskService {
     public func editTicket(key: String, summary: String? = nil, description: String? = nil) async throws {
         guard let jira else { throw DeskError.jiraNotConfigured }
         try await jira.edit(key: key, summary: summary, description: description)
+    }
+
+    /// The project's statuses, for Setup and Settings to pick the three moves from.
+    public func jiraStatuses(project: String) async throws -> [JiraStatus] {
+        guard let jira else { throw DeskError.jiraNotConfigured }
+        return try await jira.statuses(project: project)
     }
 
     public func jiraProjectKeys() async throws -> [String] {

@@ -267,8 +267,8 @@ public enum Setup {
         return status.email ?? ""
     }
 
-    /// Installed anywhere, user-wide or for one repo, is enough here: Fhenix repos turn the plugin on in their own
-    /// settings, and Settings → Repos says per repo whether it is there. An install with no review skill, neither
+    /// Installed for your user, in the Claude Code Desk runs: the master, its workers and review sessions need it in
+    /// every repo they work in, so one repo's install doesn't count. An install with no review skill, neither
     /// review-teammate-task (1.0) nor review-pr (0.8), is flagged: Start review stays off.
     public static func workflowPlugin(marketplaces: Data?, installed: Data?) -> SetupCheck {
         let known = (marketplaces.flatMap { try? JSONSerialization.jsonObject(with: $0) } as? [String: Any]) ?? [:]
@@ -276,7 +276,8 @@ public enum Setup {
             ((value as? [String: Any])?["source"] as? [String: Any])?["repo"].map { "\($0)".lowercased() } == marketplace.lowercased()
         }?.key
         let plugins = ((installed.flatMap { try? JSONSerialization.jsonObject(with: $0) } as? [String: Any])?["plugins"] as? [String: Any]) ?? [:]
-        let records = plugins.filter { $0.key.hasPrefix("\(ClaudePlugins.plugin)@") }.values.flatMap { ($0 as? [[String: Any]]) ?? [] }
+        let all = plugins.filter { $0.key.hasPrefix("\(ClaudePlugins.plugin)@") }.values.flatMap { ($0 as? [[String: Any]]) ?? [] }
+        let records = all.filter { $0["scope"] as? String == "user" }
         let versions = records.compactMap { $0["version"] as? String }
         if !versions.isEmpty {
             let detail = "\(ClaudePlugins.plugin) \(Array(Set(versions)).sorted().joined(separator: ", "))"
@@ -291,8 +292,9 @@ public enum Setup {
             }
             return SetupCheck(.workflowPlugin, ok: true, detail: detail)
         }
-        let install = "claude plugin install \(ClaudePlugins.plugin)@\(name ?? "fhenix")"
-        return SetupCheck(.workflowPlugin, ok: false, detail: "Not installed.",
+        let install = "claude plugin install \(ClaudePlugins.plugin)@\(name ?? "fhenix") --scope user"
+        let detail = all.isEmpty ? "Not installed." : "Installed only in \(all.count) repo\(all.count == 1 ? "" : "s"); Desk's sessions need it for your user."
+        return SetupCheck(.workflowPlugin, ok: false, detail: detail,
                           fixes: [SetupFix("Install", name == nil ? "claude plugin marketplace add \(marketplace) && \(install)" : install)])
     }
 }

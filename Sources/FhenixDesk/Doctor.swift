@@ -34,8 +34,7 @@ enum Doctor {
             print("  \(pad(worktree.repoName, 18)) \(pad(worktree.branch ?? "(detached)", 44)) \(flags.joined(separator: " "))")
         }
         for error in scan.errors { print("  error: \(error)") }
-        state.reviewSkills = await service.reviewSkills(repos: scan.repos)
-        for repo in scan.repos { print("  \(pad(repo.name, 18)) skills: \(state.reviewSkills[repo.root]?.text ?? "?")") }
+        print("  fhenix-workflow, for your user: \(await service.reviewSkill().text)")
 
         section("GitHub")
         do {

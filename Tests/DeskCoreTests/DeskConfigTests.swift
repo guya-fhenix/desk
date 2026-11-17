@@ -3,6 +3,18 @@ import Foundation
 import Testing
 
 @Suite struct DeskConfigTests {
+    /// One project now: a config from when there could be several keeps its first, and a new one has none; nor are any
+    /// statuses assumed, since every project names them its own way.
+    @Test func oneJiraProjectAndNoStatusesAssumed() throws {
+        let old = try JSONDecoder().decode(DeskConfig.self, from: Data(#"{"jiraProjectKeys": ["PRO", "OPS"]}"#.utf8))
+        #expect(old.jiraProjectKey == "PRO" && old.jiraProjectKeys == ["PRO"])
+        let saved = try JSONDecoder().decode(DeskConfig.self, from: JSONEncoder().encode(old))
+        #expect(saved.jiraProjectKey == "PRO")
+        let fresh = DeskConfig()
+        #expect(fresh.jiraProjectKeys.isEmpty)
+        #expect([fresh.jiraInProgressStatus, fresh.jiraReviewStatus, fresh.jiraDoneStatus] == ["", "", ""])
+    }
+
     /// A source that keeps failing is asked half as often each time, up to every 30 minutes, which lets a throttle on
     /// the account lift; one success puts it back on its own interval.
     @Test func aFailingPollBacksOffToThirtyMinutes() {

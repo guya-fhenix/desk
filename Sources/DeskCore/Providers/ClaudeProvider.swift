@@ -271,8 +271,8 @@ public struct ReviewSkill: Sendable, Hashable {
         switch state {
         case .ready: return "\(plugin) \(version ?? "") · \(reviewSkill)"
         case .noSkill: return "\(plugin) \(version ?? "") has no \(missing.joined(separator: ", ")) — update the plugin"
-        case .notInstalled: return "\(plugin) is enabled here but not installed"
-        case .notEnabled: return "\(plugin) is not enabled in this repo"
+        case .notInstalled: return "\(plugin) is enabled but not installed for your user"
+        case .notEnabled: return "\(plugin) is not installed for your user"
         }
     }
 }
@@ -285,18 +285,18 @@ public enum ClaudePlugins {
     /// The skill a review of any set of PRs, with your notes, starts with: fhenix-workflow 1.0 and later.
     public static let reviewTeammateTask = "review-teammate-task"
 
-    /// `enabledPlugins` decides first, in Claude Code's own order — the repo's local settings, then its shared
-    /// settings, then the user's, and the first that names the plugin wins. Then the install record for this
-    /// repo, or for the user, says which version is there and which review skill it carries. `pluginDir`, a folder of
-    /// plugins Desk's sessions load in place of the installed ones, decides whether a group review can run.
-    public static func reviewSkill(repoRoot: String, pluginDir: String = "", home: String = ClaudeJobs.home) -> ReviewSkill {
+    /// The plugin as installed for your user in the Claude Code Desk runs (`home`), the same in every repo: your
+    /// settings' `enabledPlugins` turns it on, and the user-wide install record says which version is there and which
+    /// review skill it carries. A repo's own install doesn't count: Desk's sessions need it wherever they run.
+    /// `pluginDir`, a folder of plugins Desk's sessions load in place of the installed ones, decides whether a group
+    /// review can run.
+    public static func reviewSkill(pluginDir: String = "", home: String = ClaudeJobs.home) -> ReviewSkill {
         let folder = (pluginDir.trimmingCharacters(in: .whitespaces) as NSString).expandingTildeInPath
         let inFolder = !folder.isEmpty && FileManager.default.fileExists(atPath: "\(folder)/\(plugin)/skills/\(reviewTeammateTask)/SKILL.md")
-        let files = ["\(repoRoot)/.claude/settings.local.json", "\(repoRoot)/.claude/settings.json", "\(home)/settings.json"]
-        guard let enabled = files.lazy.compactMap(enabledEntry(in:)).first, enabled.on else {
+        guard let enabled = enabledEntry(in: "\(home)/settings.json"), enabled.on else {
             return ReviewSkill(state: .notEnabled, groupReview: inFolder)
         }
-        guard let install = install(of: enabled.name, repoRoot: repoRoot, home: home) else {
+        guard let install = install(of: enabled.name, home: home) else {
             return ReviewSkill(state: .notInstalled, groupReview: inFolder)
         }
         let has = { (skill: String) in FileManager.default.fileExists(atPath: "\(install.path)/skills/\(skill)/SKILL.md") }
@@ -313,12 +313,10 @@ public enum ClaudePlugins {
         return (entry.key, entry.value as? Bool ?? false)
     }
 
-    /// The install for this repo, or failing that the user-wide one.
-    private static func install(of name: String, repoRoot: String, home: String) -> (path: String, version: String?)? {
+    /// The user-wide install.
+    private static func install(of name: String, home: String) -> (path: String, version: String?)? {
         let records = (object(at: "\(home)/plugins/installed_plugins.json")?["plugins"] as? [String: Any])?[name] as? [[String: Any]] ?? []
-        let root = URL(fileURLWithPath: repoRoot).standardizedFileURL.path
-        let mine = records.first { ($0["projectPath"] as? String).map { URL(fileURLWithPath: $0).standardizedFileURL.path } == root }
-        guard let record = mine ?? records.first(where: { $0["scope"] as? String == "user" }),
+        guard let record = records.first(where: { $0["scope"] as? String == "user" }),
               let path = record["installPath"] as? String
         else { return nil }
         return (path, record["version"] as? String)

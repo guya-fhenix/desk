@@ -14,7 +14,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         switch self {
         case .appearance: return "Appearance"
         case .github: return "GitHub"
-        case .repos: return "Repos"
+        case .repos: return "Repositories"
         case .master: return "Master"
         case .jira: return "Jira"
         case .general: return "General"
@@ -42,7 +42,6 @@ final class SettingsDraft {
     var config = DeskConfig()
     var repoRootsText = ""
     var botLoginsText = ""
-    var projectKeysText = ""
     /// The folders the master sees besides its own; empty follows the repo roots.
     var masterFoldersText = ""
     var repoFilter = ""
@@ -54,7 +53,6 @@ final class SettingsDraft {
         config = saved
         repoRootsText = saved.repoRoots.joined(separator: ", ")
         botLoginsText = saved.botLogins.joined(separator: ", ")
-        projectKeysText = saved.jiraProjectKeys.joined(separator: ", ")
         masterFoldersText = saved.masterFolders?.joined(separator: ", ") ?? ""
         loaded = true
     }
@@ -65,7 +63,6 @@ final class SettingsDraft {
         var pending = config
         pending.repoRoots = Self.split(repoRootsText)
         pending.botLogins = Self.split(botLoginsText)
-        pending.jiraProjectKeys = Self.split(projectKeysText).map { $0.uppercased() }
         let masterFolders = Self.split(masterFoldersText)
         pending.masterFolders = masterFolders.isEmpty ? nil : masterFolders
         return pending
@@ -394,32 +391,48 @@ private struct TokenField: View {
     private func set(_ list: [String]) { text = list.joined(separator: ", ") }
 }
 
-/// A Jira status: typed, or picked from the statuses your tickets are in — the ones `acli jira` has shown the app,
-/// spelt the way Jira spells them. Not flagged for being none of those: no ticket of yours may sit in Done today. A
-/// stray space at either end is flagged, since Jira's names have none and the move would fail on it.
-private struct StatusField: View {
-    var placeholder: String
-    @Binding var text: String
-    var known: [String]
+/// One of the project's statuses, from Jira's own list, by category. A saved name the project doesn't have stays
+/// shown, flagged: a move to it would fail.
+private struct StatusPicker: View {
+    @Binding var selection: String
+    var statuses: [JiraStatus]
+    var project: String
 
     var body: some View {
+        let known = statuses.contains { $0.name == selection }
         VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 6) {
-                BoxedText(placeholder: placeholder, text: $text, mono: false)
-                if !known.isEmpty {
-                    Menu {
-                        ForEach(known, id: \.self) { status in Button(status) { text = status } }
-                    } label: {
-                        Image(systemName: "chevron.up.chevron.down")
+            Picker("Status", selection: $selection) {
+                Text("Not set").tag("")
+                ForEach(JiraStatus.Category.allCases, id: \.self) { category in
+                    let inCategory = statuses.filter { $0.category == category }
+                    if !inCategory.isEmpty {
+                        Section(category.title) { ForEach(inCategory, id: \.name) { Text($0.name).tag($0.name) } }
                     }
-                    .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
-                    .help("Pick one of the statuses your tickets are in")
-                    .accessibilityLabel("Pick a status")
                 }
+                if !selection.isEmpty, !known { Text(selection).tag(selection) }
             }
-            if text != text.trimmingCharacters(in: .whitespaces) {
-                Text("“\(text)” has a space at the start or end; Jira's status names do not.").scaled(.secondary).foregroundStyle(Theme.danger)
+            .labelsHidden().pickerStyle(.menu).fixedSize()
+            if !selection.isEmpty, !known {
+                Text("“\(selection)” isn't one of \(project)'s statuses: pick one of its own.").scaled(.secondary).foregroundStyle(Theme.danger)
             }
+        }
+    }
+}
+
+/// The project, from the ones Jira shows you; typed, when that list couldn't be read.
+private struct ProjectField: View {
+    @Binding var key: String
+    var projects: [String]
+
+    var body: some View {
+        if projects.isEmpty {
+            BoxedText(placeholder: "PRO", text: $key)
+        } else {
+            Picker("Project", selection: $key) {
+                Text("None").tag("")
+                ForEach(projects.contains(key) || key.isEmpty ? projects : projects + [key], id: \.self) { Text($0).tag($0) }
+            }
+            .labelsHidden().pickerStyle(.menu).fixedSize()
         }
     }
 }
@@ -566,14 +579,60 @@ private struct MasterSettings: View {
                 Toggle("Send events to the master", isOn: $draft.config.sendEvents).toggleStyle(.switch).controlSize(.mini).labelsHidden()
             }
         }
+        WorkflowPluginGroup()
         SettingsGroup(
-            title: "Plugins",
-            note: "Passed as --plugin-dir to the master, which passes it to every worker. Takes effect for sessions started after it changes."
+            title: "Development",
+            note: "Only for trying plugin changes before they're merged into the marketplace. Passed as --plugin-dir to the master, which passes it to every worker; takes effect for sessions started after it changes."
         ) {
-            SettingsRow("Plugin folder", note: "A folder of plugins, such as a claude-marketplace branch's plugins. Empty uses the installed ones.") {
+            SettingsRow("Plugin folder", note: "Such as a claude-marketplace branch's plugins folder. Leave it empty day to day: Desk's sessions then use the plugins installed for your user.") {
                 BoxedText(placeholder: "Installed plugins", text: $draft.config.pluginDir)
             }
         }
+    }
+}
+
+/// fhenix-workflow, checked once, here: installed for your user in the Claude Code Desk runs, since the master, its
+/// workers and review sessions need it in every repo. Checked as the pane opens and again when Desk comes back to the
+/// front, after the install ran in your terminal.
+private struct WorkflowPluginGroup: View {
+    @Environment(AppModel.self) private var model
+    @State private var check: SetupCheck?
+
+    var body: some View {
+        SettingsGroup(
+            title: "Team plugin",
+            note: "The master, its workers and review sessions run on fhenix-workflow's skills, installed for your user in the Claude Code Desk runs."
+        ) {
+            SettingsRow("fhenix-workflow") {
+                if let check {
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Image(systemName: check.ok ? "checkmark" : "exclamationmark.triangle.fill")
+                            .font(.system(size: 10, weight: .semibold)).foregroundStyle(check.ok ? Theme.ok : Theme.warn)
+                        Text(check.detail).foregroundStyle(check.ok ? Theme.ink : Theme.danger).fixedSize(horizontal: false, vertical: true)
+                    }
+                } else {
+                    ProgressView().controlSize(.small)
+                }
+            } trailing: {
+                HStack(spacing: 6) {
+                    if let fix = check?.fixes.first {
+                        Button(fix.label) { model.runInTerminal(fix.command, name: "setup-workflowPlugin") }
+                            .help(fix.command)
+                    }
+                    Button("Recheck") { Task { await recheck() } }
+                }
+                .buttonStyle(.desk(.secondary, .small))
+            }
+        }
+        .task { await recheck() }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            Task { await recheck() }
+        }
+    }
+
+    private func recheck() async {
+        check = await Setup.check(.workflowPlugin, config: model.config)
+        model.state.workflowSkill = ClaudePlugins.reviewSkill(pluginDir: model.config.pluginDir)
     }
 }
 
@@ -742,32 +801,68 @@ struct JiraSettings: View {
                 SettingsRow("Token") { TokenSignIn(.jira) { newToken = false } }
             }
         }
+        let key = draft.config.jiraProjectKey
         SettingsGroup(
-            title: "Tickets",
-            note: "Status names exactly as Jira spells them, emoji and all; empty turns that half off. Desk suggests moving a ticket of yours once its pull requests say it has fallen behind, never backwards; it moves when you press Move."
+            title: "Project",
+            note: "The one Jira project Desk reads. Each project names its statuses its own way, so they come from Jira: pick where Desk moves a ticket at each step. Desk suggests a move once a ticket's pull requests say it has fallen behind, never backwards, and moves it when you press Move."
         ) {
-            SettingsRow("Project keys", note: "Type a Jira project key, such as PRO, and press Return.") {
-                TokenField(placeholder: "Add a key", text: $draft.projectKeysText) { key in
-                    key.range(of: #"^[A-Za-z][A-Za-z0-9_]*$"#, options: .regularExpression) == nil ? "“\(key)” is not a Jira project key." : nil
-                }
+            SettingsRow("Project") {
+                ProjectField(key: Binding { key } set: { draft.config.jiraProjectKey = $0.uppercased() }, projects: model.jiraProjects)
             }
-            SettingsRow("In progress status", note: "While work is under way.") {
-                StatusField(placeholder: "In Progress", text: $draft.config.jiraInProgressStatus, known: knownStatuses)
-            }
-            SettingsRow("Review status", note: "While a PR is open for review.") {
-                StatusField(placeholder: "👀 Review Ready", text: $draft.config.jiraReviewStatus, known: knownStatuses)
-            }
-            SettingsRow("Done status", note: "Once every PR has merged.") {
-                StatusField(placeholder: "Done", text: $draft.config.jiraDoneStatus, known: knownStatuses)
-            }
+            if !key.isEmpty { statuses(key, draft: draft) }
+        }
+        .task { model.loadJiraProjects() }
+        // A moment after the key stops changing: typing PRO would read P's and PR's statuses too.
+        .task(id: key) {
+            try? await Task.sleep(for: .milliseconds(700))
+            guard !Task.isCancelled else { return }
+            await model.loadJiraStatuses(for: key)
         }
         SettingsGroup(title: "Tool") {
             SettingsRow("acli path", note: "Leave empty to find acli on your PATH.") { BoxedText(placeholder: "Automatic", text: $draft.config.acliPath) }
         }
     }
 
-    /// Every status your tickets are in, as acli reported them.
-    private var knownStatuses: [String] { Set(model.state.tickets.map(\.status)).sorted() }
+    /// The three moves, each picked from the project's statuses; while they're read, a spinner; a failed read, why.
+    @ViewBuilder private func statuses(_ key: String, draft: SettingsDraft) -> some View {
+        @Bindable var draft = draft
+        if let statuses = model.jiraStatuses.flatMap({ $0.key == key ? $0.statuses : nil }) {
+            SettingsRow("In progress", note: "When work on it starts.") {
+                StatusPicker(selection: $draft.config.jiraInProgressStatus, statuses: statuses, project: key)
+            }
+            SettingsRow("Review", note: "While a PR is open for review.") {
+                StatusPicker(selection: $draft.config.jiraReviewStatus, statuses: statuses, project: key)
+            }
+            SettingsRow("Done", note: "Once every PR has merged.") {
+                StatusPicker(selection: $draft.config.jiraDoneStatus, statuses: statuses, project: key)
+            }
+            let fields = [\DeskConfig.jiraInProgressStatus, \.jiraReviewStatus, \.jiraDoneStatus]
+            let suggested = zip(fields, JiraStatus.Role.allCases).map { ($0, JiraStatus.suggested($1, in: statuses)) }
+            if fields.contains(where: { draft.config[keyPath: $0].isEmpty }), suggested.contains(where: { $0.1 != nil }) {
+                SettingsRow("Suggested") {
+                    Text(suggested.map { $0.1 ?? "—" }.joined(separator: "  ·  ")).foregroundStyle(Theme.quiet)
+                } trailing: {
+                    Button("Use these") {
+                        for (field, name) in suggested where draft.config[keyPath: field].isEmpty { draft.config[keyPath: field] = name ?? "" }
+                    }
+                    .buttonStyle(.desk(.secondary, .small))
+                }
+            }
+        } else if model.readingJiraStatuses == key || model.jiraStatusesError == nil {
+            SettingsRow("Statuses") {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text("Reading \(key)'s statuses from Jira…").foregroundStyle(Theme.quiet)
+                }
+            }
+        } else if let error = model.jiraStatusesError {
+            SettingsRow("Statuses") {
+                Text(error).foregroundStyle(Theme.danger).fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
+            } trailing: {
+                Button("Retry") { Task { await model.loadJiraStatuses(for: key, force: true) } }.buttonStyle(.desk(.secondary, .small))
+            }
+        }
+    }
 
     private var signedOutText: String {
         model.settings.config.resolvedAcliPath == nil
@@ -923,10 +1018,6 @@ struct ReposSettings: View {
                                 HStack(spacing: 8) {
                                     Text(repo.name).scaled(.code)
                                     if repo.isArchived { StageChip2(text: "Archived") }
-                                    if draft.config.trackedRepoSlugs.contains(repo.slug), let skill = model.state.reviewSkill(forSlug: repo.slug) {
-                                        // The reason in words: nine identical triangles said nothing without a hover.
-                                        ReviewSkillMark(skill: skill, showsText: true)
-                                    }
                                     Spacer()
                                     AgeText(date: repo.pushedAt)
                                 }

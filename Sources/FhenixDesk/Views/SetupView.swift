@@ -14,7 +14,7 @@ enum SetupStep: String, CaseIterable, Identifiable {
         case .tools: return "Tools"
         case .accounts: return "Sign in"
         case .github: return "GitHub"
-        case .repos: return "Repos"
+        case .repos: return "Repositories"
         case .jira: return "Jira"
         case .finish: return "Finish"
         }
@@ -138,7 +138,10 @@ struct SetupView: View {
 
     private var footer: some View {
         HStack(spacing: 8) {
-            Text("Desk never stores a token: gh, acli and Claude Code keep their own.").scaled(.secondary).foregroundStyle(Theme.quiet)
+            Text(step == .jira && !jiraReady
+                 ? "Pick where Desk moves a ticket at each step, or leave the project empty to skip Jira."
+                 : "Desk never stores a token: gh, acli and Claude Code keep their own.")
+                .scaled(.secondary).foregroundStyle(Theme.quiet)
             Spacer(minLength: 16)
             Button("Later") { model.showingSetup = false }
                 .buttonStyle(.desk(.quiet, .large))
@@ -148,6 +151,7 @@ struct SetupView: View {
             }
             if let next = SetupStep.allCases.after(step) {
                 Button("Continue") { step = next }.buttonStyle(.desk(.primary, .large)).keyboardShortcut(.defaultAction)
+                    .disabled(step == .jira && !jiraReady)
             } else {
                 Button("Finish") { model.completeSetup() }
                     .buttonStyle(.desk(.primary, .large))
@@ -156,6 +160,13 @@ struct SetupView: View {
             }
         }
         .padding(.top, 4)
+    }
+
+    /// No project, which leaves Jira off, or a project with all three moves picked from its statuses.
+    private var jiraReady: Bool {
+        let config = model.settings.config
+        return config.jiraProjectKey.isEmpty
+            || ![config.jiraInProgressStatus, config.jiraReviewStatus, config.jiraDoneStatus].contains(where: \.isEmpty)
     }
 
     /// What has to be there before Desk can show anything: git, gh signed in, and a repo to watch.
@@ -362,7 +373,7 @@ private struct SetupFinish: View {
             ForEach(SetupCheck.Kind.allCases, id: \.self) { kind in
                 SetupCheckRow(kind: kind, check: checks[kind])
             }
-            SetupRow(title: "Repos", ok: count > 0, required: true) {
+            SetupRow(title: "Repositories", ok: count > 0, required: true) {
                 Text(count > 0 ? "\(count) repos tracked" : "No repo tracked: pick some in the Repos step.").foregroundStyle(Theme.quiet)
             } trailing: {
                 EmptyView()

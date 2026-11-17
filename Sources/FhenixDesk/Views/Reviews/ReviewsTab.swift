@@ -80,7 +80,7 @@ struct ReviewsTab: View {
     private func list(rows: [PullRequest], groups: [QueueGroup]) -> some View {
         let onMe = self.onMe
         let chosen = rows.filter { picked.contains($0.url) }
-        let picking = model.state.reviewSkills.values.contains { $0.groupReview }
+        let picking = model.state.workflowSkill?.groupReview == true
         let current = groups.first { $0.pullRequests.contains { $0.url == selection } }
         return HStack(spacing: 0) {
             Screen {
@@ -498,11 +498,6 @@ private struct ReviewQueueDetails: View {
                     FieldRow(label: "Your review") { ReviewStatusChip(status: status) }
                 }
             }
-        }
-        VStack(alignment: .leading, spacing: 6) {
-            SectionLabel("Review skill")
-            Text(model.state.reviewSkill(for: pr)?.text ?? "No clone of \(pr.repo) here: a review session starts in its checkout")
-                .scaled(.code).fixedSize(horizontal: false, vertical: true)
         }
         HStack(alignment: .firstTextBaseline, spacing: 10) {
             Image(systemName: "info.circle").accessibilityHidden(true)
