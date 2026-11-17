@@ -12,6 +12,10 @@ struct ReviewsTab: View {
     @AppStorage("reviews.scope") private var scope: ReviewScope = .needsYou
     private var filters = ReviewFilters()
     @State private var selection: String?
+    /// The PRs ticked to review together, by url: any rows, from any repos and authors.
+    @State private var picked: Set<String> = []
+    /// Review together's sheet, while it asks for notes.
+    @State private var request: ReviewRequest?
     /// The pages open over the list; empty shows the list.
     @State private var path: [Route] = []
     @FocusState private var listFocused: Bool
@@ -46,7 +50,9 @@ struct ReviewsTab: View {
         }
         .focusedSceneValue(\.routePath, $path)
         .remembersSort(Self.sort, order: $sortOrder, stored: $storedSort)
-        .selectsFirstRow(rows.first?.url, selection: $selection)
+        // The first row on screen: a group's base comes before the row the sort put first.
+        .selectsFirstRow(Self.groups(rows, model: model).first?.pullRequests.first?.url, selection: $selection)
+        .reviewTogetherSheet($request, model: model)
         // Search, Up Next and a notification land here with a PR to show: its page, with its row selected behind it.
         // One the filters hide is shown by widening them to the whole queue: a find that opens a screen without its
         // PR on it would be no find at all. Yours are left to Pull Requests, the way it leaves these to this screen.
@@ -92,11 +98,20 @@ struct ReviewsTab: View {
             } else {
                 StaleBanner(source: .github)
             }
+            let chosen = rows.filter { picked.contains($0.url) }
+            if !chosen.isEmpty { pickedBar(chosen) }
+            let picking = model.state.reviewSkills.values.contains { $0.groupReview }
             ScrollViewReader { proxy in
                 List(selection: $selection) {
-                    ForEach(rows, id: \.url) { pr in
-                        ListRow(selected: selection == pr.url, open: { open(pr.url) }) {
-                            QueueRow(pr: pr, model: model, onMe: onMe.contains(pr.url))
+                    ForEach(Self.groups(rows, model: model)) { group in
+                        if group.pullRequests.count > 1 {
+                            Section {
+                                ForEach(group.pullRequests, id: \.url) { pr in row(pr, onMe: onMe, picking: picking) }
+                            } header: {
+                                QueueGroupHeader(group: group, picked: $picked, picking: picking)
+                            }
+                        } else {
+                            row(group.pullRequests[0], onMe: onMe, picking: picking)
                         }
                     }
                 }
@@ -128,6 +143,51 @@ struct ReviewsTab: View {
     private func open(_ url: String) {
         selection = url
         path.append(.pr(url))
+    }
+
+    /// A row of the queue, with its tick when reviews here can take a group.
+    private func row(_ pr: PullRequest, onMe: Set<String>, picking: Bool) -> some View {
+        ListRow(selected: selection == pr.url, open: { open(pr.url) }) {
+            HStack(spacing: 10) {
+                if picking {
+                    Toggle("Pick \(pr.repoName)#\(pr.number)", isOn: Binding(
+                        get: { picked.contains(pr.url) }, set: { if $0 { picked.insert(pr.url) } else { picked.remove(pr.url) } }
+                    ))
+                    .toggleStyle(.checkbox).labelsHidden()
+                    .help("Pick it to review with others")
+                }
+                QueueRow(pr: pr, model: model, onMe: onMe.contains(pr.url))
+            }
+        }
+    }
+
+    /// What is picked, and the press that reviews it together.
+    private func pickedBar(_ chosen: [PullRequest]) -> some View {
+        let repos = Set(chosen.map(\.repo)).count
+        return HStack(spacing: 10) {
+            Text("\(chosen.count) PR\(chosen.count == 1 ? "" : "s") picked\(repos > 1 ? " in \(repos) repos" : "")").scaled(.secondary)
+            Spacer()
+            Button("Clear") { picked = [] }.controlSize(.small)
+            Button("Review together") {
+                request = ReviewRequest(pullRequests: chosen)
+                picked = []
+            }
+            .buttonStyle(.borderedProminent).controlSize(.small)
+        }
+        .padding(.vertical, 6)
+    }
+
+    /// The queue in its sort, with a ticket's PRs and a stack's together, under the first of them the sort reaches.
+    static func groups(_ rows: [PullRequest], model: AppModel) -> [QueueGroup] {
+        let matcher = TicketKeyMatcher(projectKeys: model.config.jiraProjectKeys)
+        let keys = Dictionary(rows.map { ($0.url, TicketSync.keys(for: $0, matcher: matcher)) }, uniquingKeysWith: { first, _ in first })
+        let tasks = Linker.tasks(
+            mine: rows, allOpen: model.state.github?.allOpen ?? rows, merged: [], ticketKeys: keys, tickets: model.state.tickets, sessions: []
+        )
+        let place = Dictionary(rows.enumerated().map { ($1.url, $0) }, uniquingKeysWith: { first, _ in first })
+        return tasks
+            .map { QueueGroup(task: $0) }
+            .sorted { ($0.pullRequests.compactMap { place[$0.url] }.min() ?? 0) < ($1.pullRequests.compactMap { place[$0.url] }.min() ?? 0) }
     }
 
     private var emptyText: String {
@@ -435,6 +495,106 @@ private struct QueueActions: View {
     }
 }
 
+/// A ticket's PRs, a stack, or one PR, in the review queue.
+struct QueueGroup: Identifiable {
+    var task: WorkTask
+    var id: String { task.id }
+    var pullRequests: [PullRequest] { task.pullRequests }
+}
+
+/// A group's line above its PRs: the ticket or the stack's root, its title, who wrote it, how many parts and how big,
+/// and a tick that picks them all.
+private struct QueueGroupHeader: View {
+    var group: QueueGroup
+    @Binding var picked: Set<String>
+    var picking: Bool
+
+    var body: some View {
+        let prs = group.pullRequests
+        let urls = Set(prs.map(\.url))
+        let authors = Array(Set(prs.map(\.author))).sorted().joined(separator: ", ")
+        HStack(spacing: 8) {
+            if picking {
+                Toggle("Pick all of \(TaskHeader.label(group.task))", isOn: Binding(
+                    get: { urls.isSubset(of: picked) }, set: { if $0 { picked.formUnion(urls) } else { picked.subtract(urls) } }
+                ))
+                .toggleStyle(.checkbox).labelsHidden()
+            }
+            Text(TaskHeader.label(group.task)).scaled(.secondary.monospaced()).fontWeight(.semibold).foregroundStyle(.primary)
+            Text(group.task.title).scaled(.secondary).foregroundStyle(.primary).lineLimit(1)
+            Spacer(minLength: 8)
+            Text("\(authors) · \(prs.count) parts · +\(prs.map(\.additions).reduce(0, +)) −\(prs.map(\.deletions).reduce(0, +))")
+                .scaled(.caption).foregroundStyle(.secondary)
+        }
+        .textCase(nil)
+        .padding(.vertical, 4)
+    }
+}
+
+/// The PRs a review is about to start on, while the sheet asks for notes.
+struct ReviewRequest: Identifiable {
+    let id = UUID()
+    var pullRequests: [PullRequest]
+}
+
+/// Review together: the PRs picked, by repo, and a box for what to focus on, check, or already know. The notes go to the
+/// review session with the links; empty is fine.
+struct ReviewTogetherSheet: View {
+    var request: ReviewRequest
+    var model: AppModel
+    var dismiss: () -> Void
+    @State private var notes = ""
+    @FocusState private var writing: Bool
+
+    var body: some View {
+        let prs = request.pullRequests
+        let repos = Dictionary(grouping: prs, by: \.repoName)
+        VStack(alignment: .leading, spacing: 10) {
+            Text(prs.count == 1 ? "Review \(prs[0].repoName)#\(prs[0].number)" : "Review \(prs.count) PRs together").scaled(.headline)
+            ForEach(repos.keys.sorted(), id: \.self) { repo in
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(repo).scaled(.secondary)
+                    Spacer()
+                    Text(repos[repo]!.map { "#\($0.number)" }.joined(separator: " ")).scaled(.secondary.monospaced()).foregroundStyle(.secondary)
+                }
+            }
+            Text("Notes for the review: what to focus on, what to check, what you already know. Optional.")
+                .scaled(.caption)
+                .foregroundStyle(.secondary)
+            TextEditor(text: $notes)
+                .scaled(.secondary)
+                .focused($writing)
+                .frame(minHeight: 96)
+                .padding(4)
+                .overlay(RoundedRectangle(cornerRadius: 5).stroke(.quaternary))
+            HStack(spacing: 8) {
+                Text("One review session for all of them, beside the first one's diff.").scaled(.caption).foregroundStyle(.secondary)
+                Spacer()
+                Button("Cancel", role: .cancel) { dismiss() }
+                    .keyboardShortcut(.cancelAction)
+                Button("Start review") {
+                    model.startReview(prs, notes: notes)
+                    dismiss()
+                }
+                .buttonStyle(.borderedProminent)
+                // Return belongs to the editor, so the press that starts it is ⌘-Return.
+                .keyboardShortcut(.return, modifiers: .command)
+            }
+        }
+        .padding(16)
+        .frame(width: 460)
+        .background(Theme.background)
+        .onAppear { writing = true }
+    }
+}
+
+extension View {
+    /// Shows Review together's sheet while `request` is set.
+    func reviewTogetherSheet(_ request: Binding<ReviewRequest?>, model: AppModel) -> some View {
+        sheet(item: request) { item in ReviewTogetherSheet(request: item, model: model) { request.wrappedValue = nil } }
+    }
+}
+
 /// A PR in the queue on its own page, laid out as a PR page is: what it is and its status line — checks, whether it is
 /// on you, the risk, where your review stands — with Review on GitHub and the session on the right; the description in
 /// the wide column; its checks in a line and its facts beside it. The review itself is yours: read the description, the /pre-pr
@@ -447,6 +607,8 @@ struct ReviewPage: View {
     /// The screen it was opened from, which its back link names and returns to.
     var back = "Reviews"
     var onBack: () -> Void
+    /// Start review, asking for notes first where the review can take them.
+    @State private var request: ReviewRequest?
 
     var body: some View {
         DetailPage(back: back, onBack: onBack) {
@@ -460,7 +622,9 @@ struct ReviewPage: View {
                 if pr.needsHuman { Chip(text: "Needs a person", color: .purple) }
                 ReviewStatusChip(status: model.state.reviewStatus(for: pr))
             } actions: {
-                Button(model.reviewRunning(pr) ? "Open review" : "Start review") { model.startReview(pr) }
+                Button(model.reviewRunning(pr) ? "Open review" : "Start review") {
+                    if !model.reviewRunning(pr), model.canReviewTogether(pr) { request = ReviewRequest(pullRequests: [pr]) } else { model.startReview(pr) }
+                }
                     .buttonStyle(.borderedProminent)
                     .help("The diff here and a Claude review session beside it: it summarizes the PR, gives its take on each question, and posts the comments and the verdict you decide on")
                 Button("Review on GitHub") { model.openDraft(pr) }
@@ -477,5 +641,6 @@ struct ReviewPage: View {
             WorkflowsSection(pr: pr, model: model)
             AboutCard(pr: pr, model: model)
         }
+        .reviewTogetherSheet($request, model: model)
     }
 }

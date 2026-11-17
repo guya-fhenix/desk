@@ -297,12 +297,17 @@ public struct ReviewSkill: Sendable, Hashable {
     public var adopted: Bool
     /// The skills the installed version lacks.
     public var missing: [String]
+    /// Whether review sessions here can run `review-teammate-task`, which reviews any set of PRs with your notes: from
+    /// the plugin folder Desk loads plugins from, when one is set, or else the installed plugin. Without it, a review is
+    /// one PR on `review-pr`, as before.
+    public var groupReview: Bool
 
-    public init(state: State, version: String? = nil, adopted: Bool = false, missing: [String] = []) {
+    public init(state: State, version: String? = nil, adopted: Bool = false, missing: [String] = [], groupReview: Bool = false) {
         self.state = state
         self.version = version
         self.adopted = adopted
         self.missing = missing
+        self.groupReview = groupReview
     }
 
     /// The skill Run /pre-pr on a draft runs here.
@@ -333,21 +338,29 @@ public enum ClaudePlugins {
     public static let reviewingCode = "reviewing-code"
     /// The skill a review session starts with.
     public static let reviewPR = "review-pr"
+    /// The skill a review of any set of PRs, with your notes, starts with.
+    public static let reviewTeammateTask = "review-teammate-task"
 
     /// `enabledPlugins` decides first, in Claude Code's own order — the repo's local settings, then its shared
     /// settings, then the user's, and the first that names the plugin wins. Then the install record for this
-    /// repo, or for the user, says which version is there and whether it carries the skill.
-    public static func reviewSkill(repoRoot: String, adopted: Bool = false, home: String = ClaudeJobs.home) -> ReviewSkill {
+    /// repo, or for the user, says which version is there and whether it carries the skill. `pluginDir`, a folder of
+    /// plugins Desk's sessions load in place of the installed ones, decides whether a group review can run.
+    public static func reviewSkill(repoRoot: String, adopted: Bool = false, pluginDir: String = "", home: String = ClaudeJobs.home) -> ReviewSkill {
+        let folder = (pluginDir.trimmingCharacters(in: .whitespaces) as NSString).expandingTildeInPath
+        let inFolder = !folder.isEmpty && FileManager.default.fileExists(atPath: "\(folder)/\(plugin)/skills/\(reviewTeammateTask)/SKILL.md")
         let files = ["\(repoRoot)/.claude/settings.local.json", "\(repoRoot)/.claude/settings.json", "\(home)/settings.json"]
         guard let enabled = files.lazy.compactMap(enabledEntry(in:)).first, enabled.on else {
-            return ReviewSkill(state: .notEnabled, adopted: adopted)
+            return ReviewSkill(state: .notEnabled, adopted: adopted, groupReview: inFolder)
         }
         guard let install = install(of: enabled.name, repoRoot: repoRoot, home: home) else {
-            return ReviewSkill(state: .notInstalled, adopted: adopted)
+            return ReviewSkill(state: .notInstalled, adopted: adopted, groupReview: inFolder)
         }
-        let missing = ReviewSkill(state: .ready, adopted: adopted).skills
-            .filter { !FileManager.default.fileExists(atPath: "\(install.path)/skills/\($0)/SKILL.md") }
-        return ReviewSkill(state: missing.isEmpty ? .ready : .noSkill, version: install.version, adopted: adopted, missing: missing)
+        let has = { (skill: String) in FileManager.default.fileExists(atPath: "\(install.path)/skills/\(skill)/SKILL.md") }
+        let missing = ReviewSkill(state: .ready, adopted: adopted).skills.filter { !has($0) }
+        return ReviewSkill(
+            state: missing.isEmpty ? .ready : .noSkill, version: install.version, adopted: adopted, missing: missing,
+            groupReview: folder.isEmpty ? has(reviewTeammateTask) : inFolder
+        )
     }
 
     /// `fhenix-workflow@<marketplace>` and whether this file turns it on, or nil when the file does not name it.
