@@ -706,7 +706,7 @@ private struct TaskDetails: View {
                                         HStack(spacing: 12) {
                                             Text(pr.taskRef).scaled(.code).lineLimit(1)
                                             Spacer(minLength: 8)
-                                            Text(RowState.of(pr).title).scaled(.secondary).foregroundStyle(Theme.quiet).lineLimit(1)
+                                            StatePill(state: RowState.of(pr))
                                         }
                                         .frame(maxHeight: .infinity)
                                         .contentShape(Rectangle())
