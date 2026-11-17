@@ -733,9 +733,13 @@ private struct TaskDetails: View {
                         }
                     }
                     if !task.dependsOn.isEmpty {
-                        VStack(alignment: .leading, spacing: 6) {
-                            SectionLabel("Depends on")
-                            ForEach(task.dependsOn, id: \.self) { Text(TaskHeader.dependency($0)).scaled(.code).help($0) }
+                        // Ruled, as the lists either side of it are.
+                        RuledList(title: "Depends on", count: task.dependsOn.count) {
+                            ForEach(task.dependsOn, id: \.self) { dependency in
+                                RuledRow {
+                                    Text(TaskHeader.dependency(dependency)).scaled(.code).lineLimit(1).truncationMode(.middle).help(dependency)
+                                }
+                            }
                         }
                     }
                     if let worker = task.worker {
