@@ -7,7 +7,7 @@ import SwiftUI
 /// Draws a PR's page, or its review diff at its first open thread, off screen into a PNG, with live data, as the app
 /// shows it: `FhenixDesk --snapshot <pr url> <out.png> [page|files|diff] [height] [dark|light|system] [running]`.
 /// `--snapshot window <tab> <out.png> [height] [dark|light|system]` draws the whole Desk window on one of its screens
-/// instead, and with `steps=` presses keys in it first; `--snapshot popover <prefix>` clicks the menu bar item. For
+/// instead, and with `steps=` presses keys and moves the pointer in it first; `--snapshot popover <prefix>` clicks the menu bar item. For
 /// checking a view, and its keys, without driving the window. Debug builds only.
 @MainActor
 enum Snapshot {
@@ -77,7 +77,7 @@ enum Snapshot {
         let screen = arguments.first ?? ""
         let screens = ["settings", "setup", "master", "menubar"]
         guard arguments.count >= 2, screens.contains(screen) || DeskWindow.Tab(rawValue: screen) != nil else {
-            print("usage: --snapshot window <upNext|pullRequests|reviews|tickets|master|settings|setup|menubar> <out.png> [height] [dark|light|system] [accent=<hex>] [open=<pr url>] [pane=<pane>] [step=<step>] [update=<current>,<latest>] [ghError=<text>] [asks=1] [steps=key:j;shot:<png>;report;wait:1]")
+            print("usage: --snapshot window <upNext|pullRequests|reviews|tickets|master|settings|setup|menubar> <out.png> [height] [dark|light|system] [accent=<hex>] [open=<pr url>] [pane=<pane>] [step=<step>] [update=<current>,<latest>] [ghError=<text>] [asks=1] [steps=key:j;move:700,338;shot:<png>;report;wait:1]")
             return
         }
         func value(_ name: String) -> String? { arguments.first { $0.hasPrefix("\(name)=") }.map { String($0.dropFirst(name.count + 1)) } }
@@ -105,8 +105,8 @@ enum Snapshot {
         if value("asks") != nil {
             model.state.asks = [MasterAsk(id: "sample", task: "PRO-650", text: "The signer options doc is written. Share it with Roee on the ticket, or keep it a draft?", askedAt: Date().addingTimeInterval(-720))]
         }
-        // `steps=key:j;key:x;shot:<png>;report;wait:1`: keys, captures and the model's state, run against the window before
-        // the last capture.
+        // `steps=key:j;key:x;move:700,338;shot:<png>;report;wait:1`: keys, pointer moves, captures and the model's state,
+        // run against the window before the last capture.
         let steps = value("steps").map { $0.split(separator: ";").map(String.init) } ?? []
         let report = {
             "report: finder=\(model.showingFinder) master=\(model.showingMaster) settings=\(model.showingSettings) "
@@ -224,8 +224,7 @@ enum Snapshot {
         write(await grab(window, host: host, titled: titled), out)
     }
 
-    /// One harness step against the window: a key press, a wait, a capture, or the model's state printed. No pointer: SwiftUI
-    /// reads hover from the real cursor, which a posted event doesn't move.
+    /// One harness step against the window: a key press, a pointer move, a wait, a capture, or the model's state printed.
     private static func perform(_ step: String, in window: OffscreenWindow, host: NSView, titled: Bool, report: (() -> String)?) async {
         let parts = step.split(separator: ":", maxSplits: 1).map(String.init)
         let argument = parts.count > 1 ? parts[1] : ""
@@ -253,10 +252,54 @@ enum Snapshot {
             write(layerImage(of: titled ? window.contentView?.superview ?? host : host), argument)
         case "report":
             print(report?() ?? "report: none")
+        case "move":
+            let xy = argument.split(separator: ",").compactMap { Double($0) }
+            guard xy.count == 2 else { return print("move takes x,y") }
+            print("pointer to \(argument): \(hover(window, at: NSPoint(x: xy[0], y: window.frame.height - xy[1])))")
         default:
             print("unknown step \(step)")
         }
         try? await Task.sleep(for: .milliseconds(700))
+    }
+
+    /// `move:x,y`, from the window's top left. The window server raises hover from the tracking areas the pointer crosses,
+    /// which an app can't move the pointer over for its own window: each area under the point that the pointer wasn't in
+    /// gets the entry AppKit would send, naming the area as AppKit's do, each one it was in and left gets the exit, and
+    /// every area under it the move. SwiftUI's pointer bridge is among them: its area is the view's visible rect, and it
+    /// isn't a responder. Returns the owners reached.
+    private static func hover(_ window: OffscreenWindow, at point: NSPoint) -> String {
+        guard let content = window.contentView else { return "no content" }
+        var under: [(area: NSTrackingArea, view: NSView)] = []
+        var view = content.hitTest(content.superview?.convert(point, from: nil) ?? point)
+        while let current = view {
+            let local = current.convert(point, from: nil)
+            under += current.trackingAreas
+                .filter { ($0.options.contains(.inVisibleRect) ? current.visibleRect : $0.rect).contains(local) }
+                .map { ($0, current) }
+            view = current.superview
+        }
+        let time = ProcessInfo.processInfo.systemUptime
+        func send(_ selector: Selector, _ type: NSEvent.EventType, to area: NSTrackingArea) {
+            guard let owner = area.owner as? NSObject, owner.responds(to: selector) else { return }
+            let event = type == .mouseMoved
+                ? NSEvent.mouseEvent(
+                    with: type, location: point, modifierFlags: [], timestamp: time, windowNumber: window.windowNumber,
+                    context: nil, eventNumber: 0, clickCount: 0, pressure: 0)
+                : NSEvent.enterExitEvent(
+                    with: type, location: point, modifierFlags: [], timestamp: time, windowNumber: window.windowNumber,
+                    context: nil, eventNumber: 0, trackingNumber: unsafeBitCast(area, to: Int.self), userData: nil)
+            event.map { _ = owner.perform(selector, with: $0) }
+        }
+        let now = under.map(\.area)
+        for area in window.entered where !now.contains(where: { $0 === area }) && area.options.contains(.mouseEnteredAndExited) {
+            send(#selector(NSResponder.mouseExited(with:)), .mouseExited, to: area)
+        }
+        for area in now where !window.entered.contains(where: { $0 === area }) && area.options.contains(.mouseEnteredAndExited) {
+            send(#selector(NSResponder.mouseEntered(with:)), .mouseEntered, to: area)
+        }
+        for area in now where area.options.contains(.mouseMoved) { send(#selector(NSResponder.mouseMoved(with:)), .mouseMoved, to: area) }
+        window.entered = now
+        return under.map { String(describing: type(of: $0.view)).components(separatedBy: "<")[0] }.joined(separator: ", ")
     }
 
     private static func write(_ image: CGImage?, _ out: String) {
@@ -331,6 +374,9 @@ private final class OffscreenWindow: NSWindow {
     /// window, and an accessory process isn't allowed to activate over the user's apps.
     var actsKey = false
     override var isKeyWindow: Bool { actsKey || super.isKeyWindow }
+    /// The tracking areas a `move` step put the pointer in.
+    var entered: [NSTrackingArea] = []
     override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect { frameRect }
 }
+
 #endif
