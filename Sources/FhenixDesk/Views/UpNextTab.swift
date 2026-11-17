@@ -25,7 +25,7 @@ struct UpNextTab: View {
             HStack(spacing: 0) {
                 list(sections, rows: rows)
                 if let item = sections.flatMap(\.items).first(where: { $0.id == selection }) {
-                    UpNextDetails(item: item, model: model, open: open) { selection = Self.step(rows, from: selection, by: 1) }
+                    UpNextDetails(item: item, model: model, open: open)
                         .id(item.id)
                 }
             }
@@ -359,8 +359,6 @@ private struct UpNextDetails: View {
     var item: UpNextItem
     var model: AppModel
     var open: (String) -> Void
-    /// Leaves a question for later: the next row is selected.
-    var later: () -> Void
 
     var body: some View {
         DetailColumn(width: 360) {
@@ -380,12 +378,9 @@ private struct UpNextDetails: View {
         if let task { taskParts(task) }
         if let error = model.terminalError ?? model.masterError { failure(error) }
         Spacer(minLength: 0)
-        HStack(spacing: 8) {
-            Button { model.openMaster() } label: { HStack(spacing: 8) { Text("Answer in iTerm"); ButtonKey(key: "↩") } }
-                .buttonStyle(.desk(.primary, .large, wide: true))
-                .help("Shows the master's pane in iTerm, where you answer")
-            Button("Later", action: later).buttonStyle(.desk(.secondary, .large)).help("Leave it open and go to the next row")
-        }
+        Button { model.openMaster() } label: { HStack(spacing: 8) { Text("Answer in iTerm"); ButtonKey(key: "↩") } }
+            .buttonStyle(.desk(.primary, .large, wide: true))
+            .help("Shows the master's pane in iTerm, where you answer")
     }
 
     /// The task's PRs, each with where it stands, and what it sits on that is not its own.

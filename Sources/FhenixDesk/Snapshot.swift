@@ -117,8 +117,9 @@ enum Snapshot {
             model.update = AppUpdate.Available(current: String(versions[0]), latest: String(versions[1]))
         }
         let size = NSSize(width: value("width").flatMap(Double.init).map { CGFloat($0) } ?? 1440, height: height)
-        // Drawn off screen, the split view's sidebar column comes out blank: snapshots lay the sidebar beside the screen.
-        DeskWindow.flat = true
+        // Drawn off screen, the split view's sidebar column comes out blank: snapshots lay the sidebar beside the screen,
+        // unless `split` asks for the real split view, for how it moves.
+        DeskWindow.flat = !arguments.contains("split")
         if screen == "menubar" {
             let popover = SettingsMenuBarPopover().environment(model).frame(maxHeight: .infinity, alignment: .top).background(Theme.panel)
             await capture(popover, size: NSSize(width: 380, height: height), to: arguments[1])
@@ -247,6 +248,25 @@ enum Snapshot {
             print("key \(argument)")
         case "wait":
             try? await Task.sleep(for: .seconds(Double(argument) ?? 1))
+        case "layout":
+            // With `split`: the split view's height against the window's — taller pushes the screen up under the window's
+            // top — and each scroll view's frame and offset, in the window.
+            func walk(_ view: NSView) {
+                if let split = view as? NSSplitView {
+                    print("split view \(Int(split.frame.height)) tall in a \(Int(window.contentLayoutRect.height + window.contentView!.safeAreaInsets.top)) pt window")
+                } else if let scroll = view as? NSScrollView {
+                    print("scroll view \(scroll.convert(scroll.bounds, to: nil).integral), scrolled to \(scroll.contentView.bounds.origin.y)")
+                }
+                view.subviews.forEach(walk)
+            }
+            window.contentView.map(walk)
+        case "frames":
+            // `frames:<prefix>:<n>`: n captures 50 ms apart, for what moves in between.
+            let bits = argument.split(separator: ":").map(String.init)
+            for index in 0..<(bits.count > 1 ? Int(bits[1]) ?? 10 : 10) {
+                write(layerImage(of: titled ? window.contentView?.superview ?? host : host), "\(bits[0])-\(index).png")
+                try? await Task.sleep(for: .milliseconds(50))
+            }
         case "shot":
             // Always the layer tree, so a run's captures compare with each other wherever the window is.
             write(layerImage(of: titled ? window.contentView?.superview ?? host : host), argument)

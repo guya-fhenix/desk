@@ -84,7 +84,10 @@ struct DeskWindow: View {
             else if model.showingMaster { MasterScreen() }
             else { screen }
         }
-        .frame(minWidth: 640, maxWidth: .infinity, maxHeight: .infinity)
+        // No minimum height: the split view sizes itself to its columns' minimum, worked out at their narrowest, where a
+        // page's title squeezed by its buttons wraps a word to a line. That came out taller than the window, and the page
+        // drifted up under its top edge. Each screen fills the height it gets and scrolls within it.
+        .frame(minWidth: 640, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
         .background(Theme.ground.ignoresSafeArea())
     }
 
