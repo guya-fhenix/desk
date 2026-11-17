@@ -15,6 +15,9 @@ struct TaskPageFrame<Crumb: View, Title: View, Actions: View, Main: View, Detail
     /// The screen it opened over, the breadcrumb's first word.
     var back: String
     var onBack: () -> Void
+    /// False where the main column scrolls itself, as a diff does: its lazy stack of thousands of rows is then its scroll
+    /// view's own content, as the review's diff has it, rather than inside the page's stack.
+    var mainScrolls = true
     /// After "Tasks /": what the page is.
     @ViewBuilder var crumb: Crumb
     @ViewBuilder var title: Title
@@ -43,12 +46,18 @@ struct TaskPageFrame<Crumb: View, Title: View, Actions: View, Main: View, Detail
                 }
                 .padding(EdgeInsets(top: 14, leading: 24, bottom: 14, trailing: 24))
                 .overlay(alignment: .bottom) { Rectangle().fill(Theme.rule).frame(height: 1) }
-                ScrollView {
+                if mainScrolls {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 24) { main }
+                            .padding(EdgeInsets(top: 18, leading: 24, bottom: 20, trailing: 24))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .deskScrollBar()
+                } else {
                     VStack(alignment: .leading, spacing: 24) { main }
-                        .padding(EdgeInsets(top: 18, leading: 24, bottom: 20, trailing: 24))
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(EdgeInsets(top: 18, leading: 24, bottom: 0, trailing: 24))
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 }
-                .deskScrollBar()
             }
             .frame(minWidth: 380, maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             ScrollView {
@@ -144,9 +153,10 @@ struct TaskPage: View {
             if task.pullRequests.isEmpty {
                 Text("No pull request yet.").foregroundStyle(Theme.quiet)
             } else {
+                let depths = Linker.depths(task.pullRequests, parents: model.state.stackParents)
                 VStack(spacing: 0) {
                     ForEach(Array(task.pullRequests.enumerated()), id: \.element.url) { index, pr in
-                        TaskPullRequestRow(pr: pr, model: model) { open(.pr(pr.url)) }
+                        TaskPullRequestRow(pr: pr, depth: depths[pr.url] ?? 0, model: model) { open(.pr(pr.url)) }
                             .overlay(alignment: .top) { if index > 0 { Rectangle().fill(Theme.ruleSoft).frame(height: 1) } }
                     }
                 }
@@ -255,6 +265,8 @@ struct TaskPage: View {
 /// press opens its page.
 private struct TaskPullRequestRow: View {
     var pr: PullRequest
+    /// Under the task's PRs it is built on.
+    var depth = 0
     var model: AppModel
     var open: () -> Void
 
@@ -263,7 +275,7 @@ private struct TaskPullRequestRow: View {
         Button(action: open) {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 12) {
-                    Text(pr.taskRef).scaled(.code).lineLimit(1).frame(width: 124, alignment: .leading)
+                    StackRef(pr: pr, depth: depth, name: pr.taskRef).scaled(.code).frame(width: 124, alignment: .leading)
                     Text(pr.title).scaled(.rowTitle).lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
                     Text(verbatim: "+\(pr.additions) −\(pr.deletions)").scaled(.code).foregroundStyle(Theme.quiet)
                         .frame(width: 84, alignment: .leading)

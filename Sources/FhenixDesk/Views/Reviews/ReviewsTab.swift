@@ -121,9 +121,11 @@ struct ReviewsTab: View {
                                     .plainListRow(background: Theme.ground)
                                     .selectionDisabled()
                             }
+                            let depths = Linker.depths(group.pullRequests, parents: model.state.stackParents)
                             ForEach(group.pullRequests, id: \.url) { pr in
                                 ReviewQueueRow(
-                                    pr: pr, model: model, onMe: onMe.contains(pr.url), picked: $picked, picking: picking, on: on,
+                                    pr: pr, depth: depths[pr.url] ?? 0, model: model, onMe: onMe.contains(pr.url), picked: $picked,
+                                    picking: picking, on: on,
                                     // Inside a group, the row the keys are on; one PR alone is its group's tint.
                                     current: on && group.pullRequests.count > 1 && selection == pr.url,
                                     part: !headed ? .whole : pr.url == group.pullRequests.last?.url ? .bottom : .middle
@@ -373,6 +375,8 @@ private struct ReviewGroupHeader: View {
 /// can be laid out after it has left the table and taken the environment with it.
 private struct ReviewQueueRow: View {
     var pr: PullRequest
+    /// Under the PRs of its group it is built on.
+    var depth = 0
     var model: AppModel
     var onMe: Bool
     @Binding var picked: Set<String>
@@ -394,7 +398,7 @@ private struct ReviewQueueRow: View {
                 .frame(width: 20)
                 .help("Pick it to review with others (X)")
             }
-            Text(verbatim: "\(pr.repoName) #\(pr.number)").scaled(.code).lineLimit(1).truncationMode(.head)
+            StackRef(pr: pr, depth: depth, name: "\(pr.repoName) #\(pr.number)").scaled(.code).truncationMode(.head)
                 .frame(width: 150, alignment: .leading)
             HStack(spacing: 6) {
                 // Plain text, so a click on it selects the row; Return or a double-click opens its page.

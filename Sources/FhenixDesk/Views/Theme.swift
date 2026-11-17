@@ -912,6 +912,27 @@ private struct SyncDetail: View {
                     }
                 }
             }
+            // Only when one is missing: the accounts Desk reads with, each with the way to sign in.
+            let missing = [
+                (model.state.login.isEmpty, "GitHub", SettingsPane.github),
+                (model.jiraAccount == nil, "Jira", SettingsPane.jira),
+                (model.config.resolvedClaudePath == nil, "Claude Code", SettingsPane.master),
+            ].filter(\.0)
+            if !missing.isEmpty {
+                heading("Not signed in")
+                ForEach(missing, id: \.1) { _, name, pane in
+                    HStack(spacing: Theme.Space.s) {
+                        StatusDot(color: .orange)
+                        Text(name)
+                        Spacer(minLength: Theme.Space.s)
+                        Button("Sign in…") {
+                            model.openSettings(pane)
+                            dismiss()
+                        }
+                        .controlSize(.small)
+                    }
+                }
+            }
             if !model.state.claudeLimits.isEmpty || running > 0 {
                 heading("Claude")
                 ForEach(model.state.claudeLimits) { limit in

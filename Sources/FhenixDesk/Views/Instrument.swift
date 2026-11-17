@@ -1,3 +1,4 @@
+import DeskCore
 import SwiftUI
 
 // Instrument's building blocks, as the redesign's boards draw them: the uppercase section label, the two buttons, the
@@ -90,6 +91,32 @@ struct DetailColumn<Content: View>: View {
             .frame(maxHeight: .infinity, alignment: .topLeading)
             .background(Theme.surface)
             .overlay(alignment: .leading) { Rectangle().fill(Theme.rule).frame(width: 1) }
+    }
+}
+
+/// A PR's name in a list, as its stack reads: a PR built on another shown above it sits a step in per level, with a turn
+/// and its number alone, its repo being its parent's. A root, or a PR alone, has its whole name.
+struct StackRef: View {
+    var pr: PullRequest
+    /// How many of the PRs it is built on show above it (`Linker.depths`).
+    var depth: Int
+    /// The name a root shows: `cofhe-contracts #175`, `cofhe #1154`.
+    var name: String
+
+    var body: some View {
+        HStack(spacing: 4) {
+            if depth > 0 {
+                Image(systemName: "arrow.turn.down.right")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(Theme.quiet)
+                    .padding(.leading, CGFloat(depth - 1) * 14)
+                    .accessibilityLabel("stacked on the one above")
+                Text(verbatim: "#\(pr.number)")
+            } else {
+                Text(verbatim: name)
+            }
+        }
+        .lineLimit(1)
     }
 }
 

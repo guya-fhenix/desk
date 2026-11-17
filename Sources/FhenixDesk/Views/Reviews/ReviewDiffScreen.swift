@@ -153,8 +153,9 @@ struct ReviewDiffScreen: View {
         return VStack(alignment: .leading, spacing: 0) {
             SectionLabel("Parts", count: parts.count).padding(EdgeInsets(top: 0, leading: 8, bottom: 8, trailing: 8))
             ScrollView {
+                let depths = Linker.depths(parts, parents: model.state.stackParents)
                 VStack(spacing: 2) {
-                    ForEach(parts, id: \.url) { part in partRow(part, showsRepo: repos > 1) }
+                    ForEach(parts, id: \.url) { part in partRow(part, depth: depths[part.url] ?? 0, showsRepo: repos > 1) }
                 }
             }
             Text("On GitHub you pick Approve, Request changes or Comment for each pull request, and submit.")
@@ -167,7 +168,7 @@ struct ReviewDiffScreen: View {
         .overlay(alignment: .trailing) { Rectangle().fill(Theme.rule).frame(width: 1) }
     }
 
-    private func partRow(_ part: PullRequest, showsRepo: Bool) -> some View {
+    private func partRow(_ part: PullRequest, depth: Int, showsRepo: Bool) -> some View {
         let current = part.url == pr.url
         let drafted = part.pendingReview?.comments ?? 0
         let threads = part.unresolvedThreads
@@ -179,7 +180,8 @@ struct ReviewDiffScreen: View {
         return Button { if !current { model.showInReview(part) } } label: {
             VStack(alignment: .leading, spacing: 3) {
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Text(verbatim: "#\(part.number)").scaled(.code).foregroundStyle(Theme.quiet).frame(width: 38, alignment: .leading)
+                    StackRef(pr: part, depth: depth, name: "#\(part.number)").scaled(.code).foregroundStyle(Theme.quiet)
+                        .frame(minWidth: 38, alignment: .leading)
                     Text(part.title).fontWeight(current ? .semibold : .regular)
                         .multilineTextAlignment(.leading).fixedSize(horizontal: false, vertical: true)
                 }
@@ -650,7 +652,9 @@ struct DiffLineRow: View {
         let type = DiffType(scale: scale)
         HStack(alignment: .top, spacing: 0) {
             Text((line.newLine ?? line.oldLine).map(String.init) ?? "").frame(width: type.gutter, alignment: .trailing).foregroundStyle(Theme.quiet)
-            Text(line.marker + line.text).padding(.leading, 12)
+            // Six lines at most: a minified file's or a lockfile's line wrapped whole stands hundreds of points tall among
+            // rows of one, and is laid out again on every pass of the lazy stack. The whole line is on GitHub.
+            Text(line.marker + line.text).lineLimit(6).padding(.leading, 12)
         }
         .font(type.mono)
         // The boards' 1.75 line height.

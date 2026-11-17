@@ -1,7 +1,6 @@
 #if DEBUG
 import AppKit
 import DeskCore
-import ScreenCaptureKit
 import SwiftUI
 
 /// Draws a PR's page, or its review diff at its first open thread, off screen into a PNG, with live data, as the app
@@ -66,7 +65,8 @@ enum Snapshot {
         } else {
             view = AnyView(ReviewPage(pr: pr, model: model, onMe: false) {})
         }
-        await capture(view, size: NSSize(width: 1440, height: height), to: out)
+        let steps = arguments.first { $0.hasPrefix("steps=") }.map { $0.dropFirst(6).split(separator: ";").map(String.init) } ?? []
+        await capture(view, size: NSSize(width: 1440, height: height), to: out, steps: steps)
     }
 
     /// The whole window, sidebar and screen, on a tab, Settings or Setup, once every source has answered. `open=<pr url>`
@@ -94,6 +94,8 @@ enum Snapshot {
             try? await Task.sleep(for: .milliseconds(500))
         }
         if let open = arguments.first(where: { $0.hasPrefix("open=") }) { model.selectPullRequest = String(open.dropFirst(5)) }
+        // `tab=files`: a PR's page opens on Files changed.
+        if value("tab") == "files" { PullRequestPage.openingTab = .files }
         if let pane = value("pane").flatMap(SettingsPane.init(rawValue:)) { model.settings.pane = pane }
         // `finder=<query>`: Search (⌘K) open over the screen with that query.
         if let query = value("finder") {
@@ -222,7 +224,7 @@ enum Snapshot {
             try? await Task.sleep(for: .milliseconds(500))
         }
         for step in steps { await perform(step, in: window, host: host, titled: titled, report: report) }
-        write(await grab(window, host: host, titled: titled), out)
+        write(grab(window, host: host, titled: titled), out)
     }
 
     /// One harness step against the window: a key press, a pointer move, a wait, a capture, or the model's state printed.
@@ -260,6 +262,54 @@ enum Snapshot {
                 view.subviews.forEach(walk)
             }
             window.contentView.map(walk)
+        case "scroll":
+            // `scroll:<points>`: the tallest scroll view moved down that far, and how long the window takes to lay out and
+            // draw it, as a scroll wheel's step makes it.
+            func scrolls(_ view: NSView) -> [NSScrollView] { (view as? NSScrollView).map { [$0] } ?? view.subviews.flatMap(scrolls) }
+            guard let content = window.contentView,
+                  let scroll = scrolls(content).max(by: { ($0.documentView?.frame.height ?? 0) < ($1.documentView?.frame.height ?? 0) })
+            else { return print("no scroll view") }
+            let clip = scroll.contentView
+            let start = ContinuousClock.now
+            clip.scroll(to: NSPoint(x: clip.bounds.origin.x, y: clip.bounds.origin.y + CGFloat(Double(argument) ?? 600)))
+            scroll.reflectScrolledClipView(clip)
+            window.layoutIfNeeded()
+            window.displayIfNeeded()
+            let took = ContinuousClock.now - start
+            print("scrolled to \(Int(clip.bounds.origin.y)) of \(Int(scroll.documentView?.frame.height ?? 0)) in \(took.components.seconds * 1000 + took.components.attoseconds / 1_000_000_000_000_000) ms")
+        case "wheel":
+            // `wheel:<points>:<events>`: a trackpad's swipe on the tallest scroll view, as its events come: a gesture that
+            // begins, moves that many points each event, ends, and its momentum dies away; each frame laid out and drawn.
+            // Reports the slowest event and where the scroll got to.
+            let bits = argument.split(separator: ":").compactMap { Int($0) }
+            let (delta, count) = (bits.first ?? 40, bits.count > 1 ? bits[1] : 30)
+            func scrolls(_ view: NSView) -> [NSScrollView] { (view as? NSScrollView).map { [$0] } ?? view.subviews.flatMap(scrolls) }
+            guard let content = window.contentView,
+                  let scroll = scrolls(content).max(by: { ($0.documentView?.frame.height ?? 0) < ($1.documentView?.frame.height ?? 0) })
+            else { return print("no scroll view") }
+            var slowest = Duration.zero
+            let start = ContinuousClock.now
+            for index in 0..<(count + 10) {
+                let momentum = index >= count
+                guard let wheel = CGEvent(
+                    scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 1,
+                    wheel1: Int32(momentum ? -delta * (count + 10 - index) / 10 : -delta), wheel2: 0, wheel3: 0
+                ) else { continue }
+                wheel.setIntegerValueField(.scrollWheelEventIsContinuous, value: 1)
+                // Phases: 1 began, 2 changed, 4 ended; momentum: 1 begin, 2 continue, 3 end.
+                wheel.setIntegerValueField(.scrollWheelEventScrollPhase, value: momentum ? 0 : index == 0 ? 1 : index == count - 1 ? 4 : 2)
+                wheel.setIntegerValueField(.scrollWheelEventMomentumPhase, value: !momentum ? 0 : index == count ? 1 : index == count + 9 ? 3 : 2)
+                wheel.location = window.convertPoint(toScreen: NSPoint(x: scroll.frame.midX, y: scroll.frame.midY))
+                guard let event = NSEvent(cgEvent: wheel) else { continue }
+                let step = ContinuousClock.now
+                scroll.scrollWheel(with: event)
+                window.layoutIfNeeded()
+                window.displayIfNeeded()
+                slowest = max(slowest, ContinuousClock.now - step)
+                try? await Task.sleep(for: .milliseconds(16))
+            }
+            let ms = { (d: Duration) in d.components.seconds * 1000 + d.components.attoseconds / 1_000_000_000_000_000 }
+            print("wheeled to \(Int(scroll.contentView.bounds.origin.y)) of \(Int(scroll.documentView?.frame.height ?? 0)): slowest event \(ms(slowest)) ms, all \(ms(ContinuousClock.now - start)) ms")
         case "frames":
             // `frames:<prefix>:<n>`: n captures 50 ms apart, for what moves in between.
             let bits = argument.split(separator: ":").map(String.init)
@@ -331,29 +381,18 @@ enum Snapshot {
         print("wrote \(out)")
     }
 
-    /// The window as it shows now: composited by the window server where it can be, else its layer tree drawn.
-    private static func grab(_ window: NSWindow, host: NSView, titled: Bool) async -> CGImage? {
-        var image: CGImage?
-        // With the screen locked a capture fails now and then, so it is tried a few times.
-        for _ in 0..<(titled ? 10 : 0) where image == nil {
-            image = try? await composited(window)
-            if image == nil { try? await Task.sleep(for: .seconds(1)) }
-        }
-        if image == nil {
-            // The window's frame, so its buttons and toolbar come out too.
-            let view = titled ? window.contentView?.superview ?? host : host
-            if titled {
-                print("can't capture the window (is the screen locked?): drawing its views, without the system's materials or forms")
-            }
-            // The layer tree, which holds what SwiftUI draws into layers — a scroll view's content, the sidebar — that
-            // `cacheDisplay` leaves blank; `cacheDisplay` where a view has no layer.
-            image = layerImage(of: view) ?? {
-                let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds)
-                rep.map { view.cacheDisplay(in: view.bounds, to: $0) }
-                return rep?.cgImage
-            }()
-        }
-        return image
+    /// Drawn in this process, never captured from the screen: a capture asks the user for Screen Recording, and asks again
+    /// after every build, whose signature is new.
+    private static func grab(_ window: NSWindow, host: NSView, titled: Bool) -> CGImage? {
+        // The window's frame, so its buttons and toolbar come out too.
+        let view = titled ? window.contentView?.superview ?? host : host
+        // The layer tree, which holds what SwiftUI draws into layers — a scroll view's content, the sidebar — that
+        // `cacheDisplay` leaves blank; `cacheDisplay` where a view has no layer. The system's materials don't come out.
+        return layerImage(of: view) ?? {
+            let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds)
+            rep.map { view.cacheDisplay(in: view.bounds, to: $0) }
+            return rep?.cgImage
+        }()
     }
 
     /// The view's layer tree drawn into a bitmap at the screen's scale, upright.
@@ -373,18 +412,6 @@ enum Snapshot {
         }
         layer.render(in: context)
         return context.makeImage()
-    }
-
-    /// The window as the window server composites it, from wherever it is.
-    private static func composited(_ window: NSWindow) async throws -> CGImage? {
-        let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
-        guard let shared = content.windows.first(where: { $0.windowID == CGWindowID(window.windowNumber) }) else { return nil }
-        let filter = SCContentFilter(desktopIndependentWindow: shared)
-        let config = SCStreamConfiguration()
-        config.width = Int(filter.contentRect.width * CGFloat(filter.pointPixelScale))
-        config.height = Int(filter.contentRect.height * CGFloat(filter.pointPixelScale))
-        config.showsCursor = false
-        return try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config)
     }
 }
 

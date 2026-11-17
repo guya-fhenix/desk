@@ -300,7 +300,8 @@ private struct UpNextRow: View {
             default: state.move == .draft ? .dot(Theme.accentInk) : .dot(Theme.danger)
             }
             let chip = state.move == .draft ? "Draft" : section == .yourMove ? "Your move" : section == .readyToMerge ? "Ready" : "Waiting"
-            row(mark, title: pr.title, line: "\(Self.name(pr)) · \(state.title)", chip: chip, date: pr.updatedAt)
+            let on = model.state.stackParent(of: pr).map { " · on #\($0.number)" } ?? ""
+            row(mark, title: pr.title, line: "\(Self.name(pr))\(on) · \(state.title)", chip: chip, date: pr.updatedAt)
         }
     }
 

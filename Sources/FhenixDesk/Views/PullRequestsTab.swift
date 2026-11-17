@@ -416,8 +416,7 @@ private struct TaskRow: View {
 
 /// One open PR of yours, as a task row reads: its key, its title over its branches, size, open threads and ticket, and
 /// on the right the one pill for what it waits on, its session's marks, and when it last moved. A stack reads top-down:
-/// each PR stacked on another sits under it with an arrow, and a root notes a parent that is not in the list, or a base
-/// branch that has no open PR at all.
+/// each PR stacked on another sits under it a step in, with a turn, and a root notes a parent that is not in the list.
 struct PullRequestRow: View {
     var row: StackedPullRequest
     var model: AppModel
@@ -430,11 +429,11 @@ struct PullRequestRow: View {
         let pr = row.pullRequest
         ListRow(selected: selected, open: open, indent: indent) {
             HStack(alignment: .top, spacing: 10) {
-                Image(systemName: row.depth > 0 ? "arrow.turn.down.right" : "arrow.triangle.pull")
+                Image(systemName: "arrow.triangle.pull")
                     .font(.system(size: 12)).foregroundStyle(Theme.quiet)
                     .frame(width: 18, height: 20)
-                    .padding(.leading, CGFloat(max(row.depth - 1, 0)) * 16)
-                Text(pr.taskRef).scaled(.code).foregroundStyle(Theme.quiet).lineLimit(1)
+                    .opacity(row.depth > 0 ? 0 : 1)
+                StackRef(pr: pr, depth: row.depth, name: pr.taskRef).scaled(.code).foregroundStyle(Theme.quiet)
                     .frame(width: 160, height: 20, alignment: .leading)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(pr.title).scaled(.rowTitle.weight(selected ? .semibold : .medium)).lineLimit(1)
@@ -762,7 +761,11 @@ struct PullRequestPage: View {
     /// The screen it was opened from, which its breadcrumb names and returns to.
     var back = "Tasks"
     /// The main column's tab it opens on.
-    var tab: PullRequestTab = .conversation
+    var tab: PullRequestTab = Self.openingTab
+    /// Conversation; snapshots set Files changed with `tab=files`.
+    nonisolated(unsafe) static var openingTab = PullRequestTab.conversation
+    /// The tab picked since it opened.
+    @State private var picked: PullRequestTab?
     var onBack: () -> Void
     @Environment(\.taskOpenRoute) private var openRoute
 
@@ -784,7 +787,8 @@ struct PullRequestPage: View {
     var body: some View {
         // An ended PR has nothing left to act on or check: its ticket and its facts.
         let task = pr.state == .open ? model.state.task(for: pr) : nil
-        TaskPageFrame(model: model, back: back, onBack: onBack) {
+        let shown = picked ?? tab
+        TaskPageFrame(model: model, back: back, onBack: onBack, mainScrolls: shown != .files) {
             Text(pr.taskRef).font(AppTextStyle.code.font(scale: 1))
         } title: {
             EditableTitle(prefix: "", title: pr.title, what: "the PR", editable: pr.state == .open, style: .taskPageTitle) {
@@ -802,7 +806,7 @@ struct PullRequestPage: View {
             if let error = model.sessionErrors[pr.url] {
                 Text(error).scaled(.secondary).foregroundStyle(Theme.danger).textSelection(.enabled)
             }
-            PullRequestMain(pr: pr, model: model, tab: tab) {
+            PullRequestMain(pr: pr, model: model, tab: Binding { shown } set: { picked = $0 }) {
                 description
                 ConversationSection(pr: pr, model: model)
             }
@@ -893,7 +897,7 @@ enum PullRequestTab: Hashable { case conversation, files }
 private struct PullRequestMain<Conversation: View>: View {
     var pr: PullRequest
     var model: AppModel
-    @State var tab: PullRequestTab
+    @Binding var tab: PullRequestTab
     @ViewBuilder var conversation: Conversation
 
     var body: some View {
@@ -926,7 +930,13 @@ private struct PullRequestFiles: View {
     var body: some View {
         Group {
             if let diff = model.diffs[pr.url] {
-                files(diff)
+                // Out to the column's edges, so the scroll bar sits in the margin, clear of the boxes.
+                ScrollView {
+                    files(diff)
+                        .padding(EdgeInsets(top: 0, leading: 24, bottom: 20, trailing: 24))
+                }
+                .deskScrollBar()
+                .padding(.horizontal, -24)
             } else if let error = model.diffErrors[pr.url] {
                 EmptyState(icon: "exclamationmark.triangle", text: "Couldn't load the changes.", detail: error,
                            actionTitle: "Retry", action: { model.loadDiff(pr, force: true) })
@@ -934,39 +944,45 @@ private struct PullRequestFiles: View {
                 ProgressView().frame(maxWidth: .infinity).padding(.vertical, 40)
             }
         }
+        .frame(maxHeight: .infinity, alignment: .top)
         .task(id: "\(pr.url) \(pr.headSha)") { model.loadDiff(pr, force: model.diffs[pr.url].map { $0.sha != pr.headSha } ?? false) }
         .task(id: "\(pr.url) \(pr.updatedAt)") { await model.loadConversation(pr) }
     }
 
-    // ponytail: each file's rows are built in full once its box scrolls in; a large file opens folded, as in a review's diff,
-    // so only one unfolded by hand gets that big. Make the rows lazy too if such a file stutters.
+    /// A box per file drawn a row at a time, every line an item of the lazy stack, as the review's diff draws it. A file's
+    /// whole box as one item laid out all its lines at once as it scrolled in: thousands, for a large file unfolded. A hang
+    /// while scrolling the tab, the window laying itself out without end, was reported with that shape.
     private func files(_ diff: LoadedDiff) -> some View {
-        LazyVStack(alignment: .leading, spacing: Theme.Space.m) {
+        LazyVStack(alignment: .leading, spacing: 0) {
             if diff.files.isEmpty { Text("No changes.").scaled(.secondary).foregroundStyle(Theme.quiet) }
             ForEach(diff.files) { file in
                 let large = diff.foldedAtFirst.contains(file.path)
                 let folded = large != flipped.contains(file.path)
-                VStack(alignment: .leading, spacing: 0) {
-                    DiffFileHeader(file: file, folded: folded, large: large) { flipped.formSymmetricDifference([file.path]) }
-                    if !folded {
-                        if file.isBinary {
-                            Text("Binary file").font(DiffType(scale: scale).mono).foregroundStyle(Theme.quiet).padding(8)
-                        }
-                        let rows = diff.rows[file.path] ?? []
-                        ForEach(rows.indices, id: \.self) { index in
-                            switch rows[index] {
-                            case .hunk(let header):
-                                DiffHunkRow(header: header)
-                            case .line(let line):
+                DiffFileHeader(file: file, folded: folded, large: large) { flipped.formSymmetricDifference([file.path]) }
+                    .reviewBox(folded ? .whole : .top, fill: Theme.surface, line: Theme.rule)
+                if !folded {
+                    if file.isBinary {
+                        Text("Binary file").font(DiffType(scale: scale).mono).foregroundStyle(Theme.quiet).padding(8)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .reviewBox(.middle, fill: Theme.surface, line: Theme.rule)
+                    }
+                    let rows = diff.rows[file.path] ?? []
+                    ForEach(rows.indices, id: \.self) { index in
+                        switch rows[index] {
+                        case .hunk(let header):
+                            DiffHunkRow(header: header).reviewBox(.middle, fill: Theme.surface, line: Theme.rule)
+                        case .line(let line):
+                            // One item with its threads, which are empty on nearly every line.
+                            VStack(alignment: .leading, spacing: 0) {
                                 DiffLineRow(line: line)
                                 DiffThreads(line: line, path: file.path, pr: pr, model: model)
                             }
+                            .reviewBox(.middle, fill: Theme.surface, line: Theme.rule)
                         }
                     }
+                    Color.clear.frame(height: 6).reviewBox(.bottom, fill: Theme.surface, line: Theme.rule)
                 }
-                .background(Theme.surface)
-                .clipShape(RoundedRectangle(cornerRadius: 8))
-                .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Theme.rule))
+                Color.clear.frame(height: Theme.Space.m)
             }
         }
     }

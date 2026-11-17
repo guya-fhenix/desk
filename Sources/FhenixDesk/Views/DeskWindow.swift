@@ -229,7 +229,8 @@ private struct NavItem: View {
     }
 }
 
-/// Under a hairline at the sidebar's foot: who you are on GitHub, which accounts are signed in, and the way to Settings.
+/// Under a hairline at the sidebar's foot: who you are on GitHub and the way to Settings. An account not signed in shows
+/// in the sync detail.
 private struct AccountFooter: View {
     @Environment(AppModel.self) private var model
     var selected: Bool
@@ -240,7 +241,6 @@ private struct AccountFooter: View {
         Button(action: action) {
             VStack(alignment: .leading, spacing: 3) {
                 Text(login.isEmpty ? "Not signed in to GitHub" : login).foregroundStyle(Theme.ink).fontWeight(.medium)
-                Text(signedIn)
                 Text("Settings ⌘,")
             }
             .scaled(.secondary)
@@ -255,11 +255,6 @@ private struct AccountFooter: View {
         .accessibilityLabel("Settings")
     }
 
-    private var signedIn: String {
-        let accounts = [(!model.state.login.isEmpty, "GitHub"), (model.jiraAccount != nil, "Jira"), (model.config.resolvedClaudePath != nil, "Claude Code")]
-        let on = accounts.filter(\.0).map(\.1)
-        return on.isEmpty ? "Nothing signed in" : "\(ListFormatter.localizedString(byJoining: on)) signed in"
-    }
 }
 
 /// A page a tab opens over its list: a PR's, by url, or a ticket's, by key. Each tab keeps a path of these, so Back,
