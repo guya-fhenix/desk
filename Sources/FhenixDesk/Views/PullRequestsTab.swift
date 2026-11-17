@@ -957,9 +957,9 @@ struct PullRequestPage: View {
                 NextStepCard(pr: pr, session: model.state.session(for: pr), model: model)
                 TaskChecks(pr: pr, model: model)
             }
-            if let task { TaskOfPullRequest(task: task, model: model) }
-            TaskJiraSection(pr: pr, model: model)
-            AboutCard(pr: pr, model: model)
+            if let task { TaskOfPullRequest(task: task, model: model).ruleAbove() }
+            TaskJiraSection(pr: pr, model: model).ruleAbove()
+            AboutCard(pr: pr, model: model).ruleAbove()
         }
     }
 }
@@ -1217,5 +1217,13 @@ private struct MoreMenu: View {
     /// Why Squash and merge is greyed: not ready to merge yet, in the words its row uses, or what GitHub would refuse it for.
     private var mergeBlocker: String? {
         FlowStage.of(pr) == .approved ? pr.mergeBlocker : RowState.of(pr).title
+    }
+}
+
+private extension View {
+    /// A hairline in the middle of the 24 pt gap above a details section, so the sections read apart.
+    func ruleAbove() -> some View {
+        frame(maxWidth: .infinity, alignment: .leading)
+            .overlay(alignment: .top) { Rectangle().fill(Theme.rule).frame(height: 1).offset(y: -12) }
     }
 }
