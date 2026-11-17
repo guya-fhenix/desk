@@ -141,7 +141,7 @@ struct TicketsTab: View {
                 }
             }
             KeyHints(
-                hints: [(["J", "K"], "move"), (["↩"], "open task"), (["⌘↩"], "open in Jira")],
+                hints: [(["J", "K"], "move"), (["↩"], "open ticket"), (["⌘↩"], "open in Jira")],
                 trailing: "Tickets are created in Jira; Desk moves one only when you press Move."
             )
         }
