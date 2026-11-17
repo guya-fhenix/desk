@@ -64,6 +64,10 @@ struct TmuxLayoutTests {
         #expect(TerminalOpener.script(app: .terminal, tmux: "/t", socket: "x").hasSuffix("exec '/t' -L 'x' attach -t desk\n"))
         #expect(TerminalOpener.openArguments(app: .iTerm, script: URL(filePath: "/s.command")) == ["-a", "iTerm", "/s.command"])
         #expect(TerminalOpener.openArguments(app: .terminal, script: nil) == ["-a", "Terminal"])
+        // iTerm2 is driven by AppleScript: a window on tmux's control mode, quotes in the path escaped.
+        #expect(TerminalOpener.iTermScript(tmux: "/opt/homebrew/bin/tmux") ==
+            "tell application \"iTerm\"\nactivate\ncreate window with default profile command \"/opt/homebrew/bin/tmux -CC attach -t desk\"\nend tell")
+        #expect(TerminalOpener.iTermScript(tmux: "/a \"b\"/tmux").contains("command \"/a \\\"b\\\"/tmux -CC attach -t desk\""))
     }
 
     /// Against real tmux, on a server of the test's own: the layout is made, panes come and go, the master goes to the

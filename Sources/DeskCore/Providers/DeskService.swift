@@ -7,6 +7,8 @@ public enum DeskError: Error, CustomStringConvertible, Sendable {
     case jiraSignedOut
     case claudeNotFound
     case tmuxNotFound
+    /// Opening the terminal app on the layout failed, and why, in a sentence.
+    case terminal(String)
     case sessionNotStarted(String)
 
     public var description: String {
@@ -17,6 +19,7 @@ public enum DeskError: Error, CustomStringConvertible, Sendable {
         case .jiraSignedOut: return "Not signed in to Jira. Run `acli jira auth login --web` in a terminal, then press Recheck in Settings → Jira."
         case .claudeNotFound: return "claude CLI not found. Install it or set the path in Settings."
         case .sessionNotStarted(let output): return "claude --bg printed no session id: \(output.prefix(200))"
+        case .terminal(let why): return why
         }
     }
 }

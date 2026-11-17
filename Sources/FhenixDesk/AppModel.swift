@@ -682,6 +682,18 @@ final class AppModel {
         await presentNow(spec, command: TmuxLayout.attachCommand(claude: claude, id: jobId))
     }
 
+    /// Runs AppleScript through `osascript`, off the main thread and with a timeout, so an iTerm that is busy (a dialog
+    /// up) can't freeze the window. macOS asks the one-time "control iTerm" consent for Fhenix Desk, which started it. A
+    /// refusal says where to give it.
+    private func runAppleScript(_ source: String) async throws {
+        let result = try await Shell.run("/usr/bin/osascript", ["-e", source], timeout: 30)
+        guard result.status != 0 else { return }
+        if result.stderr.contains("-1743") {
+            throw DeskError.terminal("Desk isn't allowed to control iTerm: allow it in System Settings → Privacy & Security → Automation → Fhenix Desk, then press again.")
+        }
+        throw DeskError.terminal("iTerm didn't open the window: \(result.stderr.trimmingCharacters(in: .whitespacesAndNewlines))")
+    }
+
     /// A command run in your terminal app, in a window of its own: Setup's installs and sign-ins.
     func runInTerminal(_ command: String, name: String) {
         Task {
@@ -713,9 +725,14 @@ final class AppModel {
             await syncTerminals()
             try? await tmux.arrange()
             _ = try await tmux.focus(spec.key)
-            let script = await tmux.clients() > 0 ? nil : try TerminalOpener.writeScript(
-                TerminalOpener.script(app: config.terminalApp, tmux: tmux.path), in: support.directory)
-            try await Shell.output("/usr/bin/open", TerminalOpener.openArguments(app: config.terminalApp, script: script))
+            let attached = await tmux.clients() > 0
+            if !attached, config.terminalApp == .iTerm {
+                try await runAppleScript(TerminalOpener.iTermScript(tmux: tmux.path))
+            } else {
+                let script = attached ? nil : try TerminalOpener.writeScript(
+                    TerminalOpener.script(app: config.terminalApp, tmux: tmux.path), in: support.directory)
+                try await Shell.output("/usr/bin/open", TerminalOpener.openArguments(app: config.terminalApp, script: script))
+            }
             terminalError = nil
         } catch {
             terminalError = "Couldn't show it in \(config.terminalApp == .iTerm ? "iTerm" : "Terminal"): \(error)"

@@ -1,10 +1,18 @@
 import Foundation
 
-/// Puts the `desk` layout in front of you: with no terminal attached to it, a small script in Desk's folder that
-/// attaches, opened in iTerm2 (`tmux -CC`, so the panes are native splits) or Terminal.app (plain `tmux attach`); with
-/// one attached, just that app brought forward. `open -a` with a script needs no Automation permission, which driving
-/// iTerm by AppleScript would.
+/// Puts the `desk` layout in front of you. With no terminal attached to it: iTerm2 opens a window on `tmux -CC attach`
+/// by AppleScript, so the panes are native splits — macOS asks once to let Desk control iTerm, and iTerm2 asks before it
+/// runs a script opened from outside, every time, which is why it isn't handed one; Terminal.app opens a small script in
+/// Desk's folder (plain `tmux attach`), which it runs without asking. With one attached, the app is brought forward.
 public enum TerminalOpener {
+    /// The AppleScript that opens an iTerm2 window attached to the layout in control mode.
+    public static func iTermScript(tmux: String, socket: String? = nil) -> String {
+        let server = socket.map { " -L \($0)" } ?? ""
+        let command = "\(tmux)\(server) -CC attach -t \(TmuxLayout.session)"
+            .replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
+        return "tell application \"iTerm\"\nactivate\ncreate window with default profile command \"\(command)\"\nend tell"
+    }
+
     public static let bundleIds: [DeskConfig.TerminalApp: String] = [.iTerm: "com.googlecode.iterm2", .terminal: "com.apple.Terminal"]
     public static let appNames: [DeskConfig.TerminalApp: String] = [.iTerm: "iTerm", .terminal: "Terminal"]
 
