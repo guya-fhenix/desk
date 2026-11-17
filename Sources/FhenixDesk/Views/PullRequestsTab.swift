@@ -327,6 +327,18 @@ enum TaskHeader {
         }
     }
 
+    /// The chip's colour, as the rows' facts colour a move: red for yours to fix, green for yours to merge, the accent
+    /// while a worker or reviewers have it; grey for a draft, a merged one, or nothing to show yet.
+    static func chipTone(_ task: WorkTask, asked: Set<String>) -> Color? {
+        if task.waitingOn(asked: asked) == .worker { return Theme.accentInk }
+        if task.pullRequests.isEmpty { return nil }
+        switch task.stage {
+        case .inReview: return task.pullRequests.contains { RowState.of($0).move == .yoursToFix } ? Theme.danger : Theme.accentInk
+        case .approved: return Theme.ok
+        default: return nil
+        }
+    }
+
     /// "Changes requested by haimbj1 · powershot #116 · #117 · worker done: doc written · the master asks you".
     @MainActor static func line(_ task: WorkTask, model: AppModel) -> Text {
         var parts: [Text] = []
@@ -387,7 +399,10 @@ private struct TaskRow: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 HStack(spacing: 10) {
-                    StageChip2(text: TaskHeader.chip(task, asked: model.state.askedTasks), onTint: selected)
+                    StageChip2(
+                        text: TaskHeader.chip(task, asked: model.state.askedTasks), onTint: selected,
+                        color: TaskHeader.chipTone(task, asked: model.state.askedTasks)
+                    )
                     // The PR rows' session marks' place, so the ages line up down the list.
                     Color.clear.frame(width: 14, height: 14)
                     AgeText(date: task.updatedAt)
