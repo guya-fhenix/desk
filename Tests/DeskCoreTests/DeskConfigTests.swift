@@ -39,6 +39,18 @@ import Testing
         #expect(again == config)
     }
 
+    /// Workers start in the master's permission mode and on its plugins, and the master's prompt hands it those flags
+    /// ready to paste into a shell, a folder with a space quoted.
+    @Test func theMasterPassesItsFlagsToEveryWorker() {
+        var config = DeskConfig()
+        #expect(DeskService.workerFlags(config: config) == ["--permission-mode", "auto"])
+        #expect(DeskService.masterPrompt(config: config).hasSuffix("these flags: --permission-mode auto"))
+        config.pluginDir = "/Users/me/My Repos/plugins"
+        #expect(DeskService.workerFlags(config: config) == ["--permission-mode", "auto", "--plugin-dir", "/Users/me/My Repos/plugins"])
+        #expect(DeskService.masterPrompt(config: config).hasSuffix("--plugin-dir '/Users/me/My Repos/plugins'"))
+        #expect(DeskService.masterPrompt(config: config).hasPrefix("Use the fhenix-workflow:coordinate-tasks skill."))
+    }
+
     /// A value of the wrong type, as a hand edit leaves one, costs that key alone.
     @Test func aWrongTypedValueFallsBackAlone() throws {
         let json = #"{"githubPollSeconds":"120","trackedRepos":["FhenixProtocol/cofhe"]}"#

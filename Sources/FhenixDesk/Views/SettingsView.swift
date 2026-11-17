@@ -6,7 +6,7 @@ import UniformTypeIdentifiers
 
 /// The parts of Settings, each a page of its own in the Settings sidebar.
 enum SettingsPane: String, CaseIterable, Identifiable {
-    case general, github, repos, jira, prompts
+    case general, github, repos, jira, master, prompts
 
     var id: Self { self }
 
@@ -16,6 +16,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         case .github: return "GitHub"
         case .repos: return "Repos"
         case .jira: return "Jira"
+        case .master: return "Master"
         case .prompts: return "Prompts"
         }
     }
@@ -26,6 +27,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         case .github: return "chevron.left.forwardslash.chevron.right"
         case .repos: return "folder"
         case .jira: return SidebarIcon.jira
+        case .master: return "bubble.left.and.bubble.right"
         case .prompts: return "text.bubble"
         }
     }
@@ -40,6 +42,8 @@ final class SettingsDraft {
     var repoRootsText = ""
     var botLoginsText = ""
     var projectKeysText = ""
+    /// The folders the master sees besides its own; empty follows the repo roots.
+    var masterFoldersText = ""
     var repoFilter = ""
     var selectedPrompt: PromptID = .ticketPlan
     var pane: SettingsPane = .general
@@ -51,6 +55,7 @@ final class SettingsDraft {
         repoRootsText = saved.repoRoots.joined(separator: ", ")
         botLoginsText = saved.botLogins.joined(separator: ", ")
         projectKeysText = saved.jiraProjectKeys.joined(separator: ", ")
+        masterFoldersText = saved.masterFolders?.joined(separator: ", ") ?? ""
         loaded = true
     }
 
@@ -61,6 +66,8 @@ final class SettingsDraft {
         pending.repoRoots = Self.split(repoRootsText)
         pending.botLogins = Self.split(botLoginsText)
         pending.jiraProjectKeys = Self.split(projectKeysText).map { $0.uppercased() }
+        let masterFolders = Self.split(masterFoldersText)
+        pending.masterFolders = masterFolders.isEmpty ? nil : masterFolders
         // Only real edits are kept: a prompt typed back to its default, or cleared, is the default again, and
         // a key the app no longer has a prompt for is dropped.
         pending.prompts = config.prompts.filter { key, text in
@@ -120,6 +127,7 @@ struct SettingsView: View {
         case .github: FormPage(title: pane.title) { GitHubSettings() }
         case .repos: ReposSettings()
         case .jira: FormPage(title: pane.title) { JiraSettings() }
+        case .master: FormPage(title: pane.title) { MasterSettings() }
         case .prompts: PromptsSettings()
         }
     }
@@ -375,6 +383,59 @@ private struct RepoRootsField: View {
             guard case .success(let url) = result else { return }
             let path = (url.path as NSString).abbreviatingWithTildeInPath
             text = text.isEmpty ? path : "\(text), \(path)"
+        }
+    }
+}
+
+/// The master session: whether it runs, where, what it sees, whether Desk tells it what happens on GitHub, and where its
+/// plugins load from while skills are being tried.
+private struct MasterSettings: View {
+    @Environment(AppModel.self) private var model
+
+    private var status: String {
+        guard let master = model.state.master else { return "Not started" }
+        let state = master.isAsking ? "asking you" : master.isRunning ? "working" : "listening"
+        let asks = model.state.asks.count
+        return asks == 0 ? state : "\(state) · \(asks) question\(asks == 1 ? "" : "s") for you"
+    }
+
+    var body: some View {
+        @Bindable var draft = model.settings
+        let folder = model.masterFolder
+        FieldGroup(title: "Session") {
+            Field(label: "Master session", hint: model.masterError) {
+                HStack(spacing: 10) {
+                    Text(status).scaled(.secondary.monospaced()).foregroundStyle(.secondary)
+                    Button(model.state.master == nil ? "Start" : "Open") {
+                        model.openMaster()
+                        model.showingSettings = false
+                    }
+                    .controlSize(.small)
+                }
+            }
+            Field(label: "Runs in", hint: "graph.json and events.jsonl are Desk's, asks.json is the master's.") {
+                HStack(spacing: 10) {
+                    Text((folder.path as NSString).abbreviatingWithTildeInPath).scaled(.secondary.monospaced()).lineLimit(1).truncationMode(.middle)
+                    Button("Show in Finder") { NSWorkspace.shared.open(folder.url) }.controlSize(.small)
+                }
+            }
+        }
+        FieldGroup(
+            title: "What it sees and hears",
+            note: "The folders go into the master folder's .claude/settings.json and apply the next time the master starts."
+        ) {
+            Field(label: "Also sees", hint: "Empty sees your repo roots.") { RepoRootsField(text: $draft.masterFoldersText) }
+            Field(label: "Events", hint: "What Desk notifies you about on GitHub, as lines of events.jsonl for the master to route.") {
+                Toggle("Send events to the master", isOn: $draft.config.sendEvents).toggleStyle(.switch).controlSize(.small)
+            }
+        }
+        FieldGroup(
+            title: "Plugins",
+            note: "Passed as --plugin-dir to the master, which passes it to every worker. Takes effect for sessions started after it changes."
+        ) {
+            Field(label: "Load plugins from", hint: "A folder of plugins, such as a claude-marketplace branch's plugins. Empty uses the installed ones.") {
+                BoxedText(placeholder: "Installed plugins", text: $draft.config.pluginDir)
+            }
         }
     }
 }

@@ -238,9 +238,9 @@ public struct ClaudeCLI: Sendable {
         self.run = run
     }
 
-    /// Starts a background session on `prompt` in `cwd`, and returns its short id.
-    public func startBackground(_ prompt: String, cwd: String) async throws -> String {
-        let output = try await Shell.output(path, ["--bg", prompt], cwd: cwd, timeout: 120, run: run)
+    /// Starts a background session on `prompt` in `cwd`, with `flags` before it, and returns its short id.
+    public func startBackground(_ prompt: String, cwd: String, flags: [String] = []) async throws -> String {
+        let output = try await Shell.output(path, ["--bg"] + flags + [prompt], cwd: cwd, timeout: 120, run: run)
         guard let id = ClaudeJobs.startedID(in: output) else { throw DeskError.sessionNotStarted(output) }
         return id
     }

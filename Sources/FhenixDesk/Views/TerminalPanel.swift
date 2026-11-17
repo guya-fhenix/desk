@@ -74,11 +74,13 @@ final class TerminalPanel {
 
     func tab(_ id: String) -> TerminalTab? { tabs.first { $0.id == id } }
 
-    /// Shows the tab with this id, starting it when there is none or what ran in it has ended.
-    func open(id: String, title: String, executable: String, arguments: [String], directory: String? = nil) {
+    /// Shows the tab with this id, starting it when there is none or what ran in it has ended. A `pinned` tab, the
+    /// master's, goes first.
+    func open(id: String, title: String, executable: String, arguments: [String], directory: String? = nil, pinned: Bool = false) {
         if tab(id)?.running != true {
             tabs.removeAll { $0.id == id }
-            tabs.append(TerminalTab(id: id, title: title, executable: executable, arguments: arguments, directory: directory, fontSize: fontSize))
+            let tab = TerminalTab(id: id, title: title, executable: executable, arguments: arguments, directory: directory, fontSize: fontSize)
+            if pinned { tabs.insert(tab, at: 0) } else { tabs.append(tab) }
         }
         select(id)
     }
