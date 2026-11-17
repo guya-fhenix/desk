@@ -762,9 +762,11 @@ struct MasterStatus: View {
                 }
                 .layoutPriority(1)
                 Spacer(minLength: 2)
+                // Never squeezed by a long status: the status gives way instead.
                 Text(master == nil ? "Start" : "Open")
                     .scaled(.secondary.weight(.medium))
                     .foregroundStyle(Theme.accentInk)
+                    .fixedSize()
                     .padding(.horizontal, 7).padding(.vertical, 2)
                     .background(Theme.tint, in: Capsule())
             }

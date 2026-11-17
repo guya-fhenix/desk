@@ -5,9 +5,10 @@ import ScreenCaptureKit
 import SwiftUI
 
 /// Draws a PR's page, or its review diff at its first open thread, off screen into a PNG, with live data, as the app
-/// shows it: `FhenixDesk --snapshot <pr url> <out.png> [page|files|diff] [height] [dark]`. `--snapshot window <tab> <out.png>
-/// [height] [dark]` draws the whole Desk window on one of its screens instead. For checking a view without driving the
-/// window. Debug builds only.
+/// shows it: `FhenixDesk --snapshot <pr url> <out.png> [page|files|diff] [height] [dark] [running]`. `--snapshot window <tab>
+/// <out.png> [height] [dark]` draws the whole Desk window on one of its screens instead, and with `steps=` presses keys
+/// in it first; `--snapshot popover <prefix>` presses the menu bar item. For checking a view, and its keys, without
+/// driving the window. Debug builds only.
 @MainActor
 enum Snapshot {
     static func start(_ arguments: [String]) {
@@ -22,6 +23,10 @@ enum Snapshot {
     private static func run(_ arguments: [String]) async {
         if arguments.first == "window" {
             await window(Array(arguments.dropFirst()))
+            return
+        }
+        if arguments.first == "popover" {
+            await popover(arguments.count > 1 ? arguments[1] : "popover")
             return
         }
         guard arguments.count >= 2 else {
@@ -45,6 +50,8 @@ enum Snapshot {
             return
         }
         await model.loadConversation(pr)
+        // `running`: its review session running in its pane, as the panel beside the diff shows it while one runs.
+        if arguments.contains("running") { model.panes.insert(PaneSpec.reviewKey(url)) }
         let view: AnyView
         if mode == "diff" {
             model.loadDiff(pr)
@@ -69,7 +76,7 @@ enum Snapshot {
         let screen = arguments.first ?? ""
         let screens = ["settings", "setup", "master", "menubar"]
         guard arguments.count >= 2, screens.contains(screen) || DeskWindow.Tab(rawValue: screen) != nil else {
-            print("usage: --snapshot window <upNext|pullRequests|reviews|tickets|master|settings|setup|menubar> <out.png> [height] [dark|light] [open=<pr url>] [pane=<pane>] [step=<step>] [update=<current>,<latest>] [ghError=<text>]")
+            print("usage: --snapshot window <upNext|pullRequests|reviews|tickets|master|settings|setup|menubar> <out.png> [height] [dark|light] [open=<pr url>] [pane=<pane>] [step=<step>] [update=<current>,<latest>] [ghError=<text>] [asks=1] [steps=key:j;shot:<png>;report;wait:1]")
             return
         }
         func value(_ name: String) -> String? { arguments.first { $0.hasPrefix("\(name)=") }.map { String($0.dropFirst(name.count + 1)) } }
@@ -92,6 +99,17 @@ enum Snapshot {
             model.showingFinder = true
         }
         if let error = value("ghError") { model.state.errors[.github] = error }
+        // `asks=1`: a question from the master, in memory only, for the screens that show one.
+        if value("asks") != nil {
+            model.state.asks = [MasterAsk(id: "sample", task: "PRO-650", text: "The signer options doc is written. Share it with Roee on the ticket, or keep it a draft?", askedAt: Date().addingTimeInterval(-720))]
+        }
+        // `steps=key:j;key:x;shot:<png>;report;wait:1`: keys, captures and the model's state, run against the window before
+        // the last capture.
+        let steps = value("steps").map { $0.split(separator: ";").map(String.init) } ?? []
+        let report = {
+            "report: finder=\(model.showingFinder) master=\(model.showingMaster) settings=\(model.showingSettings) "
+                + "terminalError=\(model.terminalError ?? "none") panes=\(model.panes.sorted())"
+        }
         // `update=<current>,<latest>`: the sidebar's update notice, which an unbundled build never checks for.
         if let versions = value("update")?.split(separator: ","), versions.count == 2 {
             model.update = AppUpdate.Available(current: String(versions[0]), latest: String(versions[1]))
@@ -105,8 +123,48 @@ enum Snapshot {
         } else if screen == "setup" {
             await capture(SetupView(step: value("step").flatMap(SetupStep.init(rawValue:)) ?? .tools).environment(model), size: size, to: arguments[1], titled: true)
         } else {
-            await capture(DeskWindow().environment(model), size: size, to: arguments[1], titled: true)
+            await capture(DeskWindow().environment(model), size: size, to: arguments[1], titled: true, steps: steps, report: report)
         }
+    }
+
+    /// The menu bar item's popover, pressed the way a click presses it: opened and drawn, closed by a second press,
+    /// opened by a third; a press just as it closes, as a click on the item makes, leaves it closed; one after that opens
+    /// it. Prints each state.
+    private static func popover(_ prefix: String) async {
+        let model = AppModel()
+        for _ in 0..<120 where Set(model.state.lastRefresh.keys).union(model.state.errors.keys).count < Source.allCases.count {
+            try? await Task.sleep(for: .milliseconds(500))
+        }
+        let delegate = AppDelegate()
+        delegate.installMenuBarItem(model: model)
+        try? await Task.sleep(for: .seconds(1))
+        // A process that can't come forward over the user's apps never finishes a popover's animation, and AppKit holds
+        // the close until it does; a click on the item brings the app forward first.
+        func press() {
+            delegate.togglePopover()
+            delegate.popover?.animates = false
+        }
+        func state(_ when: String) { print("\(when): \(delegate.popover?.isShown == true ? "open" : "closed")") }
+        press()
+        try? await Task.sleep(for: .seconds(1))
+        state("a press")
+        if let view = delegate.popover?.contentViewController?.view.window?.contentView { write(layerImage(of: view), "\(prefix)-open.png") }
+        press()
+        try? await Task.sleep(for: .seconds(1))
+        state("a second press")
+        press()
+        try? await Task.sleep(for: .seconds(1))
+        state("a third press")
+        press()
+        press()
+        try? await Task.sleep(for: .seconds(1))
+        state("a press just as it closed")
+        press()
+        try? await Task.sleep(for: .seconds(1))
+        state("a press a second later")
+        press()
+        try? await Task.sleep(for: .seconds(1))
+        state("and another")
     }
 
     private static func appearance(_ arguments: [String]) {
@@ -116,7 +174,9 @@ enum Snapshot {
 
     /// `titled` draws it in a window like the app's, title bar and all, as the window server composites it: drawing the
     /// views themselves leaves out the system's materials, such as the inspector's. Otherwise the view alone.
-    private static func capture(_ view: some View, size: NSSize, to out: String, titled: Bool = false) async {
+    private static func capture(
+        _ view: some View, size: NSSize, to out: String, titled: Bool = false, steps: [String] = [], report: (() -> String)? = nil
+    ) async {
         // A titled window sizes its content the way the app's does, from the window, with the app's minimum; a fixed frame
         // on the root misleads a split view about the room it has.
         let host = titled
@@ -136,6 +196,61 @@ enum Snapshot {
         window.orderFrontRegardless()
         // The diff, the checks and the avatars arrive after the page does.
         try? await Task.sleep(for: .seconds(5))
+        // Keys go to the focused list only in the key window.
+        if !steps.isEmpty {
+            window.actsKey = true
+            NotificationCenter.default.post(name: NSWindow.didBecomeKeyNotification, object: window)
+            try? await Task.sleep(for: .milliseconds(500))
+        }
+        for step in steps { await perform(step, in: window, host: host, titled: titled, report: report) }
+        write(await grab(window, host: host, titled: titled), out)
+    }
+
+    /// One harness step against the window: a key press, a wait, a capture, or the model's state printed. No pointer: SwiftUI
+    /// reads hover from the real cursor, which a posted event doesn't move.
+    private static func perform(_ step: String, in window: OffscreenWindow, host: NSView, titled: Bool, report: (() -> String)?) async {
+        let parts = step.split(separator: ":", maxSplits: 1).map(String.init)
+        let argument = parts.count > 1 ? parts[1] : ""
+        switch parts.first ?? "" {
+        case "key":
+            let codes: [String: (UInt16, String)] = [
+                "j": (38, "j"), "k": (40, "k"), "x": (7, "x"), "r": (15, "r"), "m": (46, "m"), "space": (49, " "),
+                "return": (36, "\r"), "down": (125, "\u{F701}"), "up": (126, "\u{F700}"), "right": (124, "\u{F703}"), "escape": (53, "\u{1B}"),
+            ]
+            guard let (code, characters) = codes[argument] else { return print("unknown key \(argument)") }
+            for type in [NSEvent.EventType.keyDown, .keyUp] {
+                let event = NSEvent.keyEvent(
+                    with: type, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                    windowNumber: window.windowNumber, context: nil, characters: characters, charactersIgnoringModifiers: characters,
+                    isARepeat: false, keyCode: code)
+                // Through the window, as a press arrives: SwiftUI's key handlers see it there before the list's own.
+                event.map(window.sendEvent)
+            }
+            // A capture shows what it did: the list's selected row and the first responder trail SwiftUI and say nothing.
+            print("key \(argument)")
+        case "wait":
+            try? await Task.sleep(for: .seconds(Double(argument) ?? 1))
+        case "shot":
+            write(await grab(window, host: host, titled: titled), argument)
+        case "report":
+            print(report?() ?? "report: none")
+        default:
+            print("unknown step \(step)")
+        }
+        try? await Task.sleep(for: .milliseconds(700))
+    }
+
+    private static func write(_ image: CGImage?, _ out: String) {
+        guard let png = image.flatMap({ NSBitmapImageRep(cgImage: $0).representation(using: .png, properties: [:]) }),
+              (try? png.write(to: URL(fileURLWithPath: out))) != nil else {
+            print("couldn't draw \(out)")
+            return
+        }
+        print("wrote \(out)")
+    }
+
+    /// The window as it shows now: composited by the window server where it can be, else its layer tree drawn.
+    private static func grab(_ window: NSWindow, host: NSView, titled: Bool) async -> CGImage? {
         var image: CGImage?
         // With the screen locked a capture fails now and then, so it is tried a few times.
         for _ in 0..<(titled ? 10 : 0) where image == nil {
@@ -156,12 +271,7 @@ enum Snapshot {
                 return rep?.cgImage
             }()
         }
-        guard let png = image.flatMap({ NSBitmapImageRep(cgImage: $0).representation(using: .png, properties: [:]) }),
-              (try? png.write(to: URL(fileURLWithPath: out))) != nil else {
-            print("couldn't draw \(out)")
-            return
-        }
-        print("wrote \(out)")
+        return image
     }
 
     /// The view's layer tree drawn into a bitmap at the screen's scale, upright.
@@ -198,6 +308,10 @@ enum Snapshot {
 
 /// A titled window stays where it is put, off every screen, instead of being pulled back onto one.
 private final class OffscreenWindow: NSWindow {
+    /// Key without taking focus from the app in front: the harness's keys reach SwiftUI's focused view only in a key
+    /// window, and an accessory process isn't allowed to activate over the user's apps.
+    var actsKey = false
+    override var isKeyWindow: Bool { actsKey || super.isKeyWindow }
     override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect { frameRect }
 }
 #endif

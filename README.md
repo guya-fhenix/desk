@@ -29,7 +29,11 @@ To check a view without driving the window, a debug build draws a PR's page, or 
 with live data into a PNG: `.build/debug/FhenixDesk --snapshot <pr url> <out.png> [page|diff] [height] [dark|light]`.
 `--snapshot window <screen> <out.png> [height] [dark|light]` draws the whole window, 1440 wide, sidebar included, on
 one screen: `upNext`, `pullRequests`, `reviews`, `tickets`, `master`, `settings` (`pane=appearance` …), `setup`
-(`step=…`), or `menubar` (the popover alone); `open=<pr url or task id>` opens a page, `finder=<query>` opens Search.
+(`step=…`), or `menubar` (the popover alone); `open=<pr url or task id>` opens a page, `finder=<query>` opens Search,
+`asks=1` adds a sample question from the master. `steps=key:j;key:x;shot:<png>;report` presses keys in the window first
+(`j k x r m`, arrows, `return`, `space`, `escape`), drawing and printing the state between them; a review diff takes
+`running` for its session's panel as it shows while one runs. `--snapshot popover <prefix>` presses the menu bar item
+open, closed and open again, and draws the popover. Hover reads the real pointer, which none of these move.
 `FhenixDesk --terminals status|sync|show <name>` drives the iTerm layout from the command line.
 
 ## Release

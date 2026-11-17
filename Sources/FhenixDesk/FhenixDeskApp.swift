@@ -117,7 +117,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     static var openDesk: (() -> Void)?
     private var statusItem: NSStatusItem?
     private var model: AppModel?
-    private var popover: NSPopover?
+    /// Read by the snapshot harness, which presses the item the way a click does.
+    private(set) var popover: NSPopover?
     /// When the popover last closed: a click on the item while it shows closes it on the press, and the click's release
     /// must not open it again.
     private var popoverClosed = Date.distantPast
@@ -177,7 +178,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
     /// What needs you, the master and its workers, in a popover under the item; Open Desk in it opens the window. Built
     /// afresh on each click, so it never shows an old list.
-    private func togglePopover() {
+    func togglePopover() {
         guard let button = statusItem?.button, let model else { return }
         if popover?.isShown == true {
             popover?.performClose(nil)

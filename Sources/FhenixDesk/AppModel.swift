@@ -574,8 +574,9 @@ final class AppModel {
         guard let master = state.master else { return "Not running" }
         // Blocked is where a master rests between your instructions, so it waits for you rather than asks you something.
         let now = master.isAsking ? "Waiting for you" : master.isRunning ? "Working" : master.isIdle ? "Listening" : master.state.capitalized
+        // A question outranks the state, and fits the sidebar's line where both would not.
         let asks = state.asks.count
-        return asks == 0 ? now : "\(now) · \(asks) question\(asks == 1 ? "" : "s")"
+        return asks == 0 ? now : "\(asks) question\(asks == 1 ? "" : "s") for you"
     }
 
     /// Shows the master's pane in iTerm. With no master running, it starts one in the master folder first. Closing
