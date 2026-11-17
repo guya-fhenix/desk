@@ -94,37 +94,6 @@ struct Hairline: View {
     var body: some View { Rectangle().fill(Theme.line).frame(height: 1) }
 }
 
-/// What a screen's header carries on the right: the details panel's switch, on the screens that have one.
-struct HeaderControls: View {
-    var inspector: String?
-
-    var body: some View {
-        if let inspector { InspectorToggle(key: inspector) }
-    }
-}
-
-/// Shows and hides a screen's details panel. Reads the same remembered flag the panel does.
-struct InspectorToggle: View {
-    @AppStorage private var shown: Bool
-
-    init(key: String) {
-        _shown = AppStorage(wrappedValue: true, "inspector.\(key)")
-    }
-
-    var body: some View {
-        Button { shown.toggle() } label: {
-            Image(systemName: "sidebar.trailing")
-                .foregroundStyle(shown ? .primary : .secondary)
-                .frame(width: 28, height: 24)
-                .background(Theme.raised, in: Capsule())
-        }
-        .buttonStyle(.plain)
-        .help(shown ? "Hide the details panel" : "Show the details panel")
-        .accessibilityLabel("Details panel")
-        .accessibilityValue(shown ? "Shown" : "Hidden")
-    }
-}
-
 /// The row of tabs under a page title, each a pill with its count.
 struct PillTabs<Value: Hashable>: View {
     struct Option {
@@ -335,6 +304,8 @@ struct ListRow<Content: View>: View {
     var selected = false
     /// For a row with a page of its own: a click opens it, and the pointer is a hand over the row to say so.
     var open: (() -> Void)? = nil
+    /// How far in from the list's edge the row sits, its tint, bar and hairline with it: a task's PRs under its band.
+    var indent: CGFloat = 0
     @ViewBuilder var content: Content
 
     var body: some View {
@@ -353,7 +324,10 @@ struct ListRow<Content: View>: View {
             .accessibilityElement(children: .combine)
             .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
             .modifier(OpensOnClick(open: open))
-            .plainListRow(background: selected ? Theme.rowSelected : Color.clear)
+            .padding(.leading, indent)
+            .listRowInsets(EdgeInsets()).listRowSeparator(.hidden)
+            // The indent painted as the window, or the list's own selection grey shows through it.
+            .listRowBackground((selected ? Theme.rowSelected : Color.clear).padding(.leading, indent).background(indent > 0 ? Theme.background : .clear))
     }
 }
 

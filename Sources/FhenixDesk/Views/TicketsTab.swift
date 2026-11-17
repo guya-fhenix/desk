@@ -2,14 +2,17 @@ import DeskCore
 import SwiftUI
 
 /// Jira tickets as a list: the running sprint or the backlog, one group per status in workflow order, yours unless
-/// the assignee filter picks others. Done is left out: the list is about what is still open. Selecting a row previews it
-/// in the details panel; Return, a double-click or → opens its page, as Up Next does, and ⌘↩ opens it in Jira, as Search
-/// does. Above the groups, the moves the app suggests for your tickets, each waiting for your Move or Dismiss.
+/// the assignee filter picks others. Done is left out: the list is about what is still open. A click, Space or Return
+/// opens a ticket in place, under its row, and closes the one open before; → opens its page, and ⌘↩ opens it in Jira,
+/// as Search does. Above the groups, the moves the app suggests for your tickets, each waiting for your Move or Dismiss.
 struct TicketsTab: View {
     @Environment(AppModel.self) private var model
     private var filters = TicketFilters()
     /// By key, so a poll that replaces every ticket keeps the selection.
     @State private var selection: String?
+    /// The one ticket open under its row, by key.
+    @State private var expanded: String?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// The pages open over the list; empty shows the list.
     @State private var path: [Route] = []
     @FocusState private var listFocused: Bool
@@ -47,7 +50,7 @@ struct TicketsTab: View {
 
     @ViewBuilder private func list(groups: [TicketGroup], moves: [TicketDrift]) -> some View {
         Screen {
-            PageHeader(title: "Jira") { HeaderControls(inspector: "tickets") }
+            PageHeader(title: "Jira") {}
             header
         } content: {
             Hairline()
@@ -74,8 +77,13 @@ struct TicketsTab: View {
                     ForEach(groups) { group in
                         GroupHeader(title: group.status, count: group.tickets.count).plainListRow().selectionDisabled()
                         ForEach(group.tickets) { ticket in
-                            ListRow(selected: selection == ticket.key) {
-                                TicketRow(ticket: ticket, model: model)
+                            let open = expanded == ticket.key
+                            ListRow(selected: selection == ticket.key, open: { toggle(ticket.key) }) {
+                                TicketRow(ticket: ticket, model: model, expanded: open)
+                            }
+                            if open {
+                                TicketDetails(ticket: ticket, model: model) { self.open(ticket.key) }
+                                    .plainListRow().selectionDisabled()
                             }
                         }
                     }
@@ -87,6 +95,11 @@ struct TicketsTab: View {
                 .onKeyPress(.rightArrow) {
                     guard let selection else { return .ignored }
                     open(selection)
+                    return .handled
+                }
+                .onKeyPress(.space) {
+                    guard let selection, model.state.ticket(selection) != nil else { return .ignored }
+                    toggle(selection)
                     return .handled
                 }
                 // ⌘↩ goes out to Jira, as it does in Search; the list's primary action never sees it.
@@ -102,7 +115,9 @@ struct TicketsTab: View {
                         Button("Copy Key") { Clipboard.copy(ticket.key) }
                     }
                 } primaryAction: { keys in
-                    if let key = keys.first { open(key) }
+                    // A ticket's row opens in place; a suggested move's, which has no place to open in, opens its page.
+                    guard let key = keys.first else { return }
+                    if model.state.ticket(key) != nil { toggle(key) } else { open(key) }
                 }
                 .onChange(of: scrollTarget, initial: true) { _, key in
                     guard let key else { return }
@@ -112,16 +127,12 @@ struct TicketsTab: View {
                 }
             }
         }
-        // Wider than the others: this one is for reading a description, tables and all. The list's preview only: a
-        // ticket's page shows all of it.
-        .deskInspector("tickets", width: 420) {
-            if let ticket = selection.flatMap(ticket(for:)) {
-                TicketInspector(ticket: ticket, model: model).id(ticket.key)
-            } else {
-                EmptyState(text: "Select a ticket to read it.").padding()
-                Spacer()
-            }
-        }
+    }
+
+    /// Opens the ticket under its row, closing the one open before, or closes it when it is the one open.
+    private func toggle(_ key: String) {
+        selection = key
+        withAnimation(reduceMotion ? nil : .snappy(duration: 0.2)) { expanded = expanded == key ? nil : key }
     }
 
     /// Its page, with its row selected behind it for the way back: a ticket's row, or a suggested move's.
@@ -225,14 +236,28 @@ struct TicketFilters: DynamicProperty {
 }
 
 /// One ticket in its status group: the status colour, the summary, and a monospaced line with key, priority and
-/// how many open PRs name it; where its PRs say Jira should move it, on the right.
+/// how many open PRs name it; where its PRs say Jira should move it, on the right. On the Jira screen a chevron first
+/// says whether it is open under its row.
 struct TicketRow: View {
     var ticket: Ticket
     var model: AppModel
+    /// Nil where the row does not open in place.
+    var expanded: Bool? = nil
+
+    /// Where the text after the chevron and the picture starts, for what opens under the row to line up with it.
+    static let textInset: CGFloat = Theme.Space.m + 12 + 12 + 28 + 12
 
     var body: some View {
         let linked = model.state.pullRequests(forTicket: ticket.key).count
         HStack(alignment: .center, spacing: 12) {
+            if let expanded {
+                Image(systemName: "chevron.right")
+                    .scaled(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .rotationEffect(.degrees(expanded ? 90 : 0))
+                    .frame(width: 12)
+                    .accessibilityHidden(true)
+            }
             // Whose it is, as a picture; the status is already the group's heading.
             AssigneeAvatar(ticket: ticket)
             VStack(alignment: .leading, spacing: 5) {
@@ -279,66 +304,72 @@ enum TicketColor {
     }
 }
 
-/// The selected ticket: where it stands, what it says, which pull requests name it, and the presses that
-/// act on it.
-private struct TicketInspector: View {
+/// A ticket open under its row, with only what the row leaves out: who opened it, the pull requests and sessions behind
+/// its counts, why the app suggests its move with the presses, and the description; and the ways to its page and to
+/// Jira. Its key, summary, status, priority and assignee are the row's.
+private struct TicketDetails: View {
     var ticket: Ticket
     var model: AppModel
+    var openPage: () -> Void
 
     var body: some View {
-        Panel {
-            PanelSection {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(ticket.key).scaled(.caption.monospaced()).foregroundStyle(.secondary).textSelection(.enabled)
-                    EditableTitle(
-                        prefix: "", title: ticket.summary, what: "the ticket", editable: true, style: .headline
-                    ) {
-                        await model.editTicket(ticket, summary: $0)
-                    } trailing: {
-                        EmptyView()
+        let prs = model.state.pullRequests(forTicket: ticket.key)
+        let sessions = model.state.sessions(forTicket: ticket.key)
+        VStack(alignment: .leading, spacing: Theme.Space.m) {
+            HStack(spacing: Theme.Space.s) {
+                if let reporter = ticket.reporter { Text("Opened by \(reporter)").scaled(.caption).foregroundStyle(.secondary) }
+                Spacer(minLength: Theme.Space.s)
+                Button("Open page", action: openPage).help("The ticket's page (→)")
+                Button("Open in Jira") { model.open(ticket.url) }.help("⌘↩")
+            }
+            .controlSize(.small)
+            if !prs.isEmpty {
+                part("Pull requests") {
+                    ForEach(prs) { pr in
+                        HStack(spacing: 6) {
+                            ChecksBadge(pr: pr)
+                            Button { model.open(pr.url) } label: { Text(verbatim: "\(pr.repoName)#\(pr.number) \(pr.title)").lineLimit(1) }
+                                .buttonStyle(.link).handCursor()
+                        }
                     }
                 }
-                LabeledContent("Status") {
-                    HStack(spacing: 6) { StatusDot(color: TicketColor.of(ticket.category)); Text(ticket.status) }
-                }
-                if let priority = ticket.priority { LabeledContent("Priority") { PriorityMark.text(priority) } }
-                LabeledContent("Assignee") {
-                    HStack(spacing: 6) {
-                        AssigneeAvatar(ticket: ticket, size: 20)
-                        Text(ticket.assignedToMe ? "You" : ticket.assignee ?? "Unassigned")
-                    }
-                }
-                if let reporter = ticket.reporter { LabeledContent("Opened by", value: reporter) }
-                Button("Open in Jira") { model.open(ticket.url) }
-                    .controlSize(.small)
             }
-            if let drift = model.state.drift(forKey: ticket.key) {
-                PanelSection("Suggested move") { MoveSuggestion(drift: drift, model: model) }
-            }
-            let sessions = model.state.sessions(forTicket: ticket.key)
             if !sessions.isEmpty {
-                PanelSection("Sessions") {
+                part("Sessions") {
                     ForEach(sessions) { SessionRow(session: $0, model: model) }
                     if let error = model.sessionErrors[ticket.key] {
                         Text(error).scaled(.caption).foregroundStyle(.red).textSelection(.enabled)
                     }
                 }
             }
-            PanelSection("Pull requests") {
-                let prs = model.state.pullRequests(forTicket: ticket.key)
-                if prs.isEmpty { Text("None open.").foregroundStyle(.secondary) }
-                ForEach(prs) { pr in
-                    HStack(spacing: 6) {
-                        ChecksBadge(pr: pr)
-                        Button { model.open(pr.url) } label: { Text(verbatim: "\(pr.repoName)#\(pr.number) \(pr.title)").lineLimit(1) }
-                            .buttonStyle(.link).handCursor()
+            if let drift = model.state.drift(forKey: ticket.key) {
+                part("Suggested move") {
+                    HStack(spacing: Theme.Space.s) {
+                        Text("Because \(drift.because)").scaled(.caption)
+                        Spacer(minLength: Theme.Space.s)
+                        MoveButtons(drift: drift, model: model)
+                    }
+                    if let error = model.ticketMoveErrors[ticket.key] {
+                        Text("Jira refused: \(error)").scaled(.caption).foregroundStyle(.red).textSelection(.enabled)
                     }
                 }
             }
             TicketDescription(ticket: ticket, model: model)
         }
+        .padding(.leading, TicketRow.textInset)
+        .padding(.trailing, Theme.Space.m)
+        .padding(.top, Theme.Space.xs)
+        .padding(.bottom, Theme.Space.l)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .overlay(alignment: .bottom) { Hairline() }
     }
 
+    private func part(_ title: String, @ViewBuilder content: () -> some View) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title).scaled(.caption.weight(.medium)).foregroundStyle(.secondary)
+            content()
+        }
+    }
 }
 
 /// A move the app suggests, as a row of the Jira screen's Suggested moves and Up Next's Jira moves: whose ticket and

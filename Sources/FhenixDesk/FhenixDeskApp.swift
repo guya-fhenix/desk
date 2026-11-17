@@ -65,8 +65,6 @@ struct FhenixDeskApp: App {
                     if model.visibleSearchBoxes > 0 { model.searchFocusRequest += 1 } else { model.showingFinder = true }
                 }
                 .keyboardShortcut("f", modifiers: .command)
-                Button("Show/Hide Details") { model.inspectorToggleRequest += 1 }
-                    .keyboardShortcut("i", modifiers: [.command, .option])
                 Button("Show/Hide Terminal") { model.terminals.visible.toggle() }
                     .keyboardShortcut("`", modifiers: .control)
                     .disabled(model.terminals.tabs.isEmpty)
