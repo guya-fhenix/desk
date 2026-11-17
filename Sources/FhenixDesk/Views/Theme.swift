@@ -748,6 +748,55 @@ struct UpdateNotice: View {
     }
 }
 
+/// Over the sync status: the master session as one press, a session rather than a screen. Its state sits under its name —
+/// not running, starting, working, listening, waiting for you — with the questions it has open for you; the press starts it
+/// when none runs and opens it in the terminal panel either way.
+struct MasterStatus: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        let master = model.state.master
+        let failed = model.masterError != nil
+        let status = failed ? (master == nil ? "Couldn't start" : "Couldn't open") : model.masterStatus
+        Button { model.openMaster() } label: {
+            HStack(spacing: Theme.Space.s) {
+                Image(systemName: "bubble.left.and.bubble.right.fill")
+                    .foregroundStyle(master == nil ? Color.secondary : Theme.accent)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Master").scaled(.secondary.weight(.medium))
+                    HStack(spacing: 5) {
+                        if model.startingMaster || master?.isRunning == true {
+                            ProgressView().controlSize(.mini)
+                        } else {
+                            StatusDot(color: failed ? .red : master == nil ? .gray : master!.isAsking || !model.state.asks.isEmpty ? .orange : .green)
+                        }
+                        Text(status).lineLimit(1)
+                    }
+                    .scaled(.caption)
+                    .foregroundStyle(failed ? Color.red : .secondary)
+                }
+                Spacer(minLength: Theme.Space.xs)
+                Text(master == nil ? "Start" : "Open")
+                    .scaled(.caption.weight(.medium))
+                    .foregroundStyle(Theme.accent)
+                    .padding(.horizontal, 8).padding(.vertical, 3)
+                    .background(Theme.accent.opacity(0.15), in: Capsule())
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Theme.raised, in: RoundedRectangle(cornerRadius: 8))
+            .contentShape(RoundedRectangle(cornerRadius: 8))
+        }
+        .buttonStyle(.plain)
+        .handCursor()
+        .disabled(model.startingMaster)
+        .help(model.masterError ?? (master == nil ? "Start the master session and open it in the terminal panel"
+                                                  : "Open the master session in the terminal panel"))
+        .accessibilityLabel("Master session: \(status)")
+    }
+}
+
 /// Pinned under the sidebar, one block: the sync state with its one press — the arrow that syncs every source, a spinner
 /// while one syncs, Retry naming the sources that failed — and your Claude plan's session and week limits as two thin
 /// meters. A click on it opens the detail: each source's age and error, and each limit's reset and the sessions at work.

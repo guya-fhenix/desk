@@ -46,9 +46,11 @@ the installed app only; a build run with `swift run` has no bundle to register.
 
 ## The window
 
-The sidebar lists Search (⌘K), Master, Up Next, Tasks, Reviews and Jira, each screen with a count of the rows it opens
-on, Master with the questions it has open for you, and Settings (⌘,). ⌘1 to ⌘4 pick a screen. The sidebar collapses
-with its toggle or View → Show/Hide Sidebar (⌃⌘S). Under it, one status block says how the sync stands: when every
+The sidebar lists Search (⌘K), Up Next, Tasks, Reviews and Jira, each screen with a count of the rows it opens on,
+and Settings (⌘,). ⌘1 to ⌘4 pick a screen. The sidebar collapses with its toggle or View → Show/Hide Sidebar (⌃⌘S).
+Under it, the Master block is the master session: its state under its name (not running, starting, working, listening,
+waiting for you) with the questions it has open for you, and Start or Open. Under that, one status block says how the
+sync stands: when every
 source last synced, with the arrow that syncs them all (⌘R), a spinner while one syncs, or the sources that failed with
 Retry. Under that, your Claude plan's session and week limits are two thin meters. Click the block for each source's age
 and error, the Settings pane that fixes a sign-in, and when each limit resets. When a newer Desk is out, a block above it
@@ -214,7 +216,7 @@ sessions: the master starts the workers.
 
 ## The master and its workers
 
-**Master** in the sidebar attaches the terminal panel to the master session, first among the tabs. With none running it
+The **Master** block in the sidebar attaches the terminal panel to the master session, first among the tabs. With none running it
 starts one, named `master`, in the master folder: `~/Library/Application Support/Fhenix Desk/master`. It runs the
 fhenix-workflow `coordinate-tasks` skill, in auto mode, and starts every worker in the same mode, so no worker holds its
 messages for approval. Closing the tab only detaches; the master keeps running.
