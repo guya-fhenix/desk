@@ -35,7 +35,7 @@ window first (`j k x r m`, arrows, `return`, `space`, `escape`) and moves the po
 window's top left), drawing and printing the state between them. `split` draws the real split view, whose sidebar
 comes out blank off screen, and the `layout` step then says whether the screen fits the window's height; `frames:<prefix>:<n>`
 draws n frames 50 ms apart; `scroll:<points>` and `wheel:<points>:<events>` (a trackpad's swipe) scroll the tallest
-scroll view and time it; `tab=files` opens a PR's page on Files changed. Everything is drawn in-process, never captured
+scroll view and time it; `tab=files` opens a PR's page on Files changed, and `diff=split` lays it side by side. Everything is drawn in-process, never captured
 from the screen, so no run asks for Screen Recording. A review diff takes
 `running` for its session's panel as it shows while one runs. `system` sets Desk to follow macOS and `accent=#0F766E`
 picks an accent, in memory only; with `-NSRequiresAquaSystemAppearance YES` at the end, macOS gives the run only the

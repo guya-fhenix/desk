@@ -3,6 +3,19 @@ import Foundation
 import Testing
 
 @Suite struct DiffParserTests {
+    /// Side by side, an unchanged line is on both sides and a removed run sits beside the added run after it, one for
+    /// one; what is left over sits beside nothing.
+    @Test func splitPairsRemovedRunsWithTheAddedRunsAfterThem() {
+        func line(_ kind: DiffLineKind, _ old: Int?, _ new: Int?) -> DiffLine { DiffLine(kind: kind, oldLine: old, newLine: new, text: "") }
+        let same = line(.context, 1, 1), gone1 = line(.removed, 2, nil), gone2 = line(.removed, 3, nil), new1 = line(.added, nil, 2)
+        let same2 = line(.context, 4, 3), new2 = line(.added, nil, 4), gone3 = line(.removed, 5, nil)
+        let rows: [DiffRow] = [.hunk("@@"), .line(same), .line(gone1), .line(gone2), .line(new1), .line(same2), .line(new2), .line(gone3)]
+        #expect(rows.split == [
+            .hunk("@@"), .pair(left: same, right: same), .pair(left: gone1, right: new1), .pair(left: gone2, right: nil),
+            .pair(left: same2, right: same2), .pair(left: nil, right: new2), .pair(left: gone3, right: nil),
+        ])
+    }
+
     @Test func numbersLinesFromTheHunkHeader() throws {
         let diff = #"""
         diff --git a/src/gauge.rs b/src/gauge.rs

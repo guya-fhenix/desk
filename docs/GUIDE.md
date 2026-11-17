@@ -136,7 +136,9 @@ GitHub (each asks first and merges only the head the page showed; greyed, with w
 walk the list. The wide column has two tabs. **Conversation** holds the description, editable too, and the
 conversation. **Files changed** holds the code the PR changed, a box per file that folds, with each review thread under
 the line it ends on, to reply to or resolve there (an outdated one has no line left, so only Conversation lists it); it
-is fetched when the tab opens and again once new commits move the head. The details column on the right: **Next step** says what the PR's stage waits on: where its self-review stands on a
+is fetched when the tab opens and again once new commits move the head. Inline or Side by side, beside the tabs, lays it
+out in one column or the old file beside the new; Desk keeps your pick, and goes inline while the column is too narrow
+for two halves. The details column on the right: **Next step** says what the PR's stage waits on: where its self-review stands on a
 draft, whose move it is in review (nothing, when the reviewer who asked for changes has been asked again), with Master
 in iTerm when the move is the master's or a worker's. A conflict, red CI or a base to rebase onto shows there too, for the worker to fix when the
 master hands it over. **Checks** sums up every check on the head commit in one line, "✓ 14 passed, 2 skipped"; Show all

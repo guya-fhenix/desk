@@ -98,6 +98,8 @@ enum Snapshot {
         if let scale = value("scale").flatMap(Double.init) { model.textScale = CGFloat(scale) }
         // `tab=files`: a PR's page opens on Files changed.
         if value("tab") == "files" { PullRequestPage.openingTab = .files }
+        // `diff=split`: Files changed side by side, for this run only, over whatever was picked.
+        if let diff = value("diff") { UserDefaults.standard.setVolatileDomain(["diffLayout": diff], forName: UserDefaults.argumentDomain) }
         if let pane = value("pane").flatMap(SettingsPane.init(rawValue:)) { model.settings.pane = pane }
         // `finder=<query>`: Search (⌘K) open over the screen with that query.
         if let query = value("finder") {

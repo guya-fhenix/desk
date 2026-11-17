@@ -1034,26 +1034,47 @@ private struct TaskJiraSection: View {
 /// stay beside it.
 enum PullRequestTab: Hashable { case conversation, files }
 
+/// How Files changed lays a diff out: one column, or the old file beside the new. Kept until you pick the other.
+enum DiffLayout: String { case inline, split }
+
 private struct PullRequestMain<Conversation: View>: View {
     var pr: PullRequest
     var model: AppModel
     @Binding var tab: PullRequestTab
     @ViewBuilder var conversation: Conversation
+    @AppStorage("diffLayout") private var layout: DiffLayout = .inline
+    @State private var width: CGFloat = 0
+    @Environment(\.textScale) private var scale
 
     var body: some View {
+        // Narrower than this, a side-by-side diff's halves are too thin to read code in: inline, whatever was picked,
+        // until the window is wide again.
+        let fitsSplit = width >= 720 * scale
         VStack(alignment: .leading, spacing: 24) {
-            Segmented(
-                options: [
-                    .init(value: .conversation, title: "Conversation"),
-                    .init(value: .files, title: "Files changed", count: model.diffs[pr.url]?.files.count),
-                ],
-                selection: $tab
-            )
+            HStack(spacing: 12) {
+                Segmented(
+                    options: [
+                        .init(value: .conversation, title: "Conversation"),
+                        .init(value: .files, title: "Files changed", count: model.diffs[pr.url]?.files.count),
+                    ],
+                    selection: $tab
+                )
+                Spacer(minLength: 0)
+                if tab == .files {
+                    Segmented(
+                        options: [.init(value: DiffLayout.inline, title: "Inline"), .init(value: .split, title: "Side by side")],
+                        selection: Binding { fitsSplit ? layout : .inline } set: { layout = $0 }
+                    )
+                    .disabled(!fitsSplit)
+                    .help(fitsSplit ? "One column, or the old file beside the new" : "Too narrow for side by side: widen the window")
+                }
+            }
             switch tab {
             case .conversation: VStack(alignment: .leading, spacing: 24) { conversation }
-            case .files: PullRequestFiles(pr: pr, model: model)
+            case .files: PullRequestFiles(pr: pr, model: model, layout: fitsSplit ? layout : .inline)
             }
         }
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
     }
 }
 
@@ -1063,6 +1084,7 @@ private struct PullRequestMain<Conversation: View>: View {
 private struct PullRequestFiles: View {
     var pr: PullRequest
     var model: AppModel
+    var layout: DiffLayout
     /// The files whose fold you changed from how the diff opened: a large file opens folded, the rest unfolded.
     @State private var flipped: Set<String> = []
     @Environment(\.textScale) private var scale
@@ -1106,18 +1128,37 @@ private struct PullRequestFiles: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .reviewBox(.middle, fill: Theme.surface, line: Theme.rule)
                     }
-                    let rows = diff.rows[file.path] ?? []
-                    ForEach(rows.indices, id: \.self) { index in
-                        switch rows[index] {
-                        case .hunk(let header):
-                            DiffHunkRow(header: header).reviewBox(.middle, fill: Theme.surface, line: Theme.rule)
-                        case .line(let line):
-                            // One item with its threads, which are empty on nearly every line.
-                            VStack(alignment: .leading, spacing: 0) {
-                                DiffLineRow(line: line)
-                                DiffThreads(line: line, path: file.path, pr: pr, model: model)
+                    if layout == .split {
+                        let rows = diff.splitRows[file.path] ?? []
+                        ForEach(rows.indices, id: \.self) { index in
+                            switch rows[index] {
+                            case .hunk(let header):
+                                DiffHunkRow(header: header).reviewBox(.middle, fill: Theme.surface, line: Theme.rule)
+                            case .pair(let left, let right):
+                                // The threads of both sides under the pair, an unchanged line's once.
+                                VStack(alignment: .leading, spacing: 0) {
+                                    DiffSplitRow(left: left, right: right)
+                                    ForEach(left == right ? [left].compactMap { $0 } : [left, right].compactMap { $0 }, id: \.self) {
+                                        DiffThreads(line: $0, path: file.path, pr: pr, model: model)
+                                    }
+                                }
+                                .reviewBox(.middle, fill: Theme.surface, line: Theme.rule)
                             }
-                            .reviewBox(.middle, fill: Theme.surface, line: Theme.rule)
+                        }
+                    } else {
+                        let rows = diff.rows[file.path] ?? []
+                        ForEach(rows.indices, id: \.self) { index in
+                            switch rows[index] {
+                            case .hunk(let header):
+                                DiffHunkRow(header: header).reviewBox(.middle, fill: Theme.surface, line: Theme.rule)
+                            case .line(let line):
+                                // One item with its threads, which are empty on nearly every line.
+                                VStack(alignment: .leading, spacing: 0) {
+                                    DiffLineRow(line: line)
+                                    DiffThreads(line: line, path: file.path, pr: pr, model: model)
+                                }
+                                .reviewBox(.middle, fill: Theme.surface, line: Theme.rule)
+                            }
                         }
                     }
                     Color.clear.frame(height: 6).reviewBox(.bottom, fill: Theme.surface, line: Theme.rule)

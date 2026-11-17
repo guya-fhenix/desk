@@ -8,6 +8,8 @@ struct LoadedDiff {
     let sha: String
     let files: [DiffFile]
     let rows: [String: [DiffRow]]
+    /// The same rows side by side, for a PR's Files changed laid out that way.
+    let splitRows: [String: [SplitRow]]
     /// The files too large to open on their own: folded until you unfold them.
     let foldedAtFirst: Set<String>
 
@@ -16,6 +18,7 @@ struct LoadedDiff {
         self.files = files
         foldedAtFirst = files.foldedAtFirst()
         rows = Dictionary(files.map { ($0.path, $0.rows) }, uniquingKeysWith: { first, _ in first })
+        splitRows = rows.mapValues(\.split)
     }
 }
 
@@ -669,6 +672,45 @@ struct DiffLineRow: View {
         case .added: Theme.add
         case .removed: Theme.del
         case .context: .clear
+        }
+    }
+}
+
+/// One row of a side-by-side diff: the old file's line on the left, the new file's on the right, each with its number
+/// and tinted by what happened to it; a side with no line is shaded. Both halves stand as tall as the taller.
+struct DiffSplitRow: View {
+    var left: DiffLine?
+    var right: DiffLine?
+    @Environment(\.textScale) private var scale
+
+    var body: some View {
+        let type = DiffType(scale: scale)
+        HStack(alignment: .top, spacing: 0) {
+            half(left, number: left?.oldLine, type: type)
+            Rectangle().fill(Theme.rule).frame(width: 1)
+            half(right, number: right?.newLine, type: type)
+        }
+        .font(type.mono)
+        .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private func half(_ line: DiffLine?, number: Int?, type: DiffType) -> some View {
+        HStack(alignment: .top, spacing: 0) {
+            Text(number.map(String.init) ?? "").frame(width: type.gutter, alignment: .trailing).foregroundStyle(Theme.quiet)
+            // Six lines at most, as a unified row has.
+            Text(line.map { $0.marker + $0.text } ?? "").lineLimit(6).padding(.leading, 12)
+        }
+        .padding(.vertical, 2)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(tint(line))
+    }
+
+    private func tint(_ line: DiffLine?) -> Color {
+        guard let line else { return Theme.inset.opacity(0.6) }
+        switch line.kind {
+        case .added: return Theme.add
+        case .removed: return Theme.del
+        case .context: return .clear
         }
     }
 }
