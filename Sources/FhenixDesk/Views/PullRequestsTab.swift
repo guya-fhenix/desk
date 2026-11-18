@@ -1300,6 +1300,7 @@ private struct MergeButton: View {
     var busy: Bool
     var merge: (MergeMethod) -> Void
     @AppStorage("mergeMethod") private var method: MergeMethod = .squash
+    @State private var picking = false
 
     var body: some View {
         let enabled = blocker == nil && !busy
@@ -1309,21 +1310,27 @@ private struct MergeButton: View {
             }
             .buttonStyle(.plain)
             Rectangle().fill(enabled ? Color.white.opacity(0.4) : Theme.control).frame(width: 1, height: 18)
-            Menu {
-                // A tick on the way the button merges; one line under each, so the three stand the same height.
-                ForEach(MergeMethod.allCases, id: \.self) { option in
-                    Toggle(isOn: Binding { method == option } set: { _ in method = option }) {
-                        Text(option.title)
-                        Text(option.summary)
-                    }
-                }
-            } label: {
+            Button { picking = true } label: {
                 Image(systemName: "chevron.down").font(.system(size: 10, weight: .bold))
                     .foregroundStyle(enabled ? Color.white : Theme.quiet)
                     .frame(width: 30, height: 32).contentShape(Rectangle())
             }
-            .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
+            .buttonStyle(.plain)
             .accessibilityLabel("Other ways to merge")
+            // Drawn here rather than as a system menu, whose tick column sits tight against the text: GitHub's list, a
+            // row of the same height for each way, the tick in a column of its own.
+            .popover(isPresented: $picking, arrowEdge: .bottom) {
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(MergeMethod.allCases, id: \.self) { option in
+                        MergeOptionRow(option: option, picked: option == method) {
+                            method = option
+                            picking = false
+                        }
+                    }
+                }
+                .padding(6)
+                .scaledFrame(width: 300)
+            }
         }
         .scaled(.body.weight(.semibold))
         .foregroundStyle(enabled ? Color.white : Theme.quiet)
@@ -1331,6 +1338,37 @@ private struct MergeButton: View {
         .disabled(!enabled)
         .fixedSize()
         .help(blocker.map { "Can't merge yet: \($0)" } ?? "\(method.title); the arrow picks another way, which it keeps")
+    }
+}
+
+/// One way to merge in Merge's list: a tick in its own column while it is the button's, a clear gap, then the way and
+/// what it does to the commits on the line under it. Every row the same height; lit under the pointer.
+private struct MergeOptionRow: View {
+    var option: MergeMethod
+    var picked: Bool
+    var pick: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: pick) {
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                Image(systemName: "checkmark").font(.system(size: 11, weight: .bold)).foregroundStyle(Theme.ink)
+                    .frame(width: 14).opacity(picked ? 1 : 0)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(option.title).scaled(.body.weight(.semibold)).foregroundStyle(Theme.ink)
+                    Text(option.summary).scaled(.secondary).foregroundStyle(Theme.quiet)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .frame(minHeight: 52)
+            .background(hovering ? Theme.inset : .clear, in: RoundedRectangle(cornerRadius: 6))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .accessibilityAddTraits(picked ? .isSelected : [])
     }
 }
 
