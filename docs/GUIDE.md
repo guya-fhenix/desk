@@ -173,7 +173,7 @@ stay hidden and a review is one PR on `review-pr`.
 
 The review is yours. By the time a PR is ready, the author's self-review and CodeRabbit have run the review checklist on
 it. What is left is the person's part: does it do what the ticket asks, is the approach right, is the risk tier right,
-would How to revert work, do the tests prove it, and what does it change outside these PRs (other services, shared data,
+would its mitigation plan work, do the tests prove it, and what does it change outside these PRs (other services, shared data,
 deploys, production) that the diff alone does not show. The session summarizes the set, gives its take on each of those
 questions with where to look, follows your notes, and posts the comments and the verdicts you decide on, each PR's
 together.

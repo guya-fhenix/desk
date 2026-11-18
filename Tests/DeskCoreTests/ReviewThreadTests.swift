@@ -43,7 +43,7 @@ import Testing
             ("medium risk: 0 of 1 approvals on the latest commit", .counted(have: 0, needed: 1), "medium", false),
             ("high risk: 2 of 2 approvals on the latest commit", .counted(have: 2, needed: 2), "high", true),
             (
-                "high risk: 2 of 2 approvals on the latest commit; How to revert is not filled in the description",
+                "high risk: 2 of 2 approvals on the latest commit; Mitigation plan is not filled in the description",
                 .counted(have: 2, needed: 2), "high", true
             ),
             ("high risk: 1 of 2 approvals on the latest commit; CodeRabbit could not review", .counted(have: 1, needed: 2), "high", false),
