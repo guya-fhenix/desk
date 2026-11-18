@@ -27,6 +27,8 @@ enum Theme {
     static let quiet = dynamic(0x5C5B57, 0xA6A59F)
     static let danger = dynamic(0xB42318, 0xF07F6E)
     static let ok = dynamic(0x1A7F37, 0x57C27A)
+    /// GitHub's merge button: a green white text reads on, in both looks.
+    static let mergeGreen = dynamic(0x1F883D, 0x238636)
     static let warn = dynamic(0xB54708, 0xF2A65A)
     /// Diff lines added and removed.
     static let add = dynamic(0xE6F4EA, 0x18301F)
@@ -479,7 +481,11 @@ struct Avatar: View {
         .frame(width: (size * scale).rounded(), height: (size * scale).rounded())
         .clipShape(Circle())
         .help(login)
-        .task(id: key) { AvatarStore.shared.load(key, from: url ?? "https://github.com/\(login).png?size=64") }
+        // A GitHub App's login is its name with `[bot]` after it, which has no picture of its own; the name does.
+        .task(id: key) {
+            let handle = login.hasSuffix("[bot]") ? String(login.dropLast(5)) : login
+            AvatarStore.shared.load(key, from: url ?? "https://github.com/\(handle).png?size=64")
+        }
     }
 }
 

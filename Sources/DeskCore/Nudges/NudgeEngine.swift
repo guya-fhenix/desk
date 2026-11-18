@@ -49,6 +49,17 @@ public enum NudgeEngine {
                 let latest = pr.reviews.filter { $0.state == .changesRequested }.map(\.submittedAt).max() ?? pr.updatedAt
                 nudges.append(Nudge(id: "changes:\(pr.url):\(latest.timeIntervalSince1970)", kind: .changesRequested, severity: .warning, title: "Changes requested on \(label)", detail: pr.title, url: pr.url))
             }
+            // Someone other than you spoke last in an open thread in the last day: a new CodeRabbit or teammate thread, or
+            // a reply. Keyed by the newest such comment, so each is news once; your worker's replies are yours, and a
+            // thread resolved is gone, back to a key already sent.
+            let waiting = pr.threads.filter { ($0.lastAuthor ?? $0.author) != pr.author }
+            if let latest = waiting.compactMap(\.lastAt).max(), input.now.timeIntervalSince(latest) < 86_400 {
+                nudges.append(Nudge(
+                    id: "threads:\(pr.url):\(latest.timeIntervalSince1970)", kind: .newThreads, severity: .warning,
+                    title: "New review threads on \(label)",
+                    detail: "\(waiting.count) waiting on an answer · \(pr.title)", url: pr.url
+                ))
+            }
             if let reason = Linker.rebaseReason(pr, mergedHeads: input.mergedHeadsByRepo[pr.repo] ?? []) {
                 nudges.append(Nudge(id: "rebase:\(pr.url):\(reason.rawValue):\(pr.headSha)", kind: .needsRebase, severity: .warning, title: "\(label) needs a rebase", detail: "\(reason.text): \(pr.baseRef)", url: pr.url))
             }

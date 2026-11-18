@@ -14,7 +14,7 @@ final class Notifier {
     /// What a click on a notification does with its url: the model opens it on its screen in the window.
     static var onShow: ((String) -> Void)?
     private static let retention: TimeInterval = 30 * 86_400
-    private static let notifiedKinds: Set<NudgeKind> = [.ciFailed, .changesRequested, .readyToMerge, .needsRebase, .reviewRequested]
+    private static let notifiedKinds: Set<NudgeKind> = [.ciFailed, .changesRequested, .newThreads, .readyToMerge, .needsRebase, .reviewRequested]
 
     private let support: AppSupport
     private var delivered: [String: Date]

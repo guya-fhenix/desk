@@ -119,6 +119,7 @@ struct ThreadView: View {
     @State private var expanded = false
     @State private var toggling = false
     @State private var error: String?
+    @Environment(\.textScale) private var scale
 
     var body: some View {
         let open = !thread.isResolved || expanded
@@ -161,7 +162,12 @@ struct ThreadView: View {
             }
             if thread.isResolved, !open, let first {
                 // Folded: who started it and its first words, so it can be told from the others without opening it.
-                Text(first.name).fontWeight(.semibold).lineLimit(1).frame(minWidth: 72, alignment: .leading).fixedSize()
+                // One width for every row's who, so the first words line up down the card.
+                HStack(spacing: 6) {
+                    Avatar(login: first.author, url: first.avatar, size: 18)
+                    Text(first.name).fontWeight(.semibold).lineLimit(1)
+                }
+                .frame(width: (118 * scale).rounded(), alignment: .leading)
                 Text(first.firstLine).foregroundStyle(Theme.quiet).lineLimit(1)
             } else if showsLocation {
                 Text(thread.location).scaled(.code.weight(.medium)).lineLimit(1).truncationMode(.head)
@@ -210,12 +216,13 @@ struct ThreadView: View {
     }
 }
 
-/// Who wrote it: the name, and a bot marked as GitHub marks one.
+/// Who wrote it: their GitHub picture and name, and a bot marked as GitHub marks one.
 private struct AuthorName: View {
     var comment: ConversationComment
 
     var body: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: 6) {
+            Avatar(login: comment.author, url: comment.avatar, size: 20)
             Text(comment.name).fontWeight(.semibold).foregroundStyle(Theme.ink)
             if comment.isBot {
                 Text("bot").scaled(.caption).foregroundStyle(Theme.quiet)

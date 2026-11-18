@@ -2,6 +2,9 @@ import Foundation
 
 public enum NudgeKind: String, Codable, Sendable {
     case ciFailed, changesRequested, readyToMerge, needsRebase
+    /// Someone other than the author spoke last in an open review thread: a new thread from CodeRabbit or a person, or
+    /// a reply. Most reviewers only ever comment, so changes requested alone misses them.
+    case newThreads
     case reviewRequested
     /// A flow stage that moves only when you press something.
     case flowWaiting
@@ -11,7 +14,7 @@ public enum NudgeKind: String, Codable, Sendable {
     /// Which screen handles this one.
     public var screen: NudgeScreen {
         switch self {
-        case .ciFailed, .changesRequested, .readyToMerge, .needsRebase, .flowWaiting, .sessionNeedsYou:
+        case .ciFailed, .changesRequested, .newThreads, .readyToMerge, .needsRebase, .flowWaiting, .sessionNeedsYou:
             return .pullRequests
         case .reviewRequested: return .reviews
         }

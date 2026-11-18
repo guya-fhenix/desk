@@ -331,6 +331,23 @@ enum Snapshot {
             let xy = argument.split(separator: ",").compactMap { Double($0) }
             guard xy.count == 2 else { return print("move takes x,y") }
             print("pointer to \(argument): \(hover(window, at: NSPoint(x: xy[0], y: window.frame.height - xy[1])))")
+        case "click":
+            // `click:x,y`, from the window's top left: a press and a release through the window, as a click arrives.
+            let xy = argument.split(separator: ",").compactMap { Double($0) }
+            guard xy.count == 2 else { return print("click takes x,y") }
+            let point = NSPoint(x: xy[0], y: window.frame.height - xy[1])
+            for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+                NSEvent.mouseEvent(
+                    with: type, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                    windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: type == .leftMouseDown ? 1 : 0
+                ).map(window.sendEvent)
+            }
+            print("click \(argument)")
+        case "popshot":
+            // `popshot:<png>`: the popover a click opened, which is a window of its own beside the one `shot` draws.
+            guard let view = NSApp.windows.first(where: { $0 !== window && $0.isVisible && "\(type(of: $0))".contains("Popover") })?.contentView
+            else { return print("no popover open") }
+            write(layerImage(of: view), argument)
         default:
             print("unknown step \(step)")
         }

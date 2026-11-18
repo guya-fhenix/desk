@@ -77,7 +77,7 @@ struct NextStepCard: View {
         case .openThreads:
             return ("\(threads) wait on an answer. Tell the master to have its worker answer them.", true)
         case .readyToMerge:
-            return ("\(readiness). Merge it with Squash and merge above.", false)
+            return ("\(readiness). Merge it with the green Merge button above.", false)
         case .draft(.notRun):
             return ("A draft, not self-reviewed yet. Tell the master to have its worker run the self-review.", true)
         case .draft(.passed):

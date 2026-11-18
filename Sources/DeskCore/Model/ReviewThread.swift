@@ -23,10 +23,13 @@ public struct ReviewThread: Codable, Sendable, Hashable, Identifiable {
     public var body: String
     /// Every comment in the thread, the first included.
     public var comments: Int
+    /// Who wrote the newest comment, and when: whether the thread waits on the PR's author, and since when.
+    public var lastAuthor: String?
+    public var lastAt: Date?
 
     public init(
         id: String, path: String, line: Int? = nil, isOutdated: Bool = false, url: String, author: String, body: String,
-        comments: Int = 1
+        comments: Int = 1, lastAuthor: String? = nil, lastAt: Date? = nil
     ) {
         self.id = id
         self.path = path
@@ -36,6 +39,8 @@ public struct ReviewThread: Codable, Sendable, Hashable, Identifiable {
         self.author = author
         self.body = body
         self.comments = comments
+        self.lastAuthor = lastAuthor
+        self.lastAt = lastAt
     }
 
     public var source: Source {

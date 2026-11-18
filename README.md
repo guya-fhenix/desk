@@ -31,8 +31,9 @@ with live data into a PNG: `.build/debug/FhenixDesk --snapshot <pr url> <out.png
 one screen: `upNext`, `pullRequests`, `reviews`, `tickets`, `master`, `settings` (`pane=appearance` …), `setup`
 (`step=…`), or `menubar` (the popover alone); `open=<pr url or task id>` opens a page, `finder=<query>` opens Search,
 `asks=1` adds a sample question from the master. `steps=key:j;key:x;move:700,338;shot:<png>;report` presses keys in the
-window first (`j k x r m`, arrows, `return`, `space`, `escape`) and moves the pointer for hover (`move:x,y` from the
-window's top left), drawing and printing the state between them. `split` draws the real split view, whose sidebar
+window first (`j k x r m`, arrows, `return`, `space`, `escape`), moves the pointer for hover (`move:x,y` from the
+window's top left) or clicks (`click:x,y`), drawing and printing the state between them; `popshot:<png>` draws a popover
+a click opened. `split` draws the real split view, whose sidebar
 comes out blank off screen, and the `layout` step then says whether the screen fits the window's height; `frames:<prefix>:<n>`
 draws n frames 50 ms apart; `scroll:<points>` and `wheel:<points>:<events>` (a trackpad's swipe) scroll the tallest
 scroll view and time it; `tab=files` opens a PR's page on Files changed, and `diff=split` lays it side by side. Everything is drawn in-process, never captured
