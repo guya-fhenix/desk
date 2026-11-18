@@ -12,6 +12,30 @@ import Testing
         )
     }
 
+    /// A thread where someone other than the author spoke last, in the last day, is news once, keyed by that comment:
+    /// a CodeRabbit thread or a person's reply. The author's own reply, and an old thread, are not.
+    @Test func newThreadsWhenSomeoneElseSpokeLast() {
+        var pr = Fixtures.pr(number: 1170, head: "f", author: "me")
+        let hourAgo = Fixtures.t0.addingTimeInterval(-3_600)
+        func thread(_ id: String, last: String, at: Date) -> ReviewThread {
+            ReviewThread(id: id, path: "a.rs", url: "u", author: "coderabbitai[bot]", body: "b", lastAuthor: last, lastAt: at)
+        }
+        pr.threads = [
+            thread("t1", last: "coderabbitai[bot]", at: hourAgo),
+            thread("t2", last: "me", at: Fixtures.t0),  // answered by the author: not waiting
+            thread("t3", last: "bob", at: Fixtures.t0.addingTimeInterval(-7_200)),
+        ]
+        let new = NudgeEngine.nudges(input(mine: [pr])).filter { $0.kind == .newThreads }
+        #expect(new.map(\.id) == ["threads:\(pr.url):\(hourAgo.timeIntervalSince1970)"])
+        #expect(new.first?.title == "New review threads on cofhe#1170")
+        #expect(new.first?.detail.hasPrefix("2 waiting on an answer") == true)
+
+        pr.threads = [thread("t1", last: "coderabbitai[bot]", at: Fixtures.t0.addingTimeInterval(-2 * 86_400))]
+        #expect(NudgeEngine.nudges(input(mine: [pr])).filter { $0.kind == .newThreads }.isEmpty)
+        pr.threads = [thread("t2", last: "me", at: Fixtures.t0)]
+        #expect(NudgeEngine.nudges(input(mine: [pr])).filter { $0.kind == .newThreads }.isEmpty)
+    }
+
     /// A PR with a session says what its stage waits on you for, in place of the plain ready-to-merge nudge; a session that
     /// asks something says so, and one at work leaves nothing to press.
     @Test func aFlowSaysWhatWaitsOnYou() {

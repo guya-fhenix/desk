@@ -283,8 +283,8 @@ badge read.
 
 Desk feeds the master through two files in its folder. `graph.json` holds the tasks, their PRs and their workers,
 rewritten once every source has answered and whenever the tasks change. `events.jsonl` gets one line for each nudge Desk
-notifies you about (CI failed, a conflict or a base to rebase onto, changes requested, ready to merge, a review asked of
-you), which the master routes to the task's worker or to you. Only the installed app writes events: a build without a
+notifies you about (CI failed, a conflict or a base to rebase onto, changes requested, new review threads, ready to
+merge, a review asked of you), which the master routes to the task's worker or to you. Only the installed app writes events: a build without a
 bundle sends no notifications.
 
 Settings → Master shows whether the master runs and where, the folders it also sees (your repo roots until you list

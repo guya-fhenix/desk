@@ -308,7 +308,8 @@ public enum GitHubQueries {
     /// Your own PRs' search: each thread in full, for the PR page's list.
     public static let mineSearchQuery = searchQuery(threads: """
       reviewThreads(last: 100) { totalCount nodes { id isResolved isOutdated path line originalLine
-        comments(first: 1) { totalCount nodes { author { __typename login } body url } } } }
+        comments(first: 1) { totalCount nodes { author { __typename login } body url } }
+        last: comments(last: 1) { nodes { author { __typename login } createdAt } } } }
       """)
 
     private static func searchQuery(threads: String) -> String {
@@ -535,7 +536,8 @@ public enum GitHubDecoding {
                 return ReviewThread(
                     id: id, path: path, line: thread.line ?? thread.originalLine, isOutdated: thread.isOutdated ?? false,
                     url: first.url ?? node.url, author: first.author?.name ?? "ghost", body: body,
-                    comments: thread.comments?.totalCount ?? 1
+                    comments: thread.comments?.totalCount ?? 1,
+                    lastAuthor: thread.last?.nodes.first?.author?.name, lastAt: thread.last?.nodes.first?.createdAt
                 )
             },
             approvalStatus: commit?.status?.context.map { $0.description ?? "" }
@@ -758,6 +760,13 @@ public enum GitHubDecoding {
         var originalLine: Int?
         /// The first comment only, for who started the thread and what it says.
         var comments: ThreadComments?
+        /// The newest comment only, for who spoke last and when.
+        var last: LastComments?
+    }
+    private struct LastComments: Decodable { var nodes: [LastComment] }
+    private struct LastComment: Decodable {
+        var author: Login?
+        var createdAt: Date?
     }
     private struct ThreadComments: Decodable {
         var totalCount: Int?
