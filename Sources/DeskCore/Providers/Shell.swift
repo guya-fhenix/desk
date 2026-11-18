@@ -161,8 +161,10 @@ private final class ProcessRun: @unchecked Sendable {
                 DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + timeout, execute: work)
                 // The write blocks until the child has read it all, so it waits on a queue of its own rather than a
                 // cooperative thread, and after the timeout is armed, which ends a child that never reads. One that
-                // exits without reading fails the write with EPIPE: the app ignores SIGPIPE, which would kill it.
+                // exits without reading fails the write with EPIPE, not SIGPIPE, which would kill whatever process runs
+                // it: the pipe says so itself, so the tests are safe too and not only the app, which ignores SIGPIPE.
                 if let stdin, let handle = stdinPipe?.fileHandleForWriting {
+                    _ = fcntl(handle.fileDescriptor, F_SETNOSIGPIPE, 1)
                     DispatchQueue.global(qos: .utility).async {
                         try? handle.write(contentsOf: stdin)
                         try? handle.close()

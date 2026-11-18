@@ -106,6 +106,11 @@ struct PullRequestsTab: View {
                                 .padding(.top, group.id == groups.first?.id ? 2 : 0)
                                 .plainListRow().selectionDisabled()
                             ForEach(group.tasks) { task in
+                                // A hairline between tasks, so a task and the PRs under it read as one block.
+                                if task.id != group.tasks.first?.id {
+                                    Rectangle().fill(Theme.rule).frame(height: 1).padding(.horizontal, 10).padding(.vertical, 4)
+                                        .plainListRow().selectionDisabled()
+                                }
                                 // A task that is a PR is that PR's row: it selects and opens as any PR does. Tagged with
                                 // the PR, or the arrow keys and clicks select the task, which ForEach tags it with.
                                 if let root = Self.root(of: task) {
@@ -307,11 +312,18 @@ enum TaskHeader {
         return (task.id.split(separator: "/").last.map(String.init) ?? task.id).replacingOccurrences(of: "#", with: " #")
     }
 
-    static func icon(_ task: WorkTask) -> String {
+    /// Its origin's mark in its colour: Jira's in Jira blue for a ticket, a teal terminal for a session, and GitHub's icon
+    /// for a PR, green while open and grey for a draft.
+    @ViewBuilder static func icon(_ task: WorkTask) -> some View {
         switch task.origin {
-        case .ticket: return "ticket"
-        case .session: return "terminal"
-        case .pullRequest: return "arrow.triangle.pull"
+        case .ticket: SidebarIcon(name: SidebarIcon.jira).frame(width: 12, height: 12).foregroundStyle(Theme.jira)
+        case .session: Image(systemName: "terminal").font(.system(size: 11, weight: .medium)).foregroundStyle(Theme.session)
+        case .pullRequest:
+            if let root = PullRequestsTab.root(of: task) {
+                PRMark(pr: root)
+            } else {
+                Image(systemName: "arrow.triangle.pull").font(.system(size: 12)).foregroundStyle(Theme.quiet)
+            }
         }
     }
 
@@ -388,8 +400,7 @@ private struct TaskRow: View {
     var body: some View {
         ListRow(selected: selected) {
             HStack(alignment: .top, spacing: 10) {
-                Image(systemName: TaskHeader.icon(task)).font(.system(size: 12)).foregroundStyle(Theme.quiet)
-                    .frame(width: 18, height: 20)
+                TaskHeader.icon(task).frame(width: 18, height: 20)
                 Text(TaskHeader.label(task)).scaled(.code).foregroundStyle(Theme.quiet).lineLimit(1)
                     .scaledFrame(width: 160, height: 20, alignment: .leading)
                 VStack(alignment: .leading, spacing: 2) {
@@ -420,7 +431,7 @@ struct PullRequestRow: View {
     var model: AppModel
     var selected: Bool
     var indent: CGFloat = 0
-    /// Under its task's row: a line down the icon's column joins it to the task.
+    /// Under its task's row: a line down the icon's column, broken around its icon, joins it to the task.
     var nested = false
     /// Opens its page on a click; nil where a click selects it and Return opens it.
     var open: (() -> Void)? = nil
@@ -429,10 +440,7 @@ struct PullRequestRow: View {
         let pr = row.pullRequest
         ListRow(selected: selected, open: open, indent: indent) {
             HStack(alignment: .top, spacing: 10) {
-                Image(systemName: "arrow.triangle.pull")
-                    .font(.system(size: 12)).foregroundStyle(Theme.quiet)
-                    .frame(width: 18, height: 20)
-                    .opacity(row.depth > 0 || nested ? 0 : 1)
+                PRMark(pr: pr).frame(width: 18, height: 20)
                 StackRef(pr: pr, depth: row.depth, name: pr.taskRef).scaled(.code).foregroundStyle(Theme.quiet)
                     .scaledFrame(width: 160, height: 20, alignment: .leading)
                 VStack(alignment: .leading, spacing: 2) {
@@ -455,7 +463,12 @@ struct PullRequestRow: View {
             .background(alignment: .leading) {
                 if nested {
                     // Through the row's padding too, so the line runs on from the task's row to the next.
-                    Rectangle().fill(Theme.ruleStrong).frame(width: 1).padding(.leading, 8.5).padding(.vertical, -9)
+                    VStack(spacing: 0) {
+                        Rectangle().frame(width: 1, height: 10)
+                        Color.clear.frame(width: 1, height: 18)
+                        Rectangle().frame(width: 1)
+                    }
+                    .foregroundStyle(Theme.ruleStrong).padding(.leading, 8.5).padding(.vertical, -9)
                 }
             }
         }
@@ -474,8 +487,9 @@ struct PullRequestRow: View {
 
 /// A PR of yours fact by fact, each in a narrow column of its own under the list's header, so a column reads down the
 /// list: whether it's a draft, its self-review, its CI, its review, its open threads, and its branch against its base.
-/// A mark, and a word or a count where a mark can't say it; the words on hover, and in the details column. Nothing is
-/// summed into one word: ready to merge is every column green.
+/// A mark, and a word or a count where a mark can't say it, or nothing where there is nothing to see; the state a chip,
+/// green Open or a dashed grey Draft. The words on hover, and in the details column. Nothing is summed into one word:
+/// ready to merge is every column green.
 struct PullRequestFacets: View {
     var pr: PullRequest
     var rebase: RebaseReason?
@@ -487,7 +501,9 @@ struct PullRequestFacets: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            ForEach(Array(facts.enumerated()), id: \.offset) { index, fact in
+            StateChip(draft: pr.isDraft).scaledFrame(width: Self.columns[0].width, alignment: .leading)
+                .help(state.words).accessibilityElement(children: .ignore).accessibilityLabel(state.words)
+            ForEach(Array(facts.enumerated().dropFirst()), id: \.offset) { index, fact in
                 Self.cell(fact).scaledFrame(width: Self.columns[index].width, alignment: .leading)
             }
         }
@@ -526,7 +542,7 @@ struct PullRequestFacets: View {
         case .success: return Fact(symbol: "checkmark.circle.fill", words: "Passing", tone: .ok)
         case .failure, .error: return Fact(symbol: "xmark.circle.fill", words: "Failed", tone: .bad)
         case .pending, .expected: return Fact(symbol: "clock.fill", words: "Running", tone: .warn)
-        case .none: return Fact(text: "—", words: "No checks", tone: .neutral)
+        case .none: return Fact(words: "No checks", tone: .neutral)
         }
     }
 
@@ -534,7 +550,7 @@ struct PullRequestFacets: View {
         if pr.reviewDecision == .changesRequested {
             return Fact(symbol: "arrow.uturn.backward.circle.fill", words: "Changes requested", tone: .bad)
         }
-        if pr.isDraft { return Fact(text: "—", words: "Not asked yet: a draft", tone: .neutral) }
+        if pr.isDraft { return Fact(words: "Not asked yet: a draft", tone: .neutral) }
         switch pr.approvalGate?.state {
         case .counted(let have, let needed):
             return Fact(symbol: "person.fill.checkmark", text: "\(have)/\(needed)", words: "\(have) of \(needed) approvals",
@@ -550,7 +566,7 @@ struct PullRequestFacets: View {
 
     private var threads: Fact {
         let count = pr.unresolvedThreads
-        return count == 0 ? Fact(text: "—", words: "None open", tone: .neutral)
+        return count == 0 ? Fact(words: "None open", tone: .neutral)
             : Fact(symbol: "bubble.left.fill", text: "\(count)", words: "\(count) unresolved", tone: .warn)
     }
 
@@ -559,7 +575,7 @@ struct PullRequestFacets: View {
         case .conflicts: return Fact(symbol: "exclamationmark.triangle.fill", words: "Conflicts with \(pr.baseRef)", tone: .bad)
         case .behindBase: return Fact(symbol: "arrow.down.circle.fill", words: "Behind \(pr.baseRef)", tone: .warn)
         case .baseMerged: return Fact(symbol: "arrow.triangle.branch", words: "\(pr.baseRef) was merged: rebase onto \(pr.defaultBranch)", tone: .warn)
-        case nil: return Fact(text: "—", words: "Up to date", tone: .neutral)
+        case nil: return Fact(words: "Up to date", tone: .neutral)
         }
     }
 
@@ -625,6 +641,23 @@ struct PullRequestFacets: View {
             .textCase(.uppercase)
             .padding(.horizontal, 10)
             .padding(.bottom, 2)
+        }
+    }
+}
+
+/// A PR's state in the State column: a green Open chip, or a grey Draft one with a dashed edge, as GitHub dashes a
+/// draft's icon.
+private struct StateChip: View {
+    var draft: Bool
+
+    var body: some View {
+        if draft {
+            Text("Draft").scaled(.caption.weight(.medium)).foregroundStyle(Theme.quiet)
+                .padding(.horizontal, 5).padding(.vertical, 1)
+                .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(Theme.quiet.opacity(0.7), style: StrokeStyle(lineWidth: 1, dash: [2, 2])))
+                .fixedSize()
+        } else {
+            StageChip2(text: "Open", color: Theme.ok)
         }
     }
 }

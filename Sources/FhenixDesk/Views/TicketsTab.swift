@@ -62,6 +62,7 @@ struct TicketsTab: View {
                 Text("Status").scaledFrame(width: 108, alignment: .leading)
                 Text("Priority").scaledFrame(width: 84, alignment: .leading)
                 Text("PRs").scaledFrame(width: 84, alignment: .leading)
+                Text("Assignee").lineLimit(1).fixedSize().scaledFrame(width: 60, alignment: .leading)
             }
                 .scaled(.secondary).foregroundStyle(Theme.quiet)
                 .padding(EdgeInsets(top: 0, leading: 10, bottom: 6, trailing: 10 + Theme.Space.m))
@@ -252,7 +253,7 @@ struct TicketFilters: DynamicProperty {
 }
 
 /// One ticket in its status group, in the table's columns: its key in DM Mono, the summary, the status as a chip, the
-/// priority with its mark, and how many open PRs name it.
+/// priority with its mark, how many open PRs name it, and its assignee's picture, the name on hover.
 struct TicketRow: View {
     var ticket: Ticket
     var model: AppModel
@@ -274,6 +275,7 @@ struct TicketRow: View {
                 .scaledFrame(width: 84, alignment: .leading)
             Text(linked > 0 ? "\(linked) open" : "None").scaled(.secondary).foregroundStyle(linked > 0 ? Theme.ink : Theme.quiet)
                 .scaledFrame(width: 84, alignment: .leading)
+            AssigneeAvatar(ticket: ticket, size: 20).scaledFrame(width: 60, alignment: .leading)
         }
     }
 }
@@ -350,7 +352,12 @@ private struct TicketFields: View {
         FieldRows(labelWidth: 96) {
             FieldRow(label: "Status") { StageChip2(text: ticket.status, color: ticket.statusTone) }
             if let priority = ticket.priority { FieldRow(label: "Priority") { PriorityMark.text(priority) } }
-            FieldRow("Assignee", ticket.assignedToMe ? "You" : ticket.assignee ?? "Unassigned")
+            FieldRow(label: "Assignee") {
+                HStack(spacing: 6) {
+                    AssigneeAvatar(ticket: ticket, size: 18)
+                    Text(ticket.assignee.map { ticket.assignedToMe ? "\($0) (you)" : $0 } ?? (ticket.assignedToMe ? "You" : "Unassigned"))
+                }
+            }
             if let task = model.state.tasks.first(where: { $0.id == ticket.key }) {
                 FieldRow("Task", wait(task))
             }
@@ -595,7 +602,7 @@ private struct AssigneeAvatar: View {
         if let name = ticket.assignee {
             Avatar(login: name, url: ticket.assigneeAvatar, size: size)
         } else {
-            NobodyAvatar(size: size)
+            NobodyAvatar(size: size).help("Unassigned")
         }
     }
 }
