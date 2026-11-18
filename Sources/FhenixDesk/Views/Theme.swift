@@ -481,7 +481,11 @@ struct Avatar: View {
         .frame(width: (size * scale).rounded(), height: (size * scale).rounded())
         .clipShape(Circle())
         .help(login)
-        .task(id: key) { AvatarStore.shared.load(key, from: url ?? "https://github.com/\(login).png?size=64") }
+        // A GitHub App's login is its name with `[bot]` after it, which has no picture of its own; the name does.
+        .task(id: key) {
+            let handle = login.hasSuffix("[bot]") ? String(login.dropLast(5)) : login
+            AvatarStore.shared.load(key, from: url ?? "https://github.com/\(handle).png?size=64")
+        }
     }
 }
 
