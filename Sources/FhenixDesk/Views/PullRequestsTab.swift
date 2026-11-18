@@ -883,16 +883,39 @@ private struct TaskPullRequestDetails: View {
     }
 }
 
-/// Where a PR stands, as its page's header says it: what it waits on for an open one, in the colour of whose move it
-/// is, or how it ended. The chip every status in the app is.
+/// Where a PR stands, as the badge that leads the line under its page's title, as GitHub's state badge does: what it
+/// waits on for an open one, in the colour of whose move it is with a mark that says the same, or how it ended.
 struct TaskStatePill: View {
     var pr: PullRequest
 
     var body: some View {
+        let (title, symbol, tone) = look
+        let draft = pr.state == .open && RowState.of(pr).move == .draft
+        HStack(spacing: 5) {
+            Image(systemName: symbol).imageScale(.small)
+            Text(title)
+        }
+        .scaled(.secondary.weight(.semibold))
+        .foregroundStyle(draft ? Theme.ink : tone)
+        .padding(.horizontal, 8)
+        .frame(height: 24)
+        .background(draft ? Theme.chip : tone.opacity(0.14), in: RoundedRectangle(cornerRadius: 6))
+        .fixedSize()
+        .help(pr.state == .merged ? pr.mergedAt.map { "Merged \(Format.date($0))" } ?? "Merged" : title)
+    }
+
+    private var look: (String, String, Color) {
         switch pr.state {
-        case .open: StatePill(state: RowState.of(pr))
-        case .merged: StageChip2(text: "Merged", color: Theme.merged).help(pr.mergedAt.map { "Merged \(Format.date($0))" } ?? "Merged")
-        case .closed: StageChip2(text: "Closed", color: Theme.closed)
+        case .merged: return ("Merged", "arrow.triangle.merge", Theme.merged)
+        case .closed: return ("Closed", "xmark.circle.fill", Theme.closed)
+        case .open:
+            let state = RowState.of(pr)
+            switch state.move {
+            case .yoursToFix: return (state.title, "exclamationmark.circle.fill", Theme.danger)
+            case .yoursToMerge: return (state.title, "checkmark.circle.fill", Theme.ok)
+            case .others: return (state.title, "clock.fill", Theme.accentInk)
+            case .draft: return (state.title, "pencil", Theme.quiet)
+            }
         }
     }
 }
@@ -941,10 +964,13 @@ struct PullRequestPage: View {
             } trailing: {
                 EmptyView()
             }
-            Text(verbatim: "\(pr.taskRef) · \(pr.baseRef) ← \(pr.headRef) · \(Format.sizeBucket(pr.size)) +\(pr.additions) −\(pr.deletions)")
-                .scaled(.code).foregroundStyle(Theme.quiet).lineLimit(1).textSelection(.enabled)
+            HStack(spacing: 10) {
+                TaskStatePill(pr: pr)
+                Text(verbatim: "\(pr.taskRef) · \(pr.baseRef) ← \(pr.headRef) · \(Format.sizeBucket(pr.size)) +\(pr.additions) −\(pr.deletions)")
+                    .scaled(.code).foregroundStyle(Theme.quiet).lineLimit(1).textSelection(.enabled)
+            }
+            .padding(.top, 4)
         } actions: {
-            TaskStatePill(pr: pr)
             PullRequestActions(pr: pr, model: model)
         } main: {
             if let error = model.sessionErrors[pr.url] {
@@ -1193,7 +1219,7 @@ private struct PullRequestActions: View {
                         .buttonStyle(.desk).disabled(busy)
                         .help("Turn it back into a draft")
                     // A merge holds the PR in `busyFlows` until it is done.
-                    MergeButton(base: pr.baseRef, blocker: mergeBlocker, busy: busy) { merging = $0 }
+                    MergeButton(blocker: mergeBlocker, busy: busy) { merging = $0 }
                 }
             }
             Button { model.open(pr.url) } label: { OpenOnGitHubLabel() }.buttonStyle(.desk)
@@ -1266,27 +1292,29 @@ private struct PullRequestActions: View {
     }
 }
 
-/// Merge as GitHub's button has it: Squash and merge on its face, and on its arrow the three ways, each with what it
-/// does to the commits. Greyed, with why, while GitHub would refuse it.
+/// Merge as GitHub's button has it: green while the PR can merge, grey and greyed with why while it can't. Its face is
+/// the way you merge, a squash until you pick another on its arrow; the pick only changes the button, and is kept as
+/// yours until you pick again.
 private struct MergeButton: View {
-    var base: String
     var blocker: String?
     var busy: Bool
     var merge: (MergeMethod) -> Void
+    @AppStorage("mergeMethod") private var method: MergeMethod = .squash
 
     var body: some View {
         let enabled = blocker == nil && !busy
         HStack(spacing: 0) {
-            Button { merge(.squash) } label: {
-                Text(MergeMethod.squash.title).padding(.leading, 14).padding(.trailing, 11).frame(height: 32).contentShape(Rectangle())
+            Button { merge(method) } label: {
+                Text(method.title).padding(.leading, 14).padding(.trailing, 11).frame(height: 32).contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             Rectangle().fill(enabled ? Color.white.opacity(0.4) : Theme.control).frame(width: 1, height: 18)
             Menu {
-                ForEach(MergeMethod.allCases, id: \.self) { method in
-                    Button { merge(method) } label: {
-                        Text(method.title)
-                        Text(method.outcome(base))
+                // A tick on the way the button merges; one line under each, so the three stand the same height.
+                ForEach(MergeMethod.allCases, id: \.self) { option in
+                    Toggle(isOn: Binding { method == option } set: { _ in method = option }) {
+                        Text(option.title)
+                        Text(option.summary)
                     }
                 }
             } label: {
@@ -1299,10 +1327,10 @@ private struct MergeButton: View {
         }
         .scaled(.body.weight(.semibold))
         .foregroundStyle(enabled ? Color.white : Theme.quiet)
-        .background(enabled ? Theme.accent : Theme.inset, in: RoundedRectangle(cornerRadius: 7))
+        .background(enabled ? Theme.mergeGreen : Theme.inset, in: RoundedRectangle(cornerRadius: 7))
         .disabled(!enabled)
         .fixedSize()
-        .help(blocker.map { "Can't merge yet: \($0)" } ?? "Squash and merge; the arrow has the other ways")
+        .help(blocker.map { "Can't merge yet: \($0)" } ?? "\(method.title); the arrow picks another way, which it keeps")
     }
 }
 
@@ -1316,7 +1344,16 @@ extension MergeMethod {
         }
     }
 
-    /// What it does with the PR's commits, under its title in the menu and in the question before it goes out.
+    /// What it does with the commits, in one short line under its title in the menu.
+    var summary: String {
+        switch self {
+        case .squash: "All commits as one commit"
+        case .merge: "All commits, joined by a merge commit"
+        case .rebase: "All commits, replayed one by one"
+        }
+    }
+
+    /// What it does with the PR's commits, in the question before it goes out.
     func outcome(_ base: String) -> String {
         switch self {
         case .squash: "Its commits become one commit on \(base)."

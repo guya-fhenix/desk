@@ -129,10 +129,11 @@ while it asks you something) and when the PR last moved. Hover a mark for its wo
 same columns.
 
 Your PR's page leads with a back button (or ←) and a breadcrumb to Tasks, its title, which you can edit while it is
-open, and a line with its number, branches and size. On the right: a chip for where it stands; Ready for review on a
-draft, or on a ready PR Convert to draft and Merge, which squashes, with an arrow for a merge commit or a rebase as on
-GitHub (each asks first and merges only the head the page showed; greyed, with why, until it can); Open on GitHub; and
-⋯ with Copy Branch, Copy Link, and Close Pull Request…, which asks first. In the Tasks and Jira search boxes ↑ and ↓
+open, and a line led by a badge for where it stands, with its number, branches and size. On the right: Ready for
+review on a draft, or on a ready PR Convert to draft and Merge, green while it can merge and grey, with why, until it
+can. Merge squashes until you pick a merge commit or a rebase on its arrow, as on GitHub; the pick only changes the
+button and is kept until you pick again. It asks first and merges only the head the page showed. Then Open on GitHub,
+and ⋯ with Copy Branch, Copy Link, and Close Pull Request…, which asks first. In the Tasks and Jira search boxes ↑ and ↓
 walk the list. The wide column has two tabs. **Conversation** holds the description, editable too, and the
 conversation. **Files changed** holds the code the PR changed, a box per file that folds, with each review thread under
 the line it ends on, to reply to or resolve there (an outdated one has no line left, so only Conversation lists it); it

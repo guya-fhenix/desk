@@ -27,6 +27,8 @@ enum Theme {
     static let quiet = dynamic(0x5C5B57, 0xA6A59F)
     static let danger = dynamic(0xB42318, 0xF07F6E)
     static let ok = dynamic(0x1A7F37, 0x57C27A)
+    /// GitHub's merge button: a green white text reads on, in both looks.
+    static let mergeGreen = dynamic(0x1F883D, 0x238636)
     static let warn = dynamic(0xB54708, 0xF2A65A)
     /// Diff lines added and removed.
     static let add = dynamic(0xE6F4EA, 0x18301F)
