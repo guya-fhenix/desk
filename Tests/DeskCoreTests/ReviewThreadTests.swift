@@ -7,8 +7,9 @@ import Testing
         ReviewThread(id: id, path: path, line: line, url: "https://github.com/o/r/pull/1#discussion_r\(id)", author: author, body: body)
     }
 
-    @Test func sourceIsPrePRByMarkerThenCodeRabbitByAuthor() {
-        #expect(thread("1", author: "me", body: "<!-- pre-pr:finding -->\n**Nit** · x").source == .prePR)
+    @Test func sourceIsCodeRabbitByAuthorElsePeople() {
+        // An old self-review's finding thread is the author's, a person's.
+        #expect(thread("1", author: "me", body: "<!-- pre-pr:finding -->\n**Nit** · x").source == .people)
         #expect(thread("2", author: "coderabbitai[bot]", body: "**Minor** · x").source == .codeRabbit)
         #expect(thread("3", author: "coderabbitai", body: "**Minor** · x").source == .codeRabbit)
         #expect(thread("4", author: "alice", body: "Why?").source == .people)
@@ -25,8 +26,8 @@ import Testing
             thread("5", author: "alice", body: "And this?"),
             thread("6", author: "alice", body: "Here too."),
         ]
-        #expect(threads.byWho.map(\.who) == ["/pre-pr", "CodeRabbit", "@alice", "@bob"])
-        #expect(threads.byWho.map(\.count) == [1, 2, 2, 1])
+        #expect(threads.byWho.map(\.who) == ["CodeRabbit", "@alice", "@bob", "@me"])
+        #expect(threads.byWho.map(\.count) == [2, 2, 1, 1])
         #expect([ReviewThread]().byWho.isEmpty)
     }
 }
@@ -42,7 +43,7 @@ import Testing
             ("medium risk: 0 of 1 approvals on the latest commit", .counted(have: 0, needed: 1), "medium", false),
             ("high risk: 2 of 2 approvals on the latest commit", .counted(have: 2, needed: 2), "high", true),
             (
-                "high risk: 2 of 2 approvals on the latest commit; How to revert is not filled in the author's /pre-pr evidence comment",
+                "high risk: 2 of 2 approvals on the latest commit; How to revert is not filled in the description",
                 .counted(have: 2, needed: 2), "high", true
             ),
             ("high risk: 1 of 2 approvals on the latest commit; CodeRabbit could not review", .counted(have: 1, needed: 2), "high", false),

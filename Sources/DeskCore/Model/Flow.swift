@@ -21,7 +21,7 @@ public enum FlowStage: String, Sendable, CaseIterable {
     /// The stages that move only when you press something, once the session is not at work.
     public var waitsOnYou: Bool { [.draft, .approved].contains(self) }
 
-    /// A PR's stage: a draft is a draft, whatever /pre-pr has done on it (`PrePRStatus` says that); a ready PR with the
+    /// A PR's stage: a draft is a draft, whatever its self-review found (`SelfReviewStatus` says that); a ready PR with the
     /// approvals it needs, nothing open, CI not red and no conflicts is ready to merge, and in review until then. The one
     /// definition of ready: the stage, the ready-to-merge nudge and Up Next all go by it.
     public static func of(_ pr: PullRequest) -> FlowStage {
@@ -39,19 +39,19 @@ public enum FlowStage: String, Sendable, CaseIterable {
 /// What one of your open PRs waits on, as its row's one pill says it: the first of these that holds, in this order, so a
 /// row says one thing rather than three chips and a stage. Ready to merge is the flow's own definition.
 public enum RowState: Sendable, Equatable {
-    case conflicts, ciFailed, changesRequested, readyToMerge, draft(PrePRStatus), openThreads(Int), waitingOnReview
+    case conflicts, ciFailed, changesRequested, readyToMerge, draft(SelfReviewStatus), openThreads(Int), waitingOnReview
 
     /// Whose move it is, which colours the pill: yours to fix, yours to merge, someone else's, or a draft's, which is
     /// yours but not yet asked of anyone.
     public enum Move: Sendable { case yoursToFix, yoursToMerge, others, draft }
 
-    /// A draft keeps its own pill with threads open: /pre-pr's findings are threads, and "finding open" says so.
+    /// A draft keeps its own pill, threads open or not: it says whether its self-review passed.
     public static func of(_ pr: PullRequest) -> RowState {
         if pr.hasConflicts { return .conflicts }
         if pr.checks.isRed { return .ciFailed }
         if pr.reviewDecision == .changesRequested { return .changesRequested }
         if FlowStage.of(pr) == .approved { return .readyToMerge }
-        if pr.isDraft { return .draft(PrePRStatus.of(pr)) }
+        if pr.isDraft { return .draft(SelfReviewStatus.of(pr)) }
         if pr.unresolvedThreads > 0 { return .openThreads(pr.unresolvedThreads) }
         return .waitingOnReview
     }
@@ -82,8 +82,8 @@ public enum RowState: Sendable, Equatable {
 
 /// Whether the self-review passed on a PR: its `local-reviewed` label, the one thing it leaves on GitHub. Its findings
 /// stay in the worker's session.
-public enum PrePRStatus: Sendable, Equatable {
+public enum SelfReviewStatus: Sendable, Equatable {
     case notRun, passed
 
-    public static func of(_ pr: PullRequest) -> PrePRStatus { pr.isLocallyReviewed ? .passed : .notRun }
+    public static func of(_ pr: PullRequest) -> SelfReviewStatus { pr.isLocallyReviewed ? .passed : .notRun }
 }

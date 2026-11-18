@@ -75,17 +75,17 @@ import Testing
     }
 
     /// A draft says whether its self-review passed: its label.
-    @Test func aDraftSaysWhetherPrePRPassed() {
+    @Test func aDraftSaysWhetherItsSelfReviewPassed() {
         var pr = Fixtures.pr(number: 4, head: "d", draft: true)
         let key = ClaudeJobs.prKey(pr.url)!
         var flow = input(mine: [pr])
         flow.sessions = [ClaudeJob(id: "aaaaaaaa", name: "s", state: "done", cwd: "/r/cofhe", prKeys: [key], updatedAt: Fixtures.t0, startedOn: [key])]
         let waiting = { NudgeEngine.nudges(flow).first { $0.kind == .flowWaiting }?.title }
-        #expect(PrePRStatus.of(pr) == .notRun)
+        #expect(SelfReviewStatus.of(pr) == .notRun)
         #expect(waiting() == "cofhe#4 is a draft: its self-review hasn't run")
-        pr.labels = [PrePR.reviewedLabel]
+        pr.labels = [SelfReview.reviewedLabel]
         flow.mine = [pr]
-        #expect(PrePRStatus.of(pr) == .passed)
+        #expect(SelfReviewStatus.of(pr) == .passed)
         #expect(waiting() == "cofhe#4 passed its self-review: mark it ready")
         #expect(pr.isLocallyReviewed)
     }

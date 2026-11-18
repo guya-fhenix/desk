@@ -65,7 +65,7 @@ import Testing
             ("approved, a thread still open", pr(threads: 1, review: .approved), .openThreads(1), .yoursToFix),
             ("in review, threads open", pr(threads: 2), .openThreads(2), .yoursToFix),
             ("a draft keeps its pill with threads open", pr(draft: true, threads: 1), .draft(.notRun), .draft),
-            ("a draft /pre-pr has not run on", pr(draft: true), .draft(.notRun), .draft),
+            ("a draft its self-review has not passed", pr(draft: true), .draft(.notRun), .draft),
             ("waiting on review", pr(), .waitingOnReview, .others),
         ]
         for (name, pr, state, move) in cases {
@@ -73,7 +73,7 @@ import Testing
             #expect(RowState.of(pr).move == move, "\(name)")
         }
         var passed = pr(draft: true)
-        passed.labels = [PrePR.reviewedLabel]
+        passed.labels = [SelfReview.reviewedLabel]
         #expect(RowState.of(passed).title == "Draft · self-reviewed")
         #expect(RowState.openThreads(1).title == "1 open thread" && RowState.openThreads(3).title == "3 open threads")
         #expect(FlowStage.of(conflicting) == .inReview, "a conflict is never ready to merge")
