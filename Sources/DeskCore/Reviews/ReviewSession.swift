@@ -93,33 +93,8 @@ extension DeskService {
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: showHelper.path)
     }
 
-    /// What a review session is told on top of its own instructions: how to move the diff beside it. Fixed, not a
-    /// Settings prompt, because the app parses what comes back.
-    public static func reviewLinkInstructions(for pr: PullRequest) -> String {
-        """
-        Fhenix Desk shows the diff of \(pr.url) beside you, and that is how the reviewer moves through the code. \
-        Whenever you point at a specific line of that diff, also move their view there by running exactly this \
-        command, without quotes: \(showHelper.path) \(DeskLink.scheme)://show/\(pr.repo)/\(pr.number)/<side>/<line>/<path> — \
-        <side> is new for an added or unchanged line (its number in the new file) and old for a removed line (its \
-        number in the old file); <path> is the file's path as the diff shows it. Lines the reviewer selects in the \
-        diff arrive pasted into your input, with their path and line numbers.
-        """
-    }
-
-    /// The arguments of the regular `claude` a review runs in its own pane in iTerm. The allowed `showHelper` is what
-    /// lets the session move the diff without asking each time; the prompt goes last, because `--allowedTools` takes
-    /// every argument after it up to the next option.
-    /// For a clone whose sessions have no `review-teammate-task` yet: one PR on `review-pr`, and the ticket it is for.
-    public static func reviewArguments(for pr: PullRequest, ticket: String?) -> [String] {
-        let prompt = "/fhenix-workflow:\(ClaudePlugins.reviewPR) \(pr.url)" + (ticket.map { "\n\nThe ticket it is for:\n\n\($0)" } ?? "")
-        return [
-            "--allowedTools", "Bash(\(showHelper.path) *)",
-            "--append-system-prompt", reviewLinkInstructions(for: pr),
-            prompt,
-        ]
-    }
-
-    /// How a session reviewing several PRs moves the diff: the same link, naming the PR the line belongs to.
+    /// What a review session is told on top of its own instructions: how to move the diff beside it, a link naming
+    /// the PR the line belongs to. Fixed, not a Settings prompt, because the app parses what comes back.
     public static func groupLinkInstructions(for pullRequests: [PullRequest]) -> String {
         """
         Fhenix Desk shows the diff of the PR you are on beside you: \(pullRequests.map(\.url).joined(separator: ", ")). \

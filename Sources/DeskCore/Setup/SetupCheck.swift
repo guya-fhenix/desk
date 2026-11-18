@@ -53,7 +53,7 @@ public struct SetupCheck: Identifiable, Sendable, Equatable {
             case .github: return "Required: gh must be signed in, with the read:org scope, to list the org's pull requests."
             case .jira: return "Jira tickets and the ticket sync stay off."
             case .claudeAccount: return "Sessions cannot start."
-            case .workflowPlugin: return "The master, its workers and Start review run on its skills: 1.0 or later reviews several PRs together."
+            case .workflowPlugin: return "The master, its workers and Start review run on its skills, 1.0 or later."
             }
         }
     }
@@ -268,8 +268,8 @@ public enum Setup {
     }
 
     /// Installed for your user, in the Claude Code Desk runs: the master, its workers and review sessions need it in
-    /// every repo they work in, so one repo's install doesn't count. An install with no review skill, neither
-    /// review-teammate-task (1.0) nor review-pr (0.8), is flagged: Start review stays off.
+    /// every repo they work in, so one repo's install doesn't count. An install without review-teammate-task (1.0) is
+    /// flagged: Start review stays off.
     public static func workflowPlugin(marketplaces: Data?, installed: Data?) -> SetupCheck {
         let known = (marketplaces.flatMap { try? JSONSerialization.jsonObject(with: $0) } as? [String: Any]) ?? [:]
         let name = known.first { _, value in
@@ -283,12 +283,11 @@ public enum Setup {
             let detail = "\(ClaudePlugins.plugin) \(Array(Set(versions)).sorted().joined(separator: ", "))"
             let reviews = records.contains { record in
                 guard let path = record["installPath"] as? String else { return false }
-                return [ClaudePlugins.reviewTeammateTask, ClaudePlugins.reviewPR]
-                    .contains { FileManager.default.fileExists(atPath: "\(path)/skills/\($0)/SKILL.md") }
+                return FileManager.default.fileExists(atPath: "\(path)/skills/\(ClaudePlugins.reviewTeammateTask)/SKILL.md")
             }
             guard reviews else {
                 return SetupCheck(.workflowPlugin, ok: false,
-                                  detail: "\(detail), without a review skill: update it to 1.0 or later for Start review.")
+                                  detail: "\(detail), without \(ClaudePlugins.reviewTeammateTask): update it to 1.0 or later for Start review.")
             }
             return SetupCheck(.workflowPlugin, ok: true, detail: detail)
         }

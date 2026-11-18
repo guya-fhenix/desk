@@ -175,17 +175,15 @@ import Testing
         // No review skill at all: Start review stays off, and the note says what to get.
         try installed(old, "0.7.0")
         let stale = ClaudePlugins.reviewSkill(home: home)
-        #expect(stale == ReviewSkill(state: .noSkill, version: "0.7.0", missing: ["review-pr"]))
-        #expect(stale.text == "fhenix-workflow 0.7.0 has no review-pr — update the plugin")
+        #expect(stale == ReviewSkill(state: .noSkill, version: "0.7.0", missing: ["review-teammate-task"]))
+        #expect(stale.text == "fhenix-workflow 0.7.0 has no review-teammate-task — update the plugin")
         // A repo's install is not the user's.
         try installed(new, "1.0.0", scope: "project")
         #expect(skill() == .notInstalled)
-        // review-pr: one PR at a time.
+        // review-pr, the old flow's, is no review skill any more.
         try installed(mid, "0.8.2")
-        let one = ClaudePlugins.reviewSkill(home: home)
-        #expect(one == ReviewSkill(state: .ready, version: "0.8.2"))
-        #expect(one.reviewSkill == "review-pr" && one.text == "fhenix-workflow 0.8.2 · review-pr")
-        // review-teammate-task: any set of PRs, and nothing missing although review-pr is gone.
+        #expect(ClaudePlugins.reviewSkill(home: home) == ReviewSkill(state: .noSkill, version: "0.8.2", missing: ["review-teammate-task"]))
+        // review-teammate-task: one PR or any set of them.
         try installed(new, "1.0.0")
         let group = ClaudePlugins.reviewSkill(home: home)
         #expect(group == ReviewSkill(state: .ready, version: "1.0.0", groupReview: true))

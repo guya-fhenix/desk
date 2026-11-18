@@ -117,8 +117,8 @@ import Testing
         let marketplaces = Data(#"{"fhenix":{"source":{"source":"github","repo":"FhenixProtocol/claude-marketplace"}}}"#.utf8)
         let new = FileManager.default.temporaryDirectory.appending(path: "desk-plugin-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: new) }
-        try FileManager.default.createDirectory(at: new.appending(path: "skills/review-pr"), withIntermediateDirectories: true)
-        try Data().write(to: new.appending(path: "skills/review-pr/SKILL.md"))
+        try FileManager.default.createDirectory(at: new.appending(path: "skills/review-teammate-task"), withIntermediateDirectories: true)
+        try Data().write(to: new.appending(path: "skills/review-teammate-task/SKILL.md"))
         let installed = Data(#"""
         {"plugins":{"fhenix-workflow@fhenix":[{"scope":"user","version":"0.8.1","installPath":"\#(new.path)"},
           {"scope":"project","version":"0.7.0","installPath":"/nonexistent"}]}}
@@ -139,14 +139,14 @@ import Testing
         let old = Data(#"{"plugins":{"fhenix-workflow@fhenix":[{"scope":"user","version":"0.7.0","installPath":"/nonexistent"}]}}"#.utf8)
         let stale = Setup.workflowPlugin(marketplaces: marketplaces, installed: old)
         #expect(!stale.ok)
-        #expect(stale.detail.contains("without a review skill"))
-        // 1.0 has review-teammate-task and no review-pr: that is a review skill too.
-        let group = FileManager.default.temporaryDirectory.appending(path: "desk-plugin-\(UUID().uuidString)")
-        defer { try? FileManager.default.removeItem(at: group) }
-        try FileManager.default.createDirectory(at: group.appending(path: "skills/review-teammate-task"), withIntermediateDirectories: true)
-        try Data().write(to: group.appending(path: "skills/review-teammate-task/SKILL.md"))
-        let current = Data(#"{"plugins":{"fhenix-workflow@fhenix":[{"scope":"user","version":"1.0.0","installPath":"\#(group.path)"}]}}"#.utf8)
-        #expect(Setup.workflowPlugin(marketplaces: marketplaces, installed: current).ok)
+        #expect(stale.detail.contains("without review-teammate-task"))
+        // An install with only the old flow's review-pr is flagged the same way.
+        let oldFlow = FileManager.default.temporaryDirectory.appending(path: "desk-plugin-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: oldFlow) }
+        try FileManager.default.createDirectory(at: oldFlow.appending(path: "skills/review-pr"), withIntermediateDirectories: true)
+        try Data().write(to: oldFlow.appending(path: "skills/review-pr/SKILL.md"))
+        let pre = Data(#"{"plugins":{"fhenix-workflow@fhenix":[{"scope":"user","version":"0.8.2","installPath":"\#(oldFlow.path)"}]}}"#.utf8)
+        #expect(!Setup.workflowPlugin(marketplaces: marketplaces, installed: pre).ok)
         // Marketplace known: install from it by its local name. Unknown: add it first.
         #expect(Setup.workflowPlugin(marketplaces: marketplaces, installed: nil).fixes.first?.command
             == "claude plugin install fhenix-workflow@fhenix --scope user")
