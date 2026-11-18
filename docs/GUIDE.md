@@ -34,8 +34,7 @@ bring it back. **Tools** checks Homebrew, the Command Line Tools, `gh` (2.81.0 o
 sign-ins as JSON; an older one gets an Upgrade press), `acli` and Claude Code; **Sign in** checks `gh`
 (the active account, with the `repo` and `read:org` scopes), `acli jira`, `claude` and the `fhenix-workflow` plugin,
 installed for your user in the Claude Code Desk runs (one repo's install doesn't count: the master, its workers and
-review sessions need it in every repo), with a review skill: `review-teammate-task` (1.0, any set of PRs) or `review-pr`
-(0.8, one PR). Settings → Master shows the same check, with Install. Each check is read
+review sessions need it in every repo), with its review skill, `review-teammate-task` (1.0 or later). Settings → Master shows the same check, with Install. Each check is read
 off the tool every time. GitHub and Jira ask for a token there (Create a token opens GitHub with a classic token's scopes
 ticked, or Atlassian's API tokens page), with Use the browser beside it. Install, Use the browser and the other fixes run
 their command in a window of your terminal app (iTerm2 unless Settings → Master says Terminal), in a login shell, so you
@@ -169,11 +168,11 @@ and **Review together** (R) opens a sheet that asks for notes (what
 to focus on, what to check, what you already know) and starts one review session for all of them, on the
 fhenix-workflow `review-teammate-task` skill, in the first PR's clone with the others' clones added. **Start review** on one
 PR asks for notes the same way. Where the skill is not there, from the plugin folder or the installed plugin, the ticks
-stay hidden and a review is one PR on `review-pr`.
+stay hidden and Start review says what to install.
 
 The review is yours. By the time a PR is ready, the author's self-review and CodeRabbit have run the review checklist on
 it. What is left is the person's part: does it do what the ticket asks, is the approach right, is the risk tier right,
-would How to revert work, do the tests prove it, and what does it change outside these PRs (other services, shared data,
+would its mitigation plan work, do the tests prove it, and what does it change outside these PRs (other services, shared data,
 deploys, production) that the diff alone does not show. The session summarizes the set, gives its take on each of those
 questions with where to look, follows your notes, and posts the comments and the verdicts you decide on, each PR's
 together.

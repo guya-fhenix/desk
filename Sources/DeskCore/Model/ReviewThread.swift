@@ -6,7 +6,7 @@ import Foundation
 public struct ReviewThread: Codable, Sendable, Hashable, Identifiable {
     /// Who started the thread.
     public enum Source: Sendable {
-        case prePR, codeRabbit, people
+        case codeRabbit, people
     }
 
     /// The node id.
@@ -44,18 +44,14 @@ public struct ReviewThread: Codable, Sendable, Hashable, Identifiable {
     }
 
     public var source: Source {
-        if body.contains(PrePR.findingMarker) { return .prePR }
         return author == "coderabbitai" || author == PullRequest.codeRabbit ? .codeRabbit : .people
     }
 }
 
 extension Array where Element == ReviewThread {
-    /// How many threads each one started: /pre-pr and CodeRabbit first, then each person, the most first.
+    /// How many threads each one started: CodeRabbit first, then each person, the most first.
     public var byWho: [(who: String, count: Int)] {
-        let tools: [(who: String, count: Int)] = [
-            ("/pre-pr", filter { $0.source == .prePR }.count),
-            ("CodeRabbit", filter { $0.source == .codeRabbit }.count),
-        ]
+        let tools: [(who: String, count: Int)] = [("CodeRabbit", filter { $0.source == .codeRabbit }.count)]
         let people = Dictionary(grouping: filter { $0.source == .people }, by: \.author)
             .map { (who: "@\($0.key)", count: $0.value.count) }
             .sorted { ($0.count, $1.who) > ($1.count, $0.who) }
@@ -63,11 +59,9 @@ extension Array where Element == ReviewThread {
     }
 }
 
-/// What the fhenix-workflow self-review leaves on a PR: a marker on the first comment of each finding thread an older one
-/// started, and its label.
-public enum PrePR {
-    public static let findingMarker = "<!-- pre-pr:finding -->"
-    /// The label /pre-pr adds once none of its Important findings is open, and takes off while one is: the one the
-    /// review flow's `local-review-evidence` check looks for.
+/// What the fhenix-workflow self-review leaves on a PR: only its label. Its findings stay in the author's session.
+public enum SelfReview {
+    /// The label the self-review adds once none of its Important findings is open, and takes off while one is: the one
+    /// the review flow's `local-review-evidence` check looks for.
     public static let reviewedLabel = "local-reviewed"
 }

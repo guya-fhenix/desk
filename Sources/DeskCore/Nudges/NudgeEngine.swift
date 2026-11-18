@@ -106,7 +106,7 @@ public enum NudgeEngine {
             let title: String
             switch stage {
             case .draft:
-                switch PrePRStatus.of(pr) {
+                switch SelfReviewStatus.of(pr) {
                 case .notRun: title = "\(label) is a draft: its self-review hasn't run"
                 case .passed: title = "\(label) passed its self-review: mark it ready" + (threads > 0 ? ", \(open) left" : "")
                 }

@@ -802,8 +802,7 @@ final class AppModel {
 
     // MARK: Reviews
 
-    /// The window a review session runs in, keyed by its group, or by the one PR it reviews.
-    private static func reviewTab(_ pr: PullRequest) -> String { PaneSpec.reviewKey(pr.url) }
+    /// The window a review session runs in, keyed by its group of PRs, one or several.
     private static func groupTab(_ group: ReviewGroup) -> String { PaneSpec.reviewKey("group:\(group.id)") }
 
     /// The PRs reviewed together, newest last, each group with its own review session.
@@ -812,10 +811,9 @@ final class AppModel {
     /// The newest group a PR is reviewed in.
     func reviewGroup(for pr: PullRequest) -> ReviewGroup? { reviewGroups.last { $0.contains(pr.url) } }
 
-    /// The pane where this PR's review session runs: its group's, or its own.
+    /// The pane where this PR's review session runs: its group's.
     private func runningReviewTab(_ pr: PullRequest) -> String? {
-        let tabs = [reviewGroup(for: pr).map(Self.groupTab), Self.reviewTab(pr)].compactMap { $0 }
-        return tabs.first { panes.contains($0) }
+        reviewGroup(for: pr).map(Self.groupTab).flatMap { panes.contains($0) ? $0 : nil }
     }
 
     /// The review session's pane in front.
@@ -836,7 +834,7 @@ final class AppModel {
 
     func reviewRunning(_ pr: PullRequest) -> Bool { runningReviewTab(pr) != nil }
 
-    /// Whether a review of this PR can take others with it, and your notes: its clone's sessions have
+    /// Whether this PR can be reviewed here, alone or with others and your notes: its clone's sessions have
     /// `review-teammate-task`.
     func canReviewTogether(_ pr: PullRequest) -> Bool { state.reviewSkill(for: pr)?.groupReview == true }
 
@@ -877,8 +875,9 @@ final class AppModel {
             sessionErrors[first.url] = "No clone of \(first.repo) here: the review session starts in the repository's checkout."
             return
         }
-        guard canReviewTogether(first) else {
-            sessionErrors[first.url] = "Reviewing together needs the \(ClaudePlugins.reviewTeammateTask) skill: fhenix-workflow 1.0, "
+        // Read again here rather than from the last scan, so a plugin updated a moment ago counts.
+        guard ClaudePlugins.reviewSkill(pluginDir: config.pluginDir).groupReview else {
+            sessionErrors[first.url] = "A review session needs the \(ClaudePlugins.reviewTeammateTask) skill: fhenix-workflow 1.0, "
                 + "or a plugin folder that has it in Settings → Master → Load plugins from."
             return
         }
@@ -903,10 +902,8 @@ final class AppModel {
         )
     }
 
-    /// Start review on a teammate's PR: its diff on the Reviews screen, and a regular Claude session on the
-    /// review-pr skill in a window of its own in iTerm — or the one already running there. Not a background session: Claude's
-    /// own agents view backgrounds it if you want. It starts in the repository's checkout, where Claude Code reads
-    /// the project's plugins; the skill reads the PR's code at its head without checking anything out.
+    /// Start review on a teammate's PR: a review of one on `review-teammate-task`, with its diff on the Reviews screen, or
+    /// the session already running for it.
     func startReview(_ pr: PullRequest) {
         sessionErrors[pr.url] = nil
         reviewing = pr.url
@@ -915,36 +912,7 @@ final class AppModel {
             showReview(pr)
             return
         }
-        // Where review-teammate-task is there, one PR is a group of one: review-pr may not be there any more.
-        if canReviewTogether(pr) {
-            startReview([pr], notes: "")
-            return
-        }
-        guard let claude = config.resolvedClaudePath else {
-            sessionErrors[pr.url] = DeskError.claudeNotFound.description
-            return
-        }
-        guard let repo = state.localRepo(for: pr) else {
-            sessionErrors[pr.url] = "No clone of \(pr.repo) here: the review session starts in the repository's checkout."
-            return
-        }
-        // Read again here rather than from the last scan, so a plugin updated a moment ago counts.
-        let skill = ClaudePlugins.reviewSkill(pluginDir: config.pluginDir)
-        guard skill.has(ClaudePlugins.reviewPR) else {
-            sessionErrors[pr.url] = "Can't start the review session: \(skill.text). Settings → Master installs it."
-            return
-        }
-        do {
-            try DeskService.installShowHelper()
-        } catch {
-            sessionErrors[pr.url] = "Can't start the review session: couldn't write \(DeskService.showHelper.path): \(error)"
-            return
-        }
-        let ticket = DeskService.reviewTicket(for: pr, tickets: state.tickets, projectKeys: config.jiraProjectKeys)
-        openReview(
-            key: Self.reviewTab(pr), name: "review \(pr.repoName)#\(pr.number)", claude: claude,
-            arguments: DeskService.reviewArguments(for: pr, ticket: ticket), directory: repo.root
-        )
+        startReview([pr], notes: "")
     }
 
     /// Fetches the PR's diff for the review screen: once per head, or again when `force`d.

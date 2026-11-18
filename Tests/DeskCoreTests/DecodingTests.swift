@@ -56,8 +56,6 @@ import Testing
             {"id":"PRRT_2","isResolved":true,"isOutdated":false,"path":"src/b.rs","line":4,"originalLine":4,
              "comments":{"totalCount":1,"nodes":[{"author":{"login":"me"},"body":"done","url":"u2"}]}}]},
           "comments":{"nodes":[
-            {"author":{"login":"alice"},"body":"<!-- pre-pr:start -->\\n## Testing\\nnot mine"},
-            {"author":{"login":"me"},"body":"<!-- pre-pr:start -->\\n## Testing\\n- ok"},
             {"author":{"login":"me"},"body":"thanks"}]}}]}}}
         """
         let pr = try #require(GitHubDecoding.pullRequests(from: Data(json.utf8)).prs.first)

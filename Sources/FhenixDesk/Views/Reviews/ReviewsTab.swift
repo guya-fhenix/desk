@@ -3,7 +3,7 @@ import SwiftUI
 
 /// The PRs waiting on your review, a ticket's PRs and a stack's together under who wrote them, each with its tick for
 /// Review together; beside them, the selected row's group in full and the press that starts its review session. You
-/// read and review each one yourself — its description, the /pre-pr evidence, CodeRabbit's walkthrough, the diff — and
+/// read and review each one yourself — its description, CodeRabbit's walkthrough, the diff — and
 /// submit on GitHub; this screen finds them and says where your review stands.
 struct ReviewsTab: View {
     @Environment(AppModel.self) private var model
@@ -965,8 +965,8 @@ extension View {
 
 /// A PR in the queue on its own page, laid out as a PR page is: what it is and its status line — checks, whether it is
 /// on you, the risk, where your review stands — with Review on GitHub and the session on the right; the description in
-/// the wide column; its checks in a line and its facts beside it. The review itself is yours: read the description, the /pre-pr
-/// evidence and CodeRabbit's walkthrough, then the diff, and write it on GitHub. Under the description, the PR's
+/// the wide column; its checks in a line and its facts beside it. The review itself is yours: read the description and
+/// CodeRabbit's walkthrough, then the diff, and write it on GitHub. Under the description, the PR's
 /// conversation, to reply in, resolve and comment on.
 struct ReviewPage: View {
     var pr: PullRequest

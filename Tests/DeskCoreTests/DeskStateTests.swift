@@ -315,7 +315,7 @@ import Testing
             pr(4, "Waiting for CodeRabbit's review of the latest commit"),
             pr(5, nil),
             human,
-            pr(7, "high risk: 2 of 2 approvals on the latest commit; How to revert is not filled in the author's /pre-pr evidence comment"),
+            pr(7, "high risk: 2 of 2 approvals on the latest commit; Mitigation plan is not filled in the description"),
         ]
         state.github = GitHubSnapshot(login: "me", mine: [], reviewRequests: queue, mergedRecent: [], fetchedAt: Fixtures.t0)
         #expect(state.reviewQueue(.all, needingApproval: true, now: Fixtures.t0).map(\.number) == [6, 1, 4, 5])

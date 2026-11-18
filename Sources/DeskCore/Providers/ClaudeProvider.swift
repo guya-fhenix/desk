@@ -251,11 +251,11 @@ public struct ReviewSkill: Sendable, Hashable {
     public var state: State
     /// The installed plugin version, when there is one.
     public var version: String?
-    /// The review skill the installed version lacks: `review-pr`, when it has no `review-teammate-task` either.
+    /// The review skill the installed version lacks: `review-teammate-task`, when it has none.
     public var missing: [String]
-    /// Whether review sessions here can run `review-teammate-task`, which reviews any set of PRs with your notes: from
-    /// the plugin folder Desk loads plugins from, when one is set, or else the installed plugin. Without it, a review is
-    /// one PR on `review-pr`, as before.
+    /// Whether review sessions here can run `review-teammate-task`, which reviews one PR or any set of them with your
+    /// notes: from the plugin folder Desk loads plugins from, when one is set, or else the installed plugin. Without it,
+    /// no review starts.
     public var groupReview: Bool
 
     public init(state: State, version: String? = nil, missing: [String] = [], groupReview: Bool = false) {
@@ -265,19 +265,13 @@ public struct ReviewSkill: Sendable, Hashable {
         self.groupReview = groupReview
     }
 
-    /// The skill a review session here starts on.
-    public var reviewSkill: String { groupReview ? ClaudePlugins.reviewTeammateTask : ClaudePlugins.reviewPR }
-
     /// A review session can start here.
     public var isReady: Bool { state == .ready }
-
-    /// One skill there.
-    public func has(_ skill: String) -> Bool { (state == .ready || state == .noSkill) && !missing.contains(skill) }
 
     public var text: String {
         let plugin = ClaudePlugins.plugin
         switch state {
-        case .ready: return "\(plugin) \(version ?? "") · \(reviewSkill)"
+        case .ready: return "\(plugin) \(version ?? "") · \(ClaudePlugins.reviewTeammateTask)"
         case .noSkill: return "\(plugin) \(version ?? "") has no \(missing.joined(separator: ", ")) — update the plugin"
         case .notInstalled: return "\(plugin) is enabled but not installed for your user"
         case .notEnabled: return "\(plugin) is not installed for your user"
@@ -288,9 +282,7 @@ public struct ReviewSkill: Sendable, Hashable {
 /// Reads the plugin files Claude Code reads, never the plugins themselves.
 public enum ClaudePlugins {
     public static let plugin = "fhenix-workflow"
-    /// The skill a one-PR review session starts with, before fhenix-workflow 1.0.
-    public static let reviewPR = "review-pr"
-    /// The skill a review of any set of PRs, with your notes, starts with: fhenix-workflow 1.0 and later.
+    /// The skill a review of one PR or any set of them, with your notes, starts with: fhenix-workflow 1.0 and later.
     public static let reviewTeammateTask = "review-teammate-task"
 
     /// The plugin as installed for your user in the Claude Code Desk runs (`home`), the same in every repo: your
@@ -307,10 +299,9 @@ public enum ClaudePlugins {
         guard let install = install(of: enabled.name, home: home) else {
             return ReviewSkill(state: .notInstalled, groupReview: inFolder)
         }
-        let has = { (skill: String) in FileManager.default.fileExists(atPath: "\(install.path)/skills/\(skill)/SKILL.md") }
-        let group = folder.isEmpty ? has(reviewTeammateTask) : inFolder
-        let missing = group || has(reviewPR) ? [] : [reviewPR]
-        return ReviewSkill(state: missing.isEmpty ? .ready : .noSkill, version: install.version, missing: missing, groupReview: group)
+        let installed = FileManager.default.fileExists(atPath: "\(install.path)/skills/\(reviewTeammateTask)/SKILL.md")
+        let group = folder.isEmpty ? installed : inFolder
+        return ReviewSkill(state: group ? .ready : .noSkill, version: install.version, missing: group ? [] : [reviewTeammateTask], groupReview: group)
     }
 
     /// `fhenix-workflow@<marketplace>` and whether this file turns it on, or nil when the file does not name it.
