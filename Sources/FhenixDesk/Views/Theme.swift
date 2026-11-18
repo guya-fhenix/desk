@@ -68,6 +68,10 @@ enum Theme {
     static let merged = Color(red: 0.51, green: 0.31, blue: 0.87)
     static let closed = Color(red: 0.81, green: 0.13, blue: 0.18)
 
+    /// A task's kind: Jira's blue for a ticket, teal for a Claude session. A PR's is its state's, GitHub's green or grey.
+    static let jira = dynamic(0x0C66E4, 0x579DFF)
+    static let session = dynamic(0x0E7C86, 0x4CC3C9)
+
     /// A system colour a view was written with, as the Instrument token for it: green is ok, red danger, orange warn,
     /// blue the accent's ink; any other colour stays itself.
     static func tone(_ color: Color) -> Color {

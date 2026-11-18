@@ -110,9 +110,11 @@ that opens a PR with no key keeps it in its own task. Nothing of it is stored: e
 Open lists the tasks with their PRs under them, Merged your PRs merged in the last month; ⌃Tab and ⌃⇧Tab flip between
 the two. The tasks are grouped by who they wait on: **Waits on you** (the master asks about it, a session of it asks you,
 or a PR of it is yours to fix: conflicts, red CI, changes requested, a thread open), **Worker at it**, **In review**, and
-**No pull request yet**. A task's row has an icon for what it started from (ticket, session or PR), its key, its title,
+**No pull request yet**. A task's row has an icon for what it started from, in its colour (Jira's mark in blue for a
+ticket, a teal terminal for a session, GitHub's PR icon for a PR: green while open, grey and dashed for a draft), its key, its title,
 and a line with its PRs and what its worker is doing (Claude Code's own status line), with a chip (Working, Your move,
-Draft, In review, Investigating…) and how long since it moved. Its PRs follow, a step in, joined to it by a line, each
+Draft, In review, Investigating…) and how long since it moved; a hairline sets each task and its PRs apart from the
+next. Its PRs follow, a step in, each with its own GitHub icon, joined to it by a line, each
 stacked one a further step in with ↳; a task that is a PR is that PR's row, and selects and opens as any PR does. One
 header names the columns, so the facts line up down the list at any depth. J and K walk tasks and PRs alike; Return or
 a double-click opens a PR's page. A task has no page: the details column is its view, with the ticket's summary, its PRs
@@ -121,9 +123,10 @@ its worker with Show in iTerm, and the master's questions about it, and at its f
 PR's details column is the PR in words, with its task under it; for a task that is a PR, only its worker.
 
 Each PR row leads with the title, and under it its branches, size and ticket. On the right each fact has a column of
-its own: State (Draft or Open), Self (self-reviewed: the `local-reviewed` label), CI, Review (approved, the review
-gate's count of approvals, changes requested, or waiting), Threads (open ones) and Branch (conflicts, behind its base,
-or its base merged). Ready to merge is every column green. Then the session's mark (a spinner while it works, a bubble
+its own: State (a green Open chip, or a grey Draft one with a dashed edge), Self (self-reviewed: the `local-reviewed`
+label), CI, Review (approved, the review gate's count of approvals, changes requested, or waiting), Threads (open ones)
+and Branch (conflicts, behind its base, or its base merged). A column with nothing to say is left empty. Ready to merge
+is every column green. Then the session's mark (a spinner while it works, a bubble
 while it asks you something) and when the PR last moved. Hover a mark for its words; Up Next's rows of your PRs show the
 same columns.
 
