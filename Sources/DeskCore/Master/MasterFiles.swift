@@ -53,6 +53,9 @@ public struct TaskGraph: Codable, Sendable, Equatable {
         public var title: String
         /// The ticket's Jira status, for a task started from a loaded ticket.
         public var jira: String?
+        /// `sprint` or `backlog`: where that ticket sits, as Desk's Jira searches found it, so the master need not ask
+        /// Jira. Desk knows the active sprint by its search, not by name; nil where Desk doesn't know.
+        public var placement: String?
         public var stage: String
         public var waitingOn: String
         public var prs: [String]
@@ -87,9 +90,10 @@ public struct TaskGraph: Codable, Sendable, Equatable {
                     unresolved: pr.unresolvedThreads
                 )
             }
+            let ticket = task.origin == .ticket ? tickets.first { $0.key == task.id } : nil
             return Entry(
-                id: task.id, from: task.origin.rawValue, title: task.title,
-                jira: task.origin == .ticket ? tickets.first { $0.key == task.id }?.status : nil,
+                id: task.id, from: task.origin.rawValue, title: task.title, jira: ticket?.status,
+                placement: ticket.flatMap { $0.placement == .unknown ? nil : $0.placement.rawValue },
                 stage: task.stage.rawValue, waitingOn: task.waitingOn(asked: asked).rawValue,
                 prs: task.pullRequests.compactMap { ClaudeJobs.prKey($0.url) },
                 worker: task.worker.map { Worker(name: $0.name, id: $0.id, state: $0.state, detail: $0.detail) },
