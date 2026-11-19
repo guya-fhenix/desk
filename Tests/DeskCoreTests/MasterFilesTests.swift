@@ -76,4 +76,17 @@ import Testing
         try master.write(graph)
         #expect(try JSON.decoder().decode(TaskGraph.self, from: Data(contentsOf: master.url.appendingPathComponent("graph.json"))) == graph)
     }
+
+    /// A ticket task says whether its ticket is in the active sprint or the backlog, as Desk's searches found it; nothing
+    /// where Desk doesn't know (a ticket only referenced, a ticket not loaded, a task that is no ticket).
+    @Test func graphPlacesEachTicketTaskInTheSprintOrTheBacklog() {
+        let tasks = ["PRO-650", "PRO-595", "PRO-700", "PRO-701"].map { WorkTask(id: $0, origin: .ticket, title: $0, pullRequests: []) }
+            + [WorkTask(id: "testnet-decrypt", origin: .session, title: "decrypt errors", pullRequests: [])]
+        let tickets = [
+            Fixtures.ticket("PRO-650", placement: .sprint), Fixtures.ticket("PRO-595", placement: .backlog),
+            Fixtures.ticket("PRO-700", placement: .unknown, assignedToMe: false),
+        ]
+        let graph = TaskGraph(tasks: tasks, tickets: tickets, asked: [], now: Fixtures.t0)
+        #expect(graph.tasks.map(\.placement) == ["sprint", "backlog", nil, nil, nil])
+    }
 }

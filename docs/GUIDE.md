@@ -283,8 +283,9 @@ other people will see: marking ready, replies posted as you, filing a ticket, me
 master asks you, one line each, and keeps the open questions in `asks.json`, which Up Next, the Task card and the Master
 badge read.
 
-Desk feeds the master through two files in its folder. `graph.json` holds the tasks, their PRs and their workers,
-rewritten once every source has answered and whenever the tasks change. `events.jsonl` gets one line for each nudge Desk
+Desk feeds the master through two files in its folder. `graph.json` holds the tasks, their PRs and their workers, and
+for a task on a ticket of yours whether that ticket is in the active sprint or the backlog (`placement`), rewritten once
+every source has answered and whenever the tasks change. `events.jsonl` gets one line for each nudge Desk
 notifies you about (CI failed, a conflict or a base to rebase onto, changes requested, new review threads, ready to
 merge, a review asked of you), which the master routes to the task's worker or to you. Only the installed app writes events: a build without a
 bundle sends no notifications.
