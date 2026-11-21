@@ -136,7 +136,6 @@ import Testing
         #expect(jobs.map(\.id) == ["f33ce657", "aaaaaaaa"])
         #expect(jobs[0].question == "Should I watch the PR for longer?")
         #expect(jobs[0].status == "asks you")
-        #expect(jobs[0].asking == "The session asks: Should I watch the PR for longer?")
         #expect(jobs[1].question == nil && jobs[1].status == "done")
     }
 
@@ -201,5 +200,26 @@ import Testing
         #expect(ClaudeJobs.startedID(in: "nothing here") == nil)
         let copy = "note: session fd883a8f is already running in the background, so this started a copy as 664b5899.\nbackgrounded · 664b5899\n"
         #expect(ClaudeJobs.startedID(in: copy) == "664b5899")
+    }
+
+    /// Removing a session stops it, waits until `claude agents` no longer lists it, and only then takes it off the list:
+    /// a refused stop, of one already stopped, is no failure, and a refused `rm` is.
+    @Test func removeStopsWaitsAndRemoves() async throws {
+        let calls = Calls()
+        let run: ShellRun = { _, arguments, _, _, _, _ in
+            let call = arguments.joined(separator: " ")
+            let nth = await calls.add(call)
+            switch arguments.first {
+            case "stop": return .failed("not running")
+            // Still listed the first time it is asked.
+            case "agents": return .ok(nth == 1 ? #"[{"id": "abc12345", "pid": 7}]"# : "[]")
+            default: return .ok("removed abc12345")
+            }
+        }
+        try await ClaudeCLI(path: "/bin/claude", run: run).remove("abc12345")
+        #expect(await calls.list == ["stop abc12345", "agents --json", "agents --json", "rm abc12345"])
+
+        let refused: ShellRun = { _, arguments, _, _, _, _ in arguments.first == "rm" ? .failed("unpushed commits") : .ok("[]") }
+        await #expect(throws: (any Error).self) { try await ClaudeCLI(path: "/bin/claude", run: refused).remove("abc12345") }
     }
 }

@@ -751,9 +751,9 @@ struct UpdateNotice: View {
     }
 }
 
-/// Over the sync status: the master session, a session rather than a screen in the list. Its state sits under its name —
-/// not running, starting, working, listening, waiting for you — with the questions it has open for you. A press shows the
-/// Master screen; with no master running, it starts one and shows it in iTerm.
+/// Over the sync status: the master session, a session rather than a screen in the list. Under its name, whether one
+/// runs — not running, starting, running, restarting — and no more: what it does and what it asked are in its pane. A
+/// press shows the Master screen; with no master running, it starts one and shows it in iTerm.
 struct MasterStatus: View {
     @Environment(AppModel.self) private var model
 
@@ -769,12 +769,10 @@ struct MasterStatus: View {
                 VStack(alignment: .leading, spacing: 1) {
                     Text("Master").scaled(.body.weight(.semibold)).foregroundStyle(Theme.ink)
                     HStack(spacing: 5) {
-                        if model.startingMaster {
+                        if model.startingMaster || model.masterRestart != nil {
                             ProgressView().controlSize(.mini)
                         } else {
-                            Circle().fill(failed ? Theme.danger : master == nil ? Theme.control
-                                          : master!.isAsking || !model.state.asks.isEmpty ? Theme.warn : Theme.ok)
-                                .frame(width: 6, height: 6)
+                            Circle().fill(model.masterDot).frame(width: 6, height: 6)
                         }
                         Text(status).lineLimit(1).minimumScaleFactor(0.85)
                     }
@@ -802,9 +800,14 @@ struct MasterStatus: View {
         .handCursor()
         .disabled(model.startingMaster)
         .help(model.masterError ?? (master == nil ? "Start the master session and show it in iTerm"
-                                                  : "The master and its workers: their panes in iTerm, and what the master asked you"))
+                                                  : "The master and its workers, and their panes in iTerm"))
         .accessibilityLabel("Master session: \(status)")
     }
+}
+
+extension AppModel {
+    /// The dot beside the master's status: red when the last press on it failed, grey with no master, green with one.
+    var masterDot: Color { masterError != nil ? Theme.danger : state.master == nil ? Theme.control : Theme.ok }
 }
 
 /// Two speech bubbles in the accent, the master's mark in the sidebar and on its screen.
@@ -896,13 +899,12 @@ struct Meter: View {
 
 /// The sidebar status's detail: each source with its dot, how long ago it synced, and its error with Retry — and, when
 /// the error is a sign-in or a missing CLI, the Settings pane that fixes it; then each Claude limit with when it starts
-/// over, and the sessions at work now.
+/// over.
 private struct SyncDetail: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        let running = model.state.claudeJobs.count { $0.isRunning }
         VStack(alignment: .leading, spacing: Theme.Space.m) {
             heading("Sources")
             ForEach(Source.allCases, id: \.self) { source in
@@ -954,7 +956,7 @@ private struct SyncDetail: View {
                     }
                 }
             }
-            if !model.state.claudeLimits.isEmpty || running > 0 {
+            if !model.state.claudeLimits.isEmpty {
                 heading("Claude")
                 ForEach(model.state.claudeLimits) { limit in
                     HStack(spacing: Theme.Space.s) {
@@ -964,14 +966,6 @@ private struct SyncDetail: View {
                             .monospacedDigit().foregroundStyle(limit.percent >= 70 ? limit.color : .secondary)
                     }
                     .help(limit.resetsAt.map { "Starts over \(Format.date($0))" } ?? "Starts over with your next session")
-                }
-                if running > 0 {
-                    HStack(spacing: Theme.Space.s) {
-                        Text("Running")
-                        Spacer(minLength: Theme.Space.s)
-                        ProgressView().controlSize(.mini)
-                        Text("\(running) \(running == 1 ? "session" : "sessions")").foregroundStyle(.secondary)
-                    }
                 }
             }
         }

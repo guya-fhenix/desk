@@ -166,7 +166,7 @@ final class AppModel {
 
     /// What Up Next has waiting on you, inside the Reviews screen's filters, which Up Next's reviews follow.
     func upNextCount(_ filters: ReviewFilters) -> Int {
-        state.upNextCount(reviewDays: filters.window, hiding: filters.hidden, needingApproval: filters.needsApproval) + state.asks.count
+        state.upNextCount(reviewDays: filters.window, hiding: filters.hidden, needingApproval: filters.needsApproval)
     }
 
     /// The polls start first: reading the Jira account can wait out acli's whole timeout offline, and the window would
@@ -594,15 +594,21 @@ final class AppModel {
     var masterError: String?
     private(set) var startingMaster = false
 
-    /// The master in a few words, for the sidebar and Settings: what it does now, and the questions it has open for you.
+    /// Where a restart of the master stands, while one runs.
+    enum MasterRestart { case waitingForHandoff, restarting }
+    private(set) var masterRestart: MasterRestart?
+    private var restartTask: Task<Void, Never>?
+    /// Restart was pressed, on the Master screen or in Search, and waits for your yes on the Master screen.
+    var confirmingMasterRestart = false
+
+    /// The master in a word or two, for the sidebar, the menu bar and Settings: whether one runs, never what it is doing
+    /// or what it asked. That is in its pane, and in `claude agents`.
     var masterStatus: String {
-        if startingMaster { return "Starting…" }
-        guard let master = state.master else { return "Not running" }
-        // Blocked is where a master rests between your instructions, so it waits for you rather than asks you something.
-        let now = master.isAsking ? "Waiting for you" : master.isRunning ? "Working" : master.isIdle ? "Listening" : master.state.capitalized
-        // A question outranks the state, and fits the sidebar's line where both would not.
-        let asks = state.asks.count
-        return asks == 0 ? now : "\(asks) question\(asks == 1 ? "" : "s") for you"
+        switch masterRestart {
+        case .waitingForHandoff: return "Writing its handoff…"
+        case .restarting: return "Restarting…"
+        case nil: return startingMaster ? "Starting…" : state.master == nil ? "Not running" : "Running"
+        }
     }
 
     /// Shows the master's pane in iTerm. With no master running, it starts one in the master folder first. Closing
@@ -635,7 +641,7 @@ final class AppModel {
 
     /// Stops the master, on your press on the Master screen; its pane closes at the next sync.
     func stopMaster() {
-        guard let master = state.master else { return }
+        guard let master = state.master, masterRestart == nil else { return }
         Task {
             do {
                 try await service.stopMaster(master.id)
@@ -644,6 +650,60 @@ final class AppModel {
             } catch {
                 masterError = "Couldn't stop the master: \(error)"
             }
+        }
+    }
+
+    /// A new master in place of the one that runs, for when its conversation has grown long. With `handoff`, Desk first
+    /// types the request for `handoff.md` into the master's pane, the file its skill writes for the next master, and
+    /// waits for it for as long as it takes: only you give up on it, by pressing again without the handoff or by
+    /// `cancelRestart`. Then the master is stopped and removed, and a new one started as Start master starts it. The
+    /// workers run on throughout.
+    func restartMaster(handoff: Bool) {
+        guard let master = state.master, masterRestart != .restarting else { return }
+        restartTask?.cancel()
+        confirmingMasterRestart = false
+        masterError = nil
+        restartTask = Task {
+            do {
+                if handoff {
+                    masterRestart = .waitingForHandoff
+                    let asked = Date()
+                    try await askForHandoff(master)
+                    while !masterFolder.handoffWritten(since: asked) { try await Task.sleep(for: .seconds(1)) }
+                }
+                masterRestart = .restarting
+                try await service.stopMaster(master.id)
+                state.claudeJobs.removeAll { $0.id == master.id }
+                // Held until the next scan reads it off disk, as Start master's is.
+                state.claudeJobs.insert(try await service.startMaster(in: masterFolder.path), at: 0)
+                await refresh(.git)
+            } catch is CancellationError {
+                // Cancelled by a press that started another restart, which owns the state now, or by Cancel.
+                return
+            } catch {
+                masterError = "Couldn't restart the master: \(error)"
+                Self.log.error("master restart: \(String(describing: error), privacy: .public)")
+            }
+            masterRestart = nil
+        }
+    }
+
+    /// Gives up waiting for the handoff; the master runs on as it was.
+    func cancelRestart() {
+        guard masterRestart == .waitingForHandoff else { return }
+        restartTask?.cancel()
+        masterRestart = nil
+    }
+
+    /// The master's pane in front, so you see it write, and the request typed into it.
+    private func askForHandoff(_ master: ClaudeJob) async throws {
+        guard let tmux else { throw DeskError.tmuxNotFound }
+        let wasOpen = panes.contains(master.id)
+        await showNow(jobId: master.id)
+        // A pane just opened is still attaching, and drops what is typed before its prompt is up.
+        if !wasOpen { try await Task.sleep(for: .seconds(5)) }
+        guard try await tmux.type(MasterFolder.handoffRequest, into: master.id) else {
+            throw DeskError.terminal(terminalError ?? "the master's pane isn't open")
         }
     }
 

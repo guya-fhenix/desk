@@ -1,9 +1,9 @@
 import DeskCore
 import SwiftUI
 
-/// What a primary click on the menu bar item shows: who you are, the master, what needs you — the rows Up Next counts —
-/// and the workers at it, each a press away, and Open Desk. While GitHub's last refresh failed it says so on top, with
-/// Retry and Settings, and greys the lists it kept, marked with when they were read.
+/// What a primary click on the menu bar item shows: who you are, the master, what needs you — the rows Up Next counts,
+/// each a press away — and Open Desk. While GitHub's last refresh failed it says so on top, with Retry and Settings, and
+/// greys the list it kept, marked with when it was read.
 struct SettingsMenuBarPopover: View {
     @Environment(AppModel.self) private var model
     /// Closes the popover, after a press that goes somewhere.
@@ -16,7 +16,6 @@ struct SettingsMenuBarPopover: View {
         let stale = model.state.errors[.github] != nil
         let asOf = stale ? model.state.lastRefresh[.github].map { " · as of \($0.clock)" } ?? "" : ""
         let needs = needsYou
-        let workers = busyWorkers
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 8) {
                 AppMark(size: 18)
@@ -43,16 +42,7 @@ struct SettingsMenuBarPopover: View {
                 }
             }
             .padding(.horizontal, 6)
-            if !workers.isEmpty {
-                VStack(alignment: .leading, spacing: 0) {
-                    SectionLabel("Workers at it · \(workers.count)\(asOf)").padding(EdgeInsets(top: 8, leading: 8, bottom: 4, trailing: 8))
-                    ForEach(workers) { job in worker(job) }.opacity(stale ? 0.55 : 1)
-                }
-                .padding(EdgeInsets(top: 4, leading: 6, bottom: 6, trailing: 6))
-                .overlay(alignment: .top) { Rectangle().fill(Theme.ruleSoft).frame(height: 1) }
-                .padding(.top, 4)
-            }
-            foot.padding(.top, workers.isEmpty ? 6 : 0)
+            foot.padding(.top, 6)
         }
         .frame(width: 380)
         .background(Theme.surface)
@@ -90,7 +80,7 @@ struct SettingsMenuBarPopover: View {
         .accessibilityElement(children: .contain)
     }
 
-    /// The master, as the sidebar shows it: its state and the questions it has for you, and Open to see it in iTerm.
+    /// The master, as the sidebar shows it: whether one runs, and Open to see it in iTerm.
     private var master: some View {
         let running = model.state.master
         let failed = model.masterError != nil
@@ -101,9 +91,7 @@ struct SettingsMenuBarPopover: View {
                 VStack(alignment: .leading, spacing: 1) {
                     Text("Master").fontWeight(.semibold)
                     HStack(spacing: 5) {
-                        Circle().fill(failed ? Theme.danger : running == nil ? Theme.control
-                                      : running!.isAsking || !model.state.asks.isEmpty ? Theme.warn : Theme.ok)
-                            .frame(width: 6, height: 6)
+                        Circle().fill(model.masterDot).frame(width: 6, height: 6)
                         Text(status).lineLimit(1)
                     }
                     .scaled(.secondary)
@@ -182,25 +170,6 @@ struct SettingsMenuBarPopover: View {
         .accessibilityElement(children: .combine)
     }
 
-    /// A worker at it: its mark, its name in DM Mono, and what it does and since when; a press shows its pane.
-    private func worker(_ job: ClaudeJob) -> some View {
-        Button { go { model.show(jobId: job.id) } } label: {
-            HStack(spacing: 8) {
-                SessionMark(job: job).frame(width: 16)
-                Text(job.name).scaled(.code).lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
-                Text([job.detail ?? (job.isAsking ? "waiting for you" : "working"), Format.age(job.updatedAt)].joined(separator: " · "))
-                    .scaled(.secondary).foregroundStyle(Theme.quiet).lineLimit(1)
-            }
-            .padding(.horizontal, 8)
-            .frame(minHeight: 32)
-            .hoverFill(Theme.inset, cornerRadius: 7)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .help("Show \(job.name) in iTerm")
-        .accessibilityElement(children: .combine)
-    }
-
     private func go(_ action: () -> Void) {
         action()
         close()
@@ -217,16 +186,10 @@ struct SettingsMenuBarPopover: View {
         var open: () -> Void
     }
 
-    /// What Up Next counts, in its order: the master's questions, your PRs that are not waiting on others and the
-    /// reviews on you, then the Jira moves it suggests. Each opens the Desk on it.
+    /// What Up Next counts, in its order: your PRs that are not waiting on others and the reviews on you, then the Jira
+    /// moves it suggests. Each opens the Desk on it.
     private var needsYou: [Item] {
         let model = model
-        let asks = model.state.asks.map { ask in
-            Item(id: "ask:\(ask.id)", dot: Theme.warn, title: "Master asks about \(ask.task)", line: ask.text, date: ask.askedAt) {
-                model.showMasterScreen()
-                AppDelegate.openDesk?()
-            }
-        }
         let plan = model.state.upNext(reviewDays: filters.window, hiding: filters.hidden, needingApproval: filters.needsApproval)
         let prs = plan.filter { $0.section != .waiting }.flatMap { group in
             group.pullRequests.map { pr in
@@ -241,7 +204,7 @@ struct SettingsMenuBarPopover: View {
                 AppDelegate.openDesk?()
             }
         }
-        return asks + prs + moves
+        return prs + moves
     }
 
     private static func dot(_ section: UpNextSection) -> Color {
@@ -250,11 +213,5 @@ struct SettingsMenuBarPopover: View {
         case .readyToMerge: return Theme.ok
         default: return Theme.accentInk
         }
-    }
-
-    /// The open tasks' workers at work or waiting on you, each once.
-    private var busyWorkers: [ClaudeJob] {
-        var seen = Set<String>()
-        return model.state.tasks.compactMap(\.worker).filter { $0.isBusy && seen.insert($0.id).inserted }
     }
 }

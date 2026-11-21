@@ -54,6 +54,11 @@ struct FinderView: View {
 
     private static let commands = [
         Command(title: "Open master in iTerm", icon: "bubble.left.and.bubble.right", key: "⇧⌘M") { $0.openMaster() },
+        // On the Master screen, where it asks before it acts: a restart is never one keypress away.
+        Command(title: "Restart master…", icon: "arrow.triangle.2.circlepath", key: "") {
+            $0.showMasterScreen()
+            $0.confirmingMasterRestart = true
+        },
         Command(title: "Sync now", icon: "arrow.clockwise", key: "⌘R") { $0.refreshAll() },
         Command(title: "Settings", icon: "gearshape", key: "⌘,") { $0.showingSettings = true },
     ]
@@ -139,7 +144,7 @@ struct FinderView: View {
         let prs = Self.ranked(open) { pr in pr.matches(search: typed) ? 500 : FuzzyMatch.score(pr.title, typed) }
         let tickets = Self.ranked(model.state.openTickets) { FuzzyMatch.score("\($0.key) \($0.summary)", typed) }
         let tasks = Self.ranked(model.state.tasks) { FuzzyMatch.score("\($0.id) \($0.title)", typed) }
-        let sessions = Self.ranked(model.state.claudeJobs) { FuzzyMatch.score("\($0.name) \($0.detail ?? "")", typed) }
+        let sessions = Self.ranked(model.state.claudeJobs) { FuzzyMatch.score("\($0.name) \($0.request ?? "")", typed) }
         let matched = Self.ranked(Self.commands) { FuzzyMatch.score($0.title, typed) }
         let commands = matched + Self.commands.filter { command in !matched.contains { $0.title == command.title } }
         return tasks.map(Hit.task) + tickets.map(Hit.ticket) + prs.map(Hit.pullRequest) + sessions.map(Hit.session)
@@ -177,14 +182,15 @@ struct FinderView: View {
             case .task(let task):
                 name(TaskHeader.label(task))
                 Text(task.title).lineLimit(1).truncationMode(.tail).frame(maxWidth: .infinity, alignment: .leading)
-                facts(waits(task), tone: waitTone(task), " · \(task.pullRequests.count) pull request\(task.pullRequests.count == 1 ? "" : "s")")
-            case .session(let job):
-                name(job.name)
-                Text(job.detail ?? job.request ?? "").lineLimit(1).truncationMode(.tail).frame(maxWidth: .infinity, alignment: .leading)
                 facts(
-                    job.isAsking ? "Waiting for you" : job.isRunning ? "Working" : "Done",
-                    tone: job.isAsking ? Theme.warn : job.isRunning ? Theme.accentInk : Theme.quiet, " · \(Format.age(job.updatedAt))"
+                    TaskHeader.chip(task), tone: TaskHeader.chipTone(task) ?? Theme.quiet,
+                    " · \(task.pullRequests.count) pull request\(task.pullRequests.count == 1 ? "" : "s")"
                 )
+            case .session(let job):
+                // Which session it is and what it was started on, never what it is doing: that is in `claude agents`.
+                name(job.name)
+                Text(job.request ?? job.ticketKey ?? "").lineLimit(1).truncationMode(.tail).frame(maxWidth: .infinity, alignment: .leading)
+                facts(job.role == .other ? "session" : job.role.rawValue)
             case .ticket(let ticket):
                 name(ticket.key)
                 Text(ticket.summary).lineLimit(1).truncationMode(.tail).frame(maxWidth: .infinity, alignment: .leading)
@@ -271,25 +277,6 @@ struct FinderView: View {
     }
 
     private func close() { model.showingFinder = false }
-
-    /// Who a task waits on, in a few words.
-    /// Red when it waits on you, the accent while a worker or reviewers have it.
-    private func waitTone(_ task: WorkTask) -> Color {
-        switch task.waitingOn(asked: model.state.askedTasks) {
-        case .you: return Theme.danger
-        case .worker, .reviewers: return Theme.accentInk
-        case .nobody: return Theme.quiet
-        }
-    }
-
-    private func waits(_ task: WorkTask) -> String {
-        switch task.waitingOn(asked: model.state.askedTasks) {
-        case .you: return "waits on you"
-        case .worker: return "worker on it"
-        case .reviewers: return "in review"
-        case .nobody: return "no pull request yet"
-        }
-    }
 
     /// The screen a PR has a page on: yours on Tasks, the review queue's on Reviews; nil for any other.
     private func screen(of pr: PullRequest) -> DeskWindow.Tab? {

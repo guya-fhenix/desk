@@ -56,10 +56,11 @@ Appearance picks System, Light or Dark, and the accent (indigo, teal, violet or 
 fonts ship inside the app, with their licences (SIL Open Font License) in `Resources/Fonts`.
 
 The sidebar has the app's mark, Search (⌘K), and Up Next, Tasks, Reviews and Jira, each with a count of the rows it opens
-on (a dot beside Tasks while a worker is at work). ⌘1 to ⌘4 pick a screen. The sidebar collapses with its toggle or
-View → Show/Hide Sidebar (⌃⌘S). At its foot, the Master block is the master session: its state under its name (not
-running, starting, working, listening, waiting for you) with the questions it has open for you; it opens the Master
-screen, or Start starts a master. Under it, one status block says how the sync stands: when every
+on. ⌘1 to ⌘4 pick a screen. The sidebar collapses with its toggle or
+View → Show/Hide Sidebar (⌃⌘S). At its foot, the Master block is the master session: under its name, whether one runs (not
+running, starting, running, restarting), and no more; it opens the Master
+screen, or Start starts a master. Desk never says what a session is doing, or what the master or a worker asked you:
+you follow the first in `claude agents` and the second in the master's pane. Under it, one status block says how the sync stands: when every
 source last synced, with the arrow that syncs them all (⌘R), a spinner while one syncs, or the sources that failed with
 Retry. Under that, your Claude plan's session and week limits are two thin meters. Click the block for each source's age
 and error, the Settings pane that fixes a sign-in, and when each limit resets. When a newer Desk is out, a block above it
@@ -79,7 +80,7 @@ one in the review queue on Reviews, a ticket on Jira. ⌘↩ opens it on GitHub 
 opens on GitHub.
 
 A click on the menu bar item shows a popover: the master with Open, what needs you (the items Up Next counts, each
-opening Desk on it), the workers at it (each shown in iTerm), the sync line and Open Desk. When GitHub's last refresh
+opening Desk on it), the sync line and Open Desk. When GitHub's last refresh
 failed, a banner says why with Retry, and the lists say how old they are. A right-click or Control-click shows the menu:
 open Desk, quit, your open PRs and the reviews that need you, each opening its page. A nudge also comes as a macOS notification, unless Settings
 → General turns them off.
@@ -90,9 +91,9 @@ The window opens on Up Next, today's date beside its title: what waits on you, u
 do. **Needs you** first: the questions the master has open for you, each with the task it is about and how long ago it
 asked (its details column has Answer in iTerm, which shows the master's pane), then your PRs whose move is yours. Then
 Ready to merge, Your move (CI failed, conflicts, changes requested, a review
-thread open, needs a rebase, or a session waits on you; conflicts by GitHub's own `mergeable`, whatever its merge state
-sums up), Drafts to submit (reviews you started on GitHub and have not sent), To review (the first few, then a link to
-Reviews), Workers at it (the open tasks' workers at work, each shown in iTerm), Jira moves (the moves Desk
+thread open, or needs a rebase; conflicts by GitHub's own `mergeable`, whatever its merge state
+sums up; a PR's session has no say in where it sits), Drafts to submit (reviews you started on GitHub and have not sent), To review (the first few, then a link to
+Reviews), Jira moves (the moves Desk
 suggests), Ready to start (sprint tickets of yours nothing has started: tell the master "start PRO-123"), and Waiting
 (your PRs that wait on someone else). The rows are the other screens' own, and open their pages here.
 
@@ -108,26 +109,23 @@ root). A ticket's task holds every open PR of yours that names it, in any repo, 
 that opens a PR with no key keeps it in its own task. Nothing of it is stored: every refresh works it out again.
 
 Open lists the tasks with their PRs under them, Merged your PRs merged in the last month; ⌃Tab and ⌃⇧Tab flip between
-the two. The tasks are grouped by who they wait on: **Waits on you** (the master asks about it, a session of it asks you,
-or a PR of it is yours to fix: conflicts, red CI, changes requested, a thread open), **Worker at it**, **In review**, and
-**No pull request yet**. A task's row has an icon for what it started from, in its colour (Jira's mark in blue for a
+the two. The tasks are one list, most recently moved first. A task's row has an icon for what it started from, in its colour (Jira's mark in blue for a
 ticket, a teal terminal for a session, GitHub's PR icon for a PR: green while open, grey and dashed for a draft), its key, its title,
-and a line with its PRs and what its worker is doing (Claude Code's own status line), with a chip (Working, Your move,
+and a line with its PRs and its worker's name, with a chip for where its PRs stand (Your move,
 Draft, In review, Investigating…) and how long since it moved; a hairline sets each task and its PRs apart from the
 next. Its PRs follow, a step in, each with its own GitHub icon, joined to it by a line, each
 stacked one a further step in with ↳; a task that is a PR is that PR's row, and selects and opens as any PR does. One
 header names the columns, so the facts line up down the list at any depth. J and K walk tasks and PRs alike; Return or
 a double-click opens a PR's page. A task has no page: the details column is its view, with the ticket's summary, its PRs
 and where each stands (each opens its page), what it depends on (someone else's open PR, or a branch no open PR opens),
-its worker with Show in iTerm, and the master's questions about it, and at its foot Master in iTerm and Open in Jira. A
+and its worker with Show in iTerm, and at its foot Master in iTerm and Open in Jira. A
 PR's details column is the PR in words, with its task under it; for a task that is a PR, only its worker.
 
 Each PR row leads with the title, and under it its branches, size and ticket. On the right each fact has a column of
 its own: State (a green Open chip, or a grey Draft one with a dashed edge), Self (self-reviewed: the `local-reviewed`
 label), CI, Review (approved, the review gate's count of approvals, changes requested, or waiting), Threads (open ones)
 and Branch (conflicts, behind its base, or its base merged). A column with nothing to say is left empty. Ready to merge
-is every column green. Then the session's mark (a spinner while it works, a bubble
-while it asks you something) and when the PR last moved. Hover a mark for its words; Up Next's rows of your PRs show the
+is every column green. Then when the PR last moved. Up Next's rows of your PRs show the
 same columns.
 
 Your PR's page leads with a back button (or ←) and a breadcrumb to Tasks, its title, which you can edit while it is
@@ -145,7 +143,7 @@ for two halves. The details column on the right: **Next step** says what the PR'
 draft, whose move it is in review (nothing, when the reviewer who asked for changes has been asked again), with Master
 in iTerm when the move is the master's or a worker's. A conflict, red CI or a base to rebase onto shows there too, for the worker to fix when the
 master hands it over. **Checks** sums up every check on the head commit in one line, "✓ 14 passed, 2 skipped"; Show all
-lists them, worst first, with where a failed one stopped. **Task** names the task, its worker and what it did, with Show in iTerm; **Jira** its
+lists them, worst first, with where a failed one stopped. **Task** names the task and its worker, with Show in iTerm; **Jira** its
 ticket and status, or that it has none. **About** has the open threads by who started them, the
 reviewers and where each stands, labels, size, when it was opened and updated, and its stack.
 
@@ -198,7 +196,8 @@ the verdict you sent. Nothing of it is stored: every poll reads your pending and
 
 ## Terminals: iTerm and tmux
 
-Desk opens no terminal of its own and sends nothing to a session. The master and its workers run in iTerm2, in one
+Desk opens no terminal of its own and sends nothing to a session, but for the one line Restart master types to the
+master. The master and its workers run in iTerm2, in one
 tmux session, `desk`. Its window `agents` is always two halves: the master on the left (`claude attach <id>`) and
 `claude agents` on the right, Claude Code's view of every background session, to open one or start one from. A worker
 or any other background session you show takes `claude agents`' place in the right half; when you detach from it, or it
@@ -267,21 +266,30 @@ except the master and review sessions: the master starts the workers.
 
 ## The master and its workers
 
-The **Master** block in the sidebar opens the Master screen: the sessions down a column, the `desk` layout as iTerm
-shows it with Show on each pane, the questions the master asked you with Answer in iTerm, and the events Desk told it
+The **Master** block in the sidebar opens the Master screen: the sessions down a column, each worker with its task, the `desk` layout as iTerm
+shows it with Show on each pane, and the events Desk told it
 today; beside them where it runs and its terminal. Open in iTerm (↩) shows the master's pane. With none running, the
 block's Start starts one, named `master`, in the master folder: `~/Library/Application Support/Fhenix Desk/master`. It
 runs the fhenix-workflow `coordinate-tasks` skill, in auto mode, and starts every worker in the same mode, so no worker
-holds its messages for approval. Stop master runs `claude stop`; its workers run on. You talk to it in its pane; Desk
-shows what it asked and sends it nothing but the files below.
+holds its messages for approval. Stop master runs `claude stop`, then `claude rm`, so the master leaves Claude Code's list and the next
+one is a new session; its conversation stays under `claude --resume`, and its workers run on. You talk to it in its
+pane; Desk sends it nothing but the files below and Restart's one line.
+
+**Restart master** puts a new master in the old one's place, for when its conversation has grown long. It asks first.
+Then Desk shows the master's pane and types one line into it, asking for `handoff.md`, the file the skill writes for
+the next master, and waits for the file for as long as it takes. Once it is there, Desk stops and removes the master
+and starts a new one, which reads the handoff, `asks.json` and `graph.json`. When the master doesn't answer, Restart
+without the handoff skips the wait, and Cancel leaves the master as it was. The workers run on throughout. Search (⌘K)
+has Restart master too, and it lands on the same question.
 
 You talk to it in plain words: "start PRO-123", "find out why decrypt requests fail on testnet", "what's waiting on
 me?", "review PRO-646 and teecryptor#14". It starts one worker per task, even across repos, named after the ticket or
 after what you asked, on the `work-on-task` skill. A worker plans and waits for your yes, builds in worktrees, opens its
 PRs as drafts, self-reviews them and recommends a fix for each finding, fixes the ones you pick, and asks before anything
 other people will see: marking ready, replies posted as you, filing a ticket, merging. It reports to the master, and the
-master asks you, one line each, and keeps the open questions in `asks.json`, which Up Next, the Task card and the Master
-badge read.
+master asks you, one line each, in its pane, and keeps the open questions in `asks.json`. Desk reads that file only
+for what it writes back to the master: who a task waits on in `graph.json`, and which finished session's task stays
+listed. It shows none of it.
 
 Desk feeds the master through two files in its folder. `graph.json` holds the tasks, their PRs and their workers, and
 for a task on a ticket of yours whether that ticket is in the active sprint or the backlog (`placement`), rewritten once

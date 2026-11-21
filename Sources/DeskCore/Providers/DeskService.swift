@@ -153,8 +153,9 @@ public actor DeskService {
         return ClaudeJob(id: id, name: "master", state: "working", cwd: folder, prKeys: [], updatedAt: Date(), role: .master)
     }
 
-    /// Stops the master. Its workers run on; a new master picks them up from the graph.
-    public func stopMaster(_ id: String) async throws { try await claude().stop(id) }
+    /// Stops the master and takes it off Claude Code's list, so the next one is a new session rather than this one
+    /// attached again. Its workers run on; a new master picks them up from the graph.
+    public func stopMaster(_ id: String) async throws { try await claude().remove(id) }
 
     public func markReady(_ pr: PullRequest) async throws {
         try await gh().markReady(repo: pr.repo, number: pr.number)

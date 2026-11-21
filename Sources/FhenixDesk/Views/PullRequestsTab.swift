@@ -20,14 +20,14 @@ struct PullRequestsTab: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        let groups = taskGroups
+        let tasks = self.tasks
         let merged = self.merged
         // Down the list as it reads: each task, then the PRs under it.
         let shown = scope == .merged ? merged.map(\.url)
-            : groups.flatMap { $0.tasks.flatMap { [Self.root(of: $0)?.url ?? $0.id] + nested($0).map(\.pullRequest.url) } }
+            : tasks.flatMap { [Self.root(of: $0)?.url ?? $0.id] + nested($0).map(\.pullRequest.url) }
         RouteStack(path: $path, back: "Tasks") {
             HStack(spacing: 0) {
-                list(groups: groups, merged: merged, shown: shown)
+                list(tasks: tasks, merged: merged, shown: shown)
                 details
             }
             .background(Theme.ground)
@@ -70,9 +70,9 @@ struct PullRequestsTab: View {
         if !shown.contains(where: { $0 == selection }) { selection = shown.first }
     }
 
-    @ViewBuilder private func list(groups: [TaskGroup], merged: [PullRequest], shown: [String]) -> some View {
+    @ViewBuilder private func list(tasks: [WorkTask], merged: [PullRequest], shown: [String]) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            header(open: groups.reduce(0) { $0 + $1.tasks.count }, merged: merged.count, shown: shown)
+            header(open: tasks.count, merged: merged.count, shown: shown)
                 .padding(.bottom, 8)
             if scope == .open ? model.state.mine.isEmpty && model.state.tasks.isEmpty : model.state.recentlyMerged().isEmpty {
                 if let error = model.state.errors[.github] {
@@ -101,27 +101,24 @@ struct PullRequestsTab: View {
                     switch scope {
                     case .open:
                         PullRequestFacets.Header().plainListRow().selectionDisabled()
-                        ForEach(groups) { group in
-                            GroupHeader(title: group.title, count: group.tasks.count, tone: group.kind == .you ? Theme.danger : Theme.quiet)
-                                .padding(.top, group.id == groups.first?.id ? 2 : 0)
-                                .plainListRow().selectionDisabled()
-                            ForEach(group.tasks) { task in
-                                // A hairline between tasks, so a task and the PRs under it read as one block.
-                                if task.id != group.tasks.first?.id {
-                                    Rectangle().fill(Theme.rule).frame(height: 1).padding(.horizontal, 10).padding(.vertical, 4)
-                                        .plainListRow().selectionDisabled()
-                                }
-                                // A task that is a PR is that PR's row: it selects and opens as any PR does. Tagged with
-                                // the PR, or the arrow keys and clicks select the task, which ForEach tags it with.
-                                if let root = Self.root(of: task) {
-                                    PullRequestRow(row: StackedPullRequest(pullRequest: root), model: model, selected: selection == root.url)
-                                        .tag(root.url).id(root.url)
-                                } else {
-                                    TaskRow(task: task, model: model, selected: selection == task.id)
-                                }
-                                ForEach(nested(task), id: \.pullRequest.url) { row in
-                                    PullRequestRow(row: row, model: model, selected: selection == row.pullRequest.url, nested: true)
-                                }
+                        // One list, most recently moved first: not grouped by who a task waits on, which Desk no
+                        // longer says.
+                        ForEach(tasks) { task in
+                            // A hairline between tasks, so a task and the PRs under it read as one block.
+                            if task.id != tasks.first?.id {
+                                Rectangle().fill(Theme.rule).frame(height: 1).padding(.horizontal, 10).padding(.vertical, 4)
+                                    .plainListRow().selectionDisabled()
+                            }
+                            // A task that is a PR is that PR's row: it selects and opens as any PR does. Tagged with
+                            // the PR, or the arrow keys and clicks select the task, which ForEach tags it with.
+                            if let root = Self.root(of: task) {
+                                PullRequestRow(row: StackedPullRequest(pullRequest: root), model: model, selected: selection == root.url)
+                                    .tag(root.url).id(root.url)
+                            } else {
+                                TaskRow(task: task, model: model, selected: selection == task.id)
+                            }
+                            ForEach(nested(task), id: \.pullRequest.url) { row in
+                                PullRequestRow(row: row, model: model, selected: selection == row.pullRequest.url, nested: true)
                             }
                         }
                     case .merged:
@@ -233,17 +230,14 @@ struct PullRequestsTab: View {
     }
 
 
-    /// Your tasks by who they wait on, filtered by the search field: a task stays when its key or title matches, or one
-    /// of its PRs does.
-    private var taskGroups: [TaskGroup] {
+    /// Your tasks, most recently moved first, filtered by the search field: a task stays when its key or title matches,
+    /// or one of its PRs does.
+    private var tasks: [WorkTask] {
         let query = search.trimmingCharacters(in: .whitespaces)
-        let asked = model.state.askedTasks
-        let tasks = model.state.tasks.filter { task in
+        return model.state.tasks.filter { task in
             query.isEmpty || "\(task.id) \(TaskHeader.label(task)) \(task.title)".localizedCaseInsensitiveContains(query)
                 || task.pullRequests.contains { $0.matches(search: query) }
         }
-        let grouped = Dictionary(grouping: tasks) { TaskGroup.Kind.of($0, asked: asked) }
-        return TaskGroup.Kind.allCases.compactMap { kind in grouped[kind].map { TaskGroup(kind: kind, tasks: $0) } }
     }
 
     /// This month's merged PRs, newest first, filtered by the search field.
@@ -255,36 +249,6 @@ struct PullRequestsTab: View {
     private func open(_ id: String) {
         selection = id
         if model.yourPullRequest(id) != nil { path.append(.pr(id)) }
-    }
-}
-
-/// The tasks waiting on one party, under its label.
-private struct TaskGroup: Identifiable {
-    enum Kind: CaseIterable {
-        case you, worker, review, noPullRequest
-
-        /// Who it waits on; a task waiting on nobody has no PR yet, since an open PR waits on you or its reviewers.
-        static func of(_ task: WorkTask, asked: Set<String>) -> Kind {
-            switch task.waitingOn(asked: asked) {
-            case .you: return .you
-            case .worker: return .worker
-            case .reviewers: return .review
-            case .nobody: return .noPullRequest
-            }
-        }
-    }
-
-    var kind: Kind
-    var tasks: [WorkTask]
-    var id: Kind { kind }
-
-    var title: String {
-        switch kind {
-        case .you: return "Waits on you"
-        case .worker: return "Worker at it"
-        case .review: return "In review"
-        case .noPullRequest: return "No pull request yet"
-        }
     }
 }
 
@@ -327,10 +291,9 @@ enum TaskHeader {
         }
     }
 
-    /// Where it stands in a word: Working while its worker is at it; with no PR, Investigating for a session and Planning
-    /// for a ticket; else its least advanced PR's stage, an in-review one yours to fix as Your move.
-    static func chip(_ task: WorkTask, asked: Set<String>) -> String {
-        if task.waitingOn(asked: asked) == .worker { return "Working" }
+    /// Where it stands in a word, by its PRs alone: with none, Investigating for a session and Planning for a ticket;
+    /// else its least advanced PR's stage, an in-review one yours to fix as Your move.
+    static func chip(_ task: WorkTask) -> String {
         if task.pullRequests.isEmpty { return task.origin == .session ? "Investigating" : "Planning" }
         switch task.stage {
         case .inReview: return task.pullRequests.contains { RowState.of($0).move == .yoursToFix } ? "Your move" : "In review"
@@ -339,9 +302,8 @@ enum TaskHeader {
     }
 
     /// The chip's colour, as the rows' facts colour a move: red for yours to fix, green for yours to merge, the accent
-    /// while a worker or reviewers have it; grey for a draft, a merged one, or nothing to show yet.
-    static func chipTone(_ task: WorkTask, asked: Set<String>) -> Color? {
-        if task.waitingOn(asked: asked) == .worker { return Theme.accentInk }
+    /// while reviewers have it; grey for a draft, a merged one, or nothing to show yet.
+    static func chipTone(_ task: WorkTask) -> Color? {
         if task.pullRequests.isEmpty { return nil }
         switch task.stage {
         case .inReview: return task.pullRequests.contains { RowState.of($0).move == .yoursToFix } ? Theme.danger : Theme.accentInk
@@ -350,8 +312,9 @@ enum TaskHeader {
         }
     }
 
-    /// "Changes requested by haimbj1 · powershot #116 · #117 · worker done: doc written · the master asks you".
-    @MainActor static func line(_ task: WorkTask, model: AppModel) -> Text {
+    /// "Changes requested by haimbj1 · powershot #116 · #117 · worker PRO-650": its PRs and which session is its worker,
+    /// never what the worker is doing.
+    @MainActor static func line(_ task: WorkTask) -> Text {
         var parts: [Text] = []
         let changes = Array(Set(task.pullRequests.flatMap(\.changesRequestedBy))).sorted()
         if !changes.isEmpty {
@@ -366,11 +329,9 @@ enum TaskHeader {
             }
         }
         if let worker = task.worker {
-            let who = task.origin == .session && task.pullRequests.isEmpty ? "investigation" : "worker"
-            let state = worker.isAsking ? "asks you" : worker.isRunning ? "at work" : worker.state
-            parts.append(Text(verbatim: "\(who) \(state)" + (worker.detail.map { ": \($0)" } ?? "")))
+            // A session's task is named after its worker already.
+            if task.origin != .session { parts.append(Text(verbatim: "worker \(worker.name)")) }
         }
-        if model.state.askedTasks.contains(task.id) { parts.append(Text("the master asks you")) }
         return parts.dropFirst().reduce(parts[0]) { Text("\($0) · \($1)") }
     }
 
@@ -390,8 +351,8 @@ enum TaskHeader {
     }
 }
 
-/// One task: where it came from, its key, its title over its PRs and what its worker is doing, and a chip for where it
-/// stands with its age.
+/// One task: where it came from, its key, its title over its PRs and its worker's name, and a chip for where it stands
+/// with its age.
 private struct TaskRow: View {
     var task: WorkTask
     var model: AppModel
@@ -405,14 +366,11 @@ private struct TaskRow: View {
                     .scaledFrame(width: 160, height: 20, alignment: .leading)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(task.title).scaled(.rowTitle.weight(selected ? .semibold : .medium)).lineLimit(1)
-                    TaskHeader.line(task, model: model).foregroundStyle(Theme.quiet).lineLimit(1)
+                    TaskHeader.line(task).foregroundStyle(Theme.quiet).lineLimit(1)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 HStack(spacing: 10) {
-                    StageChip2(
-                        text: TaskHeader.chip(task, asked: model.state.askedTasks), onTint: selected,
-                        color: TaskHeader.chipTone(task, asked: model.state.askedTasks)
-                    )
+                    StageChip2(text: TaskHeader.chip(task), onTint: selected, color: TaskHeader.chipTone(task))
                     // The PR rows' session marks' place, so the ages line up down the list.
                     Color.clear.frame(width: 14, height: 14)
                     AgeText(date: task.updatedAt)
@@ -779,7 +737,6 @@ private struct TaskDetails: View {
                             RuledRow { TaskWorkerLine(job: worker, model: model).padding(.vertical, 8) }
                         }
                     }
-                    ForEach(model.state.asks.filter { $0.task == task.id }) { TaskAskCallout(ask: $0, model: model) }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -810,57 +767,20 @@ struct TaskKicker: View {
     }
 }
 
-/// A worker in a details column: its state's mark, its name, where it stands and since when, and under them what it
-/// did, with the press that shows its pane.
+/// A worker in a details column: the session mark, its name, and the press that shows its pane.
 struct TaskWorkerLine: View {
     var job: ClaudeJob
     var model: AppModel
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 8) {
-                SessionMark(job: job).frame(width: 12)
-                Text(job.name).scaled(AppTextStyle(size: 12.5, weight: .medium, design: .monospaced)).lineLimit(1)
-                Spacer(minLength: 4)
-                Text("\(Text(job.status).foregroundStyle(SessionMark.tone(job))) · \(TaskText.when(job.updatedAt))")
-                    .scaled(.code).foregroundStyle(Theme.quiet).fixedSize()
-            }
-            if let detail = job.detail, !detail.isEmpty {
-                Text(detail).fixedSize(horizontal: false, vertical: true).padding(.leading, 20)
-            }
+        HStack(spacing: 8) {
+            SessionMark().frame(width: 12)
+            Text(job.name).scaled(AppTextStyle(size: 12.5, weight: .medium, design: .monospaced)).lineLimit(1)
+            Spacer(minLength: 4)
             Button("Show in iTerm") { model.show(jobId: job.id) }
                 .buttonStyle(.desk(.secondary, .small))
-                .padding(.leading, 20).padding(.top, 2)
                 .help("Show \(job.name)'s pane in iTerm")
         }
-    }
-}
-
-/// A question the master has open on a task, as a quiet callout, with the press that shows the master's pane to answer
-/// it there.
-struct TaskAskCallout: View {
-    var ask: MasterAsk
-    var model: AppModel
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
-                Text("Master asks").fontWeight(.semibold).foregroundStyle(Theme.ink)
-                Spacer(minLength: 4)
-                Text(Format.age(ask.askedAt)).scaled(.code).help(Format.date(ask.askedAt))
-            }
-            .scaled(.secondary)
-            .foregroundStyle(Theme.quiet)
-            Text(ask.text).fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
-            HStack(spacing: 8) {
-                Button("Answer in iTerm") { model.openMaster() }.buttonStyle(.desk(.secondary, .small))
-                Text("in the master's pane").scaled(.secondary).foregroundStyle(Theme.quiet)
-            }
-            .padding(.top, 2)
-        }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Theme.inset, in: RoundedRectangle(cornerRadius: 8))
     }
 }
 
@@ -1025,7 +945,7 @@ struct PullRequestPage: View {
     }
 }
 
-/// The task a PR belongs to, in its page's details column: its key, its worker with what it did, and the way to its page.
+/// The task a PR belongs to, in its page's details column: its key, its worker, and the way to its page.
 private struct TaskOfPullRequest: View {
     var task: WorkTask
     var model: AppModel
@@ -1036,15 +956,7 @@ private struct TaskOfPullRequest: View {
             SectionLabel("Task").padding(.bottom, 8)
             FieldRows(labelWidth: 64) {
                 FieldRow("Task", TaskHeader.label(task), mono: true)
-                if let worker = task.worker {
-                    FieldRow(label: "Worker") {
-                        Text("\(Text(worker.name).font(AppTextStyle.code.font(scale: model.textScale))) \(Text("· \(worker.status)").foregroundStyle(Theme.quiet))")
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    if let detail = worker.detail, !detail.isEmpty {
-                        FieldRow(label: "Summary") { Text(detail).fixedSize(horizontal: false, vertical: true) }
-                    }
-                }
+                if let worker = task.worker { FieldRow("Worker", worker.name, mono: true) }
                 if task.pullRequests.count > 1 {
                     FieldRow("With", TaskHeader.pullRequests(task.pullRequests), mono: true)
                 }

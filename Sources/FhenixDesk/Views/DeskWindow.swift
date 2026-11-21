@@ -150,12 +150,8 @@ struct DeskWindow: View {
 
     private func navItem(_ item: Tab) -> some View {
         let selected = !model.showingSettings && !model.showingMaster && tab == item
-        let dot = item == .pullRequests && workersAtWork
-        return NavItem(title: item.title, count: badge(for: item), dot: dot, selected: selected) { choose(item) }
+        return NavItem(title: item.title, count: badge(for: item), selected: selected) { choose(item) }
     }
-
-    /// Whether a task's worker is at work: the dot beside Tasks.
-    private var workersAtWork: Bool { model.state.tasks.contains { $0.worker?.isRunning == true } }
 
     private func choose(_ item: Tab) {
         tab = item
@@ -211,11 +207,10 @@ struct AppMark: View {
     }
 }
 
-/// One screen in the sidebar: its name, and its count in DM Mono, with a dot before it when something there is at work.
+/// One screen in the sidebar: its name, and its count in DM Mono.
 private struct NavItem: View {
     var title: String
     var count: Int
-    var dot = false
     var selected: Bool
     var action: () -> Void
 
@@ -224,7 +219,6 @@ private struct NavItem: View {
             HStack {
                 Text(title).scaled(selected ? .body.weight(.medium) : .body)
                 Spacer(minLength: 4)
-                if dot { Circle().fill(Theme.accentInk).frame(width: 6, height: 6) }
                 if count > 0 { Text("\(count)").scaled(.caption.monospaced()).foregroundStyle(selected ? Theme.ink : Theme.quiet) }
             }
             .padding(.horizontal, 8)

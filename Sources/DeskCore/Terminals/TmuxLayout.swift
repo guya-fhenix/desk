@@ -170,6 +170,16 @@ public struct Tmux: Sendable {
         try await call(["select-pane", "-t", pane, "-T", spec.name])
     }
 
+    /// Types `text` into `key`'s pane and presses Return, as you would: the one way Desk says anything to a session.
+    /// False when the pane isn't there.
+    public func type(_ text: String, into key: String) async throws -> Bool {
+        guard let pane = try await panes().first(where: { $0.key == key }) else { return false }
+        // `-l` sends the text as it is, so a word of it is never read as a key's name.
+        try await call(["send-keys", "-t", pane.paneId, "-l", text])
+        try await call(["send-keys", "-t", pane.paneId, "Enter"])
+        return true
+    }
+
     public func close(_ pane: String) async throws { try await call(["kill-pane", "-t", pane]) }
 
     /// The `agents` window in two halves, side by side.

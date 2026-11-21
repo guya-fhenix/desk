@@ -105,7 +105,7 @@ public struct TaskGraph: Codable, Sendable, Equatable {
 }
 
 /// The folder the master session runs in, under Desk's own: the files Desk writes for it (`graph.json`, `events.jsonl`),
-/// the one it writes back (`asks.json`), and its `.claude/settings.json`.
+/// the ones it writes (`asks.json`, and `handoff.md` before a restart), and its `.claude/settings.json`.
 public struct MasterFolder: Sendable {
     public let url: URL
 
@@ -170,6 +170,15 @@ public struct MasterFolder: Sendable {
         struct File: Decodable { var asks: [MasterAsk] }
         guard let data = try? Data(contentsOf: file("asks.json")) else { return [] }
         return (try? JSON.decoder().decode(File.self, from: data))?.asks ?? []
+    }
+
+    /// What Desk types to the master before it restarts it: the skill's own handoff, asked for by name.
+    public static let handoffRequest = "Write handoff.md now, as your skill says. Fhenix Desk restarts you as soon as the file is there."
+
+    /// Whether the master wrote `handoff.md` at or after `since`: one left from an earlier restart doesn't count.
+    public func handoffWritten(since: Date) -> Bool {
+        let written = (try? FileManager.default.attributesOfItem(atPath: file("handoff.md").path))?[.modificationDate] as? Date
+        return written.map { $0 >= since } ?? false
     }
 
     /// Lets the master see `directories` (the person's repo roots and whatever else they list), by writing them as

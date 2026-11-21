@@ -345,13 +345,13 @@ struct ClaudeSessionButton: View {
 
     var body: some View {
         let jobs = model.state.claudeJobs(for: pr)
-        if jobs.count > 1, let newest = jobs.first {
+        if jobs.count > 1 {
             Menu {
                 ForEach(jobs) { job in
-                    Button("\(job.name) — \(job.status)") { model.show(jobId: job.id) }
+                    Button(job.name) { model.show(jobId: job.id) }
                 }
             } label: {
-                Label { Text("Show in iTerm") } icon: { icon("terminal.fill", newest.isRunning ? .green : .accentColor) }
+                Label { Text("Show in iTerm") } icon: { icon("terminal.fill", .accentColor) }
             }
             .menuIndicator(.hidden).fixedSize()
             .sessionStyle(prominent, menu: true)
@@ -359,11 +359,11 @@ struct ClaudeSessionButton: View {
             .help(failure ?? "\(jobs.count) background sessions on this PR")
         } else if let job = jobs.first {
             Button { model.show(jobId: job.id) } label: {
-                Label { Text("Show in iTerm") } icon: { icon("terminal.fill", job.isRunning ? .green : .accentColor) }
+                Label { Text("Show in iTerm") } icon: { icon("terminal.fill", .accentColor) }
             }
             .sessionStyle(prominent)
             .labelStyle(.titleAndIcon)
-            .help(failure ?? "Show “\(job.name)” (\(job.status)) in its pane in iTerm")
+            .help(failure ?? "Show “\(job.name)” in its pane in iTerm")
         }
     }
 
@@ -933,40 +933,3 @@ private struct IconButtonBody: View {
     }
 }
 
-/// Where the PR's background session stands, in place of the press that starts one: what it is doing, and a click
-/// attaches to it. With more than one session on the PR, an arrow beside it lists them all, newest first, to attach
-/// another. With no session, the press to start one.
-struct SessionStatus: View {
-    var pr: PullRequest
-    var model: AppModel
-
-    var body: some View {
-        let jobs = model.state.claudeJobs(for: pr)
-        if let newest = jobs.first {
-            // One text and an icon: a menu button keeps no more of its label than that.
-            let label = Label("Session · \(newest.status)", systemImage: newest.isRunning ? "terminal.fill" : "terminal")
-                .labelStyle(.titleAndIcon)
-            Group {
-                if jobs.count > 1 {
-                    Menu {
-                        ForEach(jobs) { job in
-                            Button("Show \(job.name) — \(job.status) in iTerm") { model.show(jobId: job.id) }
-                        }
-                    } label: {
-                        label
-                    } primaryAction: {
-                        model.show(jobId: newest.id)
-                    }
-                    .menuStyle(.button)
-                } else {
-                    Button { model.show(jobId: newest.id) } label: { label }
-                }
-            }
-            .fixedSize()
-            .help("“\(newest.name)”, \(newest.status). Click to show it in its pane in iTerm"
-                + (jobs.count > 1 ? "; the arrow lists the other sessions on this PR" : ""))
-        } else {
-            ClaudeSessionButton(pr: pr, model: model, prominent: true).fixedSize()
-        }
-    }
-}

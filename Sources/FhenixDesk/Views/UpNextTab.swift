@@ -1,15 +1,15 @@
 import DeskCore
 import SwiftUI
 
-/// The landing screen: what waits on you, under the section that says what to do — the master's questions and your PRs
-/// whose move is yours, ready to merge, drafts to submit, the reviews waiting on you (a few, the rest on Reviews), the
-/// workers at it, the Jira moves the app suggests, the sprint's tickets nothing has started, and your PRs that wait on
-/// someone else. The selected row's details sit in the column on the right with its presses. Return, → or a double-click
-/// opens the PR's or the ticket's page here, and its back link, or ←, returns here; on a question it shows the master in
-/// iTerm, on a worker its pane. The reviews follow the Reviews screen's filters.
+/// The landing screen: what waits on you, under the section that says what to do — your PRs whose move is yours, ready
+/// to merge, drafts to submit, the reviews waiting on you (a few, the rest on Reviews), the Jira moves the app suggests,
+/// the sprint's tickets nothing has started, and your PRs that wait on someone else. What the master asked you and what
+/// the workers are doing are not here: you follow those in the master's pane and in `claude agents`. The selected row's
+/// details sit in the column on the right with its presses. Return, → or a double-click opens the PR's or the ticket's
+/// page here, and its back link, or ←, returns here. The reviews follow the Reviews screen's filters.
 struct UpNextTab: View {
     @Environment(AppModel.self) private var model
-    /// A row's id: a PR's url, a ticket's key, `ask:` a question, `job:` a worker.
+    /// A row's id: a PR's url or a ticket's key.
     @State private var selection: String?
     /// The pages open over the list; empty shows the list.
     @State private var path: [Route] = []
@@ -42,16 +42,12 @@ struct UpNextTab: View {
         func prs(_ section: UpNextSection) -> [UpNextItem] {
             (plan.first { $0.section == section }?.pullRequests ?? []).map { .pullRequest($0, section) }
         }
-        var seen = Set<String>()
-        let workers = model.state.tasks.compactMap { task in task.worker.map { (job: $0, task: task) } }
-            .filter { $0.job.isBusy && seen.insert($0.job.id).inserted }
         let reviews = prs(.toReview)
         return [
-            UpNextSectionRows(title: "Needs you", items: model.state.asks.map(UpNextItem.ask) + prs(.yourMove)),
+            UpNextSectionRows(title: "Needs you", items: prs(.yourMove)),
             UpNextSectionRows(title: UpNextSection.readyToMerge.title, items: prs(.readyToMerge)),
             UpNextSectionRows(title: UpNextSection.draftsToSubmit.title, items: prs(.draftsToSubmit)),
             UpNextSectionRows(title: UpNextSection.toReview.title, items: Array(reviews.prefix(Self.reviewsShown)), total: reviews.count),
-            UpNextSectionRows(title: "Workers at it", items: workers.map { .worker($0.job, $0.task) }),
             UpNextSectionRows(title: "Jira moves", items: model.state.ticketDrifts.map(UpNextItem.move)),
             UpNextSectionRows(title: "Ready to start", items: model.state.ticketsToStart.map(UpNextItem.ticket)),
             UpNextSectionRows(title: UpNextSection.waiting.title, items: prs(.waiting)),
@@ -148,11 +144,7 @@ struct UpNextTab: View {
     }
 
     @ViewBuilder private func menu(_ id: String) -> some View {
-        if id.hasPrefix("ask:") {
-            Button("Answer in iTerm") { model.openMaster() }
-        } else if id.hasPrefix("job:") {
-            Button("Show in iTerm") { model.show(jobId: String(id.dropFirst(4))) }
-        } else if let ticket = model.state.ticket(id) {
+        if let ticket = model.state.ticket(id) {
             Button("Open in Jira") { model.open(ticket.url) }
             Button("Copy Key") { Clipboard.copy(ticket.key) }
         } else if let pr = model.state.github?.allOpen.first(where: { $0.url == id }) {
@@ -209,17 +201,10 @@ struct UpNextTab: View {
         }
     }
 
-    /// A PR's page, with its row selected behind it for the way back, or a ticket in Jira, which has no page here. A
-    /// question of the master's shows the master in iTerm, where it is answered, and a worker its own pane.
+    /// A PR's page, with its row selected behind it for the way back, or a ticket in Jira, which has no page here.
     private func open(_ id: String) {
         selection = id
-        if id.hasPrefix("ask:") {
-            model.openMaster()
-        } else if id.hasPrefix("job:") {
-            model.show(jobId: String(id.dropFirst(4)))
-        } else {
-            if let ticket = model.state.ticket(id) { model.open(ticket.url) } else { path.append(.pr(id)) }
-        }
+        if let ticket = model.state.ticket(id) { model.open(ticket.url) } else { path.append(.pr(id)) }
     }
 }
 
@@ -238,21 +223,16 @@ struct UpNextSectionRows: Identifiable {
     var id: String { title }
 }
 
-/// A row of Up Next: a question of the master's, a PR under its section, a worker at work on its task, a suggested Jira
-/// move, or a ticket to start.
+/// A row of Up Next: a PR under its section, a suggested Jira move, or a ticket to start.
 enum UpNextItem: Identifiable {
-    case ask(MasterAsk)
     case pullRequest(PullRequest, UpNextSection)
-    case worker(ClaudeJob, WorkTask)
     case move(TicketDrift)
     case ticket(Ticket)
 
-    /// What the list selects it by; never a PR's url or a ticket's key for a question or a worker.
+    /// What the list selects it by.
     var id: String {
         switch self {
-        case .ask(let ask): return "ask:\(ask.id)"
         case .pullRequest(let pr, _): return pr.url
-        case .worker(let job, _): return "job:\(job.id)"
         case .move(let drift): return drift.id
         case .ticket(let ticket): return ticket.key
         }
@@ -268,13 +248,8 @@ private struct UpNextRow: View {
 
     var body: some View {
         switch item {
-        case .ask(let ask):
-            row(.dot(Theme.warn), title: "Master asks about \(ask.task)", line: ask.text, chip: "Master", tone: Theme.warn, date: ask.askedAt)
         case .pullRequest(let pr, let section):
             pullRequest(pr, section)
-        case .worker(let job, let task):
-            row(.job(job), name: task.pullRequests.first.map(Self.name) ?? job.name, title: task.title, line: job.detail,
-                chip: job.isAsking ? "Asks you" : "Working", tone: job.isAsking ? Theme.warn : Theme.accentInk, date: job.updatedAt)
         case .move(let drift):
             HStack(spacing: 10) {
                 UpNextMark(mark: .dot(drift.stage == .done ? Theme.ok : Theme.accentInk))
@@ -335,11 +310,11 @@ private struct UpNextRow: View {
     }
 }
 
-/// A row's leading mark: a filled dot in the colour of whose move it is, a ring for one waiting, a ring with a tick for a
-/// review to give again, or a session's own mark.
+/// A row's leading mark: a filled dot in the colour of whose move it is, a ring for one waiting, or a ring with a tick
+/// for a review to give again.
 struct UpNextMark: View {
     enum Kind {
-        case dot(Color), ring, approved, job(ClaudeJob)
+        case dot(Color), ring, approved
     }
 
     var mark: Kind
@@ -352,7 +327,6 @@ struct UpNextMark: View {
             case .approved:
                 Circle().strokeBorder(Theme.quiet, lineWidth: 1.5).frame(width: 10, height: 10)
                     .overlay { Image(systemName: "checkmark").font(.system(size: 6, weight: .bold)).foregroundStyle(Theme.ok) }
-            case .job(let job): SessionMark(job: job)
             }
         }
         .frame(width: 18)
@@ -360,8 +334,7 @@ struct UpNextMark: View {
     }
 }
 
-/// The selected row in full, with its presses at the foot: a question with its task's PRs and what it depends on; a PR's
-/// facts; a worker and its task; a suggested move; a ticket to start.
+/// The selected row in full, with its presses at the foot: a PR's facts; a suggested move; a ticket to start.
 private struct UpNextDetails: View {
     var item: UpNextItem
     var model: AppModel
@@ -370,44 +343,9 @@ private struct UpNextDetails: View {
     var body: some View {
         DetailColumn(width: 360) {
             switch item {
-            case .ask(let ask): askDetails(ask)
             case .pullRequest(let pr, let section): pullRequestDetails(pr, review: section == .toReview || section == .draftsToSubmit)
-            case .worker(let job, let task): workerDetails(job, task)
             case .move(let drift): ticketDetails(drift.ticket, kicker: "suggested move") { MoveSuggestion(drift: drift, model: model) }
             case .ticket(let ticket): ticketDetails(ticket, kicker: "ready to start") { EmptyView() }
-            }
-        }
-    }
-
-    @ViewBuilder private func askDetails(_ ask: MasterAsk) -> some View {
-        let task = model.state.tasks.first { $0.id == ask.task }
-        DetailHeader(kicker: "Master asks · about \(ask.task)" + (ask.askedAt.map { " · \(Format.age($0)) ago" } ?? ""), title: ask.text)
-        if let task { taskParts(task) }
-        if let error = model.terminalError ?? model.masterError { failure(error) }
-        Spacer(minLength: 0)
-        Button { model.openMaster() } label: { HStack(spacing: 8) { Text("Answer in iTerm"); ButtonKey(key: "↩") } }
-            .buttonStyle(.desk(.primary, .large, wide: true))
-            .help("Shows the master's pane in iTerm, where you answer")
-    }
-
-    /// The task's PRs, each with where it stands, and what it sits on that is not its own.
-    @ViewBuilder private func taskParts(_ task: WorkTask) -> some View {
-        if !task.pullRequests.isEmpty {
-            let count = task.pullRequests.count
-            RuledList(title: "Task · \(task.id) · \(count) pull \(count == 1 ? "request" : "requests")") {
-                ForEach(task.pullRequests, id: \.url) { pr in
-                    RuledRow {
-                        Text(UpNextRow.name(pr)).scaled(.code).lineLimit(1)
-                        Spacer(minLength: 8)
-                        Text(RowState.of(pr).title).scaled(.secondary).foregroundStyle(Theme.quiet).lineLimit(1)
-                    }
-                }
-            }
-        }
-        if !task.dependsOn.isEmpty {
-            VStack(alignment: .leading, spacing: 8) {
-                SectionLabel("Depends on")
-                ForEach(task.dependsOn, id: \.self) { Text($0).scaled(.code).textSelection(.enabled) }
             }
         }
     }
@@ -455,22 +393,9 @@ private struct UpNextDetails: View {
                 .help(model.reviewRunning(pr) ? "The review session's window in iTerm" : "The diff here and a review session in a window of its own in iTerm")
             } else if let job {
                 Button("Show in iTerm") { model.show(jobId: job.id) }.buttonStyle(.desk(.secondary, .large))
-                    .help("Show “\(job.name)” (\(job.status)) in its pane in iTerm")
+                    .help("Show “\(job.name)” in its pane in iTerm")
             }
         }
-    }
-
-    @ViewBuilder private func workerDetails(_ job: ClaudeJob, _ task: WorkTask) -> some View {
-        DetailHeader(
-            kicker: "Worker · \(job.name) · \(job.isAsking ? "asks you" : "working") · \(Format.age(job.updatedAt))",
-            title: task.title, summary: job.isAsking ? job.asking : job.detail
-        )
-        taskParts(task)
-        if let error = model.terminalError { failure(error) }
-        Spacer(minLength: 0)
-        Button { model.show(jobId: job.id) } label: { HStack(spacing: 8) { Text("Show in iTerm"); ButtonKey(key: "↩") } }
-            .buttonStyle(.desk(.primary, .large, wide: true))
-            .help("Show “\(job.name)” in its pane in iTerm")
     }
 
     @ViewBuilder private func ticketDetails(_ ticket: Ticket, kicker: String, @ViewBuilder extra: () -> some View) -> some View {

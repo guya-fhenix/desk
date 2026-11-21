@@ -73,8 +73,6 @@ public struct ClaudeJob: Sendable, Hashable, Identifiable {
     public var isAsking: Bool { state == "blocked" }
     /// Its state in a word for people: Claude Code's "blocked" reads as stuck, when it is waiting on your answer.
     public var status: String { isAsking ? "asks you" : state }
-    /// What it asks, or that it asks something, for wherever Desk says so.
-    public var asking: String { question.map { "The session asks: \($0)" } ?? "The session is asking you something" }
     /// In the middle of a turn: working, or asking you something.
     public var isBusy: Bool { isRunning || isAsking }
     /// Done with its turn: the one state an instruction may be sent in. Stopping a session that works or asks would cut
@@ -237,9 +235,27 @@ public struct ClaudeCLI: Sendable {
         return id
     }
 
-    /// Stops a background session: `claude stop <id>`. Its transcript stays; `claude attach` still opens it.
-    public func stop(_ id: String) async throws {
-        try await Shell.output(path, ["stop", id], timeout: 30, run: run)
+    /// Stops a background session and takes it off Claude Code's list: `claude stop`, then `claude rm` once `claude
+    /// agents` no longer lists it. A session that is only stopped keeps its job folder, with the state it stopped in, so
+    /// Desk would go on reading it as one that runs. Its conversation stays: `claude --resume` lists it.
+    public func remove(_ id: String) async throws {
+        // Its exit status is not the test: a session already stopped refuses the stop. No longer listed is the test.
+        _ = try? await Shell.output(path, ["stop", id], timeout: 30, run: run)
+        var tries = 0
+        while await isListed(id), tries < 30 {
+            try await Task.sleep(for: .milliseconds(500))
+            tries += 1
+        }
+        try await Shell.output(path, ["rm", id], timeout: 30, run: run)
+    }
+
+    /// Whether `claude agents` lists the session as running. A listing that fails reads as not listed: `rm` then says
+    /// why it can't go.
+    private func isListed(_ id: String) async -> Bool {
+        guard let output = try? await Shell.output(path, ["agents", "--json"], timeout: 30, run: run),
+              let list = try? JSONSerialization.jsonObject(with: Data(output.utf8)) as? [[String: Any]]
+        else { return false }
+        return list.contains { $0["id"] as? String == id }
     }
 }
 

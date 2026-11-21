@@ -531,8 +531,7 @@ private struct MasterSettings: View {
         SettingsGroup(title: "Session") {
             SettingsRow("Session") {
                 HStack(spacing: 6) {
-                    Circle().fill(master == nil ? Theme.control : master!.isAsking || !model.state.asks.isEmpty ? Theme.warn : Theme.ok)
-                        .frame(width: 6, height: 6)
+                    Circle().fill(model.masterDot).frame(width: 6, height: 6)
                     Text(model.masterStatus)
                 }
                 if let error = model.masterError { Text(error).scaled(.secondary).foregroundStyle(Theme.danger).textSelection(.enabled) }

@@ -123,10 +123,9 @@ import Testing
         // It also touched another PR, which names no ticket: that one is not its flow.
         #expect(state.stage(for: other) == nil)
         #expect(state.sessions(forTicket: "PRO-9").map(\.id) == ["bbbbbbbb"])
-        #expect(state.stage(of: planning) == .working)
+        #expect(state.pullRequest(of: planning) == nil)
         // It touched two PRs of yours; the one naming its ticket is the one it opened.
         #expect(state.pullRequest(of: opened)?.number == 1)
-        #expect(state.stage(of: opened) == .draft)
         // A ticket with a session on it is under way, not one to start.
         state.tickets = [Fixtures.ticket("PRO-8", category: .todo, status: "To Do"), Fixtures.ticket("PRO-9", category: .todo, status: "To Do")]
         #expect(state.ticketsToStart.map(\.key) == ["PRO-8"])

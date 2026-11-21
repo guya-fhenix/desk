@@ -358,23 +358,7 @@ private struct TicketFields: View {
                     Text(ticket.assignee.map { ticket.assignedToMe ? "\($0) (you)" : $0 } ?? (ticket.assignedToMe ? "You" : "Unassigned"))
                 }
             }
-            if let task = model.state.tasks.first(where: { $0.id == ticket.key }) {
-                FieldRow("Task", wait(task))
-            }
         }
-    }
-
-    /// "Waits on you · the master asked 12m ago".
-    private func wait(_ task: WorkTask) -> String {
-        let asks = model.state.asks.filter { $0.task == task.id }
-        let who = switch task.waitingOn(asked: Set(model.state.asks.map(\.task))) {
-        case .you: "Waits on you"
-        case .worker: "Its worker is at it"
-        case .reviewers: "Waits on reviewers"
-        case .nobody: "Nothing waiting"
-        }
-        guard let asked = asks.compactMap(\.askedAt).max() else { return who }
-        return "\(who) · the master asked \(Format.age(asked)) ago"
     }
 }
 
@@ -415,7 +399,7 @@ private struct TicketLinks: View {
     }
 }
 
-/// One session started on the ticket: its state's mark, its name in DM Mono, its role, its flow's stage and its PR, and
+/// One session started on the ticket: the session mark, its name in DM Mono, its role, its PR and that PR's stage, and
 /// Show in iTerm.
 private struct TicketSessionRow: View {
     var session: ClaudeJob
@@ -423,13 +407,13 @@ private struct TicketSessionRow: View {
 
     var body: some View {
         let pr = model.state.pullRequest(of: session)
-        let stage = model.state.stage(of: session).title.lowercased()
+        // A session with no PR yet has no stage to name: "working" would say what it is doing.
+        let stage = pr.map { " · \($0.repoName) #\($0.number) · \(FlowStage.of($0).title.lowercased())" } ?? ""
         RuledRow(minHeight: 38) {
-            SessionMark(job: session).frame(width: 16)
-            Text("\(Text(session.name).font(AppTextStyle.code.font(scale: model.textScale))) \(Text("· \(session.role.rawValue) · \(session.status)\(pr.map { " · \($0.repoName) #\($0.number)" } ?? "") · \(stage)").foregroundStyle(Theme.quiet))")
+            SessionMark().frame(width: 16)
+            Text("\(Text(session.name).font(AppTextStyle.code.font(scale: model.textScale))) \(Text("· \(session.role.rawValue)\(stage)").foregroundStyle(Theme.quiet))")
                 .lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .help("\(session.name) · \(session.role.rawValue) · \(session.status)\(session.detail.map { " · \($0)" } ?? "")")
             Button("Show in iTerm") { model.show(jobId: session.id) }.buttonStyle(.desk(.secondary, .small))
         }
     }

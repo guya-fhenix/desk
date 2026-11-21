@@ -63,6 +63,18 @@ struct TmuxLayoutTests {
         #expect(panes.first { $0.key == "w1" }?.window == "cofhe-1154")
         #expect(try await tmux.focus("w1"))
         #expect(try await !tmux.focus("gone"))
+        // What Desk types into a pane arrives as one line, as typed, and nothing is typed into a pane that isn't there.
+        let typed = FileManager.default.temporaryDirectory.appendingPathComponent("desk-typed-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: typed) }
+        try await tmux.openWindow(PaneSpec(key: "t1", name: "typed"), command: "head -n 1 > \(TmuxLayout.quote(typed.path)); sleep 600")
+        #expect(try await tmux.type("Write handoff.md now, as your skill says.", into: "t1"))
+        #expect(try await !tmux.type("anything", into: "gone"))
+        var line = ""
+        for _ in 0..<40 where line.isEmpty {
+            try await Task.sleep(for: .milliseconds(100))
+            line = (try? String(contentsOf: typed, encoding: .utf8)) ?? ""
+        }
+        #expect(line == "Write handoff.md now, as your skill says.\n")
         // A session in claude agents' place: the pane keeps its key and says what it shows.
         let agents = try #require(panes.first { $0.key == PaneSpec.agentsKey })
         try await tmux.show("w2", in: agents.paneId, command: "sleep 600")

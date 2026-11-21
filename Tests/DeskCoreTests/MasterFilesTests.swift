@@ -39,6 +39,17 @@ import Testing
         #expect(master.asks().isEmpty)
     }
 
+    /// A restart waits for a handoff written after it asked: none, or one left by an earlier restart, is not it.
+    @Test func aHandoffCountsOnlyOnceWrittenAfterTheAsk() throws {
+        let master = folder()
+        defer { try? FileManager.default.removeItem(at: master.url) }
+        #expect(!master.handoffWritten(since: .distantPast))
+        try FileManager.default.createDirectory(at: master.url, withIntermediateDirectories: true)
+        try "PRO-650: waits on reviewers".write(to: master.url.appendingPathComponent("handoff.md"), atomically: true, encoding: .utf8)
+        #expect(master.handoffWritten(since: Date().addingTimeInterval(-60)))
+        #expect(!master.handoffWritten(since: Date().addingTimeInterval(60)))
+    }
+
     /// The folders go in as `additionalDirectories`, tildes expanded; whatever else the person put in the file stays.
     @Test func settingsKeepTheirOtherKeys() throws {
         let master = folder()

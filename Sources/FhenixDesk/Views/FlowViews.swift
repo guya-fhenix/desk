@@ -1,10 +1,10 @@
 import DeskCore
 import SwiftUI
 
-/// Your open PR's next step, read-only: what it waits on and whose move that is, read off GitHub and the session on each
-/// refresh. Where the move is the master's or its worker's, the press that shows the master's pane, to tell it there; the
-/// presses that change the PR itself are in the page's header. A conflict, red CI or a base to rebase onto shows here at any
-/// stage, and so does a question the session is asking you.
+/// Your open PR's next step, read-only: what it waits on and whose move that is, read off GitHub on each refresh. Where
+/// the move is the master's or its worker's, the press that shows the master's pane, to tell it there; the presses that
+/// change the PR itself are in the page's header. A conflict, red CI or a base to rebase onto shows here at any stage.
+/// What the PR's session is doing or asking does not: that is in its pane.
 struct NextStepCard: View {
     var pr: PullRequest
     /// The background session carrying the PR, when it has one.
@@ -16,15 +16,6 @@ struct NextStepCard: View {
         VStack(alignment: .leading, spacing: 10) {
             SectionLabel("Next step")
             Text(step.text).fixedSize(horizontal: false, vertical: true)
-            if let session, session.isAsking {
-                // Its question is often the last line of a long report, easy to read past in the pane; so it is said here.
-                note(session.question.map { "The session asks: “\($0)”" } ?? "The session is asking you something.", Theme.warn)
-            } else if let session, session.isRunning {
-                HStack(spacing: 6) {
-                    ProgressView().controlSize(.mini)
-                    Text(session.detail ?? "Its session is working, on this PR or something else.").scaled(.secondary).foregroundStyle(Theme.quiet).lineLimit(2)
-                }
-            }
             if pr.checks.isRed, RowState.of(pr) != .ciFailed { note("CI failed.", Theme.warn) }
             if let reason = model.state.rebaseReason(pr) { note("Needs a rebase: \(reason.text).", Theme.warn) }
             if let error = model.flowErrors[pr.url] { note(error, Theme.danger).textSelection(.enabled) }
@@ -270,22 +261,14 @@ struct AboutCard: View {
     }
 }
 
-/// Beside a PR row's pill, what its session is doing: a spinner while it works, a bubble while it asks you something, or a
-/// red mark when the last press on it failed.
+/// Beside a PR row's pill, a red mark when the last press on the PR failed. Nothing about its session.
 struct SessionMarks: View {
     var pr: PullRequest
     var model: AppModel
 
     var body: some View {
-        if let session = model.state.session(for: pr) {
-            if session.isRunning {
-                ProgressView().controlSize(.mini).help("The session is working")
-            } else if session.isAsking {
-                Image(systemName: "exclamationmark.bubble.fill").foregroundStyle(Theme.warn)
-                    .help(session.asking)
-            } else if let error = model.flowErrors[pr.url] {
-                Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Theme.danger).help(error)
-            }
+        if model.state.session(for: pr) != nil, let error = model.flowErrors[pr.url] {
+            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Theme.danger).help(error)
         }
     }
 }

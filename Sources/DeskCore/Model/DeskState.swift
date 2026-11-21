@@ -310,11 +310,6 @@ public struct DeskState: Sendable {
         return linked.first { pr in session.ticketKey.map { ticketKeys[pr.url]?.contains($0) == true } ?? false } ?? linked.first
     }
 
-    /// A ticket session's stage: its PR's, or Working until it has one.
-    public func stage(of session: ClaudeJob) -> FlowStage {
-        pullRequest(of: session).map(FlowStage.of) ?? .working
-    }
-
     public func rebaseReason(_ pr: PullRequest) -> RebaseReason? {
         Linker.rebaseReason(pr, mergedHeads: Linker.mergedHeadsByRepo(github?.mergedRecent ?? [])[pr.repo] ?? [])
     }
@@ -384,24 +379,22 @@ extension DeskState {
     }
 
     /// Up Next: every PR of yours under one section — your move when it is red, conflicts, has changes requested or a
-    /// review thread open, needs a rebase or a flow or session waits on you; ready to merge when its nudge says so; otherwise waiting on
-    /// others — most recently updated first; then the reviews you have a draft on that is not submitted yet, whatever
+    /// review thread open, or needs a rebase; ready to merge when it is approved and GitHub would take the merge now;
+    /// otherwise waiting on others — most recently updated first. Its session has no say: what a session is doing shows
+    /// in `claude agents`, not here. Then the reviews you have a draft on that is not submitted yet, whatever
     /// the day filter, since you started them; then the review queue's PRs that need your review, inside the Reviews
     /// screen's day and approval filters (`reviewDays`, nil for all time; `needingApproval`), oldest first as the queue
     /// lists them. Both leave out the authors the Reviews screen hides (`hiding`). Empty sections are
-    /// left out. The PR's own state decides a fix, not its nudge: drafts get no nudges, and a red draft is still yours.
+    /// left out. The PR's own state decides, not its nudges: drafts get none, and a red draft is still yours.
     public func upNext(reviewDays: Int?, hiding: Set<String> = [], needingApproval: Bool = false, now: Date = Date()) -> [UpNextGroup] {
-        let yours: Set<NudgeKind> = [.sessionNeedsYou, .flowWaiting]
-        var kinds: [String: Set<NudgeKind>] = [:]
-        for nudge in nudges { if let url = nudge.url { kinds[url, default: []].insert(nudge.kind) } }
         var sections: [UpNextSection: [PullRequest]] = [:]
         for pr in mine.sorted(by: { $0.updatedAt > $1.updatedAt }) {
-            let found = kinds[pr.url] ?? []
             // An open thread is something to answer or fix, so it is yours too: it held the PR in Waiting, on nobody.
             let fix = pr.checks.isRed || pr.hasConflicts || pr.reviewDecision == .changesRequested || pr.unresolvedThreads > 0
                 || rebaseReason(pr) != nil
-            let section: UpNextSection = fix || !found.isDisjoint(with: yours) ? .yourMove
-                : found.contains(.readyToMerge) ? .readyToMerge : .waiting
+            // The ready-to-merge nudge's own test, without its "no session on it": a worker's PR is ready too.
+            let ready = !pr.isDraft && FlowStage.of(pr) == .approved && pr.mergeState == .clean && !pr.checks.isPending
+            let section: UpNextSection = fix ? .yourMove : ready ? .readyToMerge : .waiting
             sections[section, default: []].append(pr)
         }
         sections[.draftsToSubmit] = reviewQueue(.all, hiding: hiding).filter { $0.pendingReview != nil }

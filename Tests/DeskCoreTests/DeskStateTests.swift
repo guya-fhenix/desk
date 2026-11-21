@@ -69,6 +69,28 @@ import Testing
         #expect(plan.first { $0.section == .waiting }?.pullRequests.map(\.number) == [3])
     }
 
+    /// A PR's own state on GitHub puts it in its section, whatever its session is doing: an approved one a worker
+    /// carries is ready to merge, and a session asking you something moves nothing.
+    @Test func sessionsHaveNoSayInUpNext() {
+        var state = state
+        let approved = Fixtures.pr(number: 1, head: "a", review: .approved, merge: .clean)
+        let inReview = Fixtures.pr(number: 2, head: "b")
+        let draft = Fixtures.pr(number: 3, head: "c", draft: true)
+        state.github?.mine = [approved, inReview, draft]
+        state.claudeJobs = [approved, inReview, draft].enumerated().map { index, pr in
+            let key = ClaudeJobs.prKey(pr.url)!
+            return ClaudeJob(
+                id: "job\(index)", name: "w\(index)", state: index == 1 ? "blocked" : "done", cwd: "/r/cofhe", prKeys: [key],
+                updatedAt: Fixtures.t0, startedOn: [key], role: .worker
+            )
+        }
+        state.recompute()
+        let plan = state.upNext(reviewDays: nil)
+        #expect(plan.first { $0.section == .readyToMerge }?.pullRequests.map(\.number) == [1])
+        #expect(plan.first { $0.section == .waiting }?.pullRequests.map(\.number).sorted() == [2, 3])
+        #expect(!plan.contains { $0.section == .yourMove })
+    }
+
     /// A move or edit of this app's is laid over a Jira answer that does not show it yet, and dropped once one does.
     @Test func ticketEditsCorrectALaggingJira() {
         var state = state

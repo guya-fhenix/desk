@@ -1,10 +1,11 @@
 import DeskCore
 import SwiftUI
 
-/// The master and its workers, as they run in iTerm: the sessions down a column, the `desk` layout drawn with a Show per
-/// pane, the questions the master asked you with Answer in iTerm, and the events Desk told it today; beside them where
-/// the master runs and how its terminal is set up. Desk sends nothing to a session from here: every press puts a pane
-/// in front, and you type there.
+/// The master and its workers, as they run in iTerm: the sessions down a column, each with its task, the `desk` layout
+/// drawn with a Show per pane, and the events Desk told the master today; beside them where the master runs and how its
+/// terminal is set up. What a session is doing, and what the master asked you, are not here: the first is in `claude
+/// agents`, the second in the master's pane. Every press puts a pane in front, and you type there; Restart alone types
+/// for you, one line asking the master for its handoff.
 struct MasterScreen: View {
     @Environment(AppModel.self) private var model
 
@@ -17,8 +18,8 @@ struct MasterScreen: View {
                     if let error = model.terminalError ?? model.masterError {
                         Text(error).scaled(.secondary).foregroundStyle(Theme.danger).textSelection(.enabled)
                     }
+                    restartPanel
                     LayoutSketch()
-                    questions
                     events
                 }
                 .padding(EdgeInsets(top: 18, leading: 24, bottom: 20, trailing: 24))
@@ -30,58 +31,85 @@ struct MasterScreen: View {
         .background(Theme.ground)
     }
 
+    /// The title with the master's presses beside it, or under it where the column is too narrow for both on a line.
     private var header: some View {
-        let master = model.state.master
-        return HStack(alignment: .top, spacing: 12) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(kicker).scaled(.secondary).foregroundStyle(Theme.quiet)
-                Text("Master and its workers").scaled(.title.weight(.semibold))
-            }
-            Spacer(minLength: 8)
-            if master != nil {
-                Button("Stop master") { model.stopMaster() }.buttonStyle(.desk)
-                    .help("claude stop: the master ends; its workers run on")
-            }
-            Button { model.openMaster() } label: {
-                HStack(spacing: 8) { Text(master == nil ? "Start master" : "Open in iTerm"); ButtonKey(key: "↩") }
-            }
-            .buttonStyle(.deskPrimary)
-            .keyboardShortcut(.defaultAction)
-            .disabled(model.startingMaster)
+        let title = VStack(alignment: .leading, spacing: 2) {
+            Text(kicker).scaled(.secondary).foregroundStyle(Theme.quiet)
+            Text("Master and its workers").scaled(.title.weight(.semibold))
         }
+        return ViewThatFits(in: .horizontal) {
+            HStack(alignment: .top, spacing: 8) {
+                title.fixedSize()
+                Spacer(minLength: 4)
+                presses
+            }
+            VStack(alignment: .leading, spacing: 10) {
+                title
+                HStack(spacing: 8) { presses }
+            }
+        }
+    }
+
+    @ViewBuilder private var presses: some View {
+        let master = model.state.master
+        if master != nil {
+            Button("Stop master") { model.stopMaster() }.buttonStyle(.desk)
+                .disabled(model.masterRestart != nil)
+                .help("The master ends and leaves Claude Code's list; its workers run on")
+            Button("Restart master") { model.confirmingMasterRestart = true }.buttonStyle(.desk)
+                .disabled(model.confirmingMasterRestart || model.masterRestart != nil)
+                .help("A new master in place of this one, after it writes its handoff; its workers run on")
+        }
+        Button { model.openMaster() } label: {
+            HStack(spacing: 8) { Text(master == nil ? "Start master" : "Open in iTerm"); ButtonKey(key: "↩") }
+        }
+        .buttonStyle(.deskPrimary)
+        .keyboardShortcut(.defaultAction)
+        .disabled(model.startingMaster || model.masterRestart == .restarting)
     }
 
     private var kicker: String {
         let started = model.state.master?.createdAt.map { " · started \($0.clock)" } ?? ""
         let app = model.config.terminalApp == .iTerm ? "iTerm2" : "Terminal"
+        if model.masterRestart == .restarting { return "Stopping the master and starting a new one…" }
         return model.state.master == nil ? "No master running" : "tmux session \(TmuxLayout.session) · shown in \(app)\(started)"
     }
 
-    @ViewBuilder private var questions: some View {
-        let asks = model.state.asks
-        VStack(alignment: .leading, spacing: 0) {
-            SectionLabel("The master asked you", count: asks.count).padding(.bottom, 6)
-            if asks.isEmpty {
-                Text("Nothing open. When the master asks you something, it shows here and on Up Next.")
-                    .foregroundStyle(Theme.quiet).padding(.vertical, 8)
+    /// Restart's two steps, each a tinted panel under the header: your yes, then the wait for the master's handoff, with
+    /// the way to restart without it when the master doesn't answer.
+    @ViewBuilder private var restartPanel: some View {
+        if model.masterRestart == .waitingForHandoff {
+            panel(
+                "Waiting for the master's handoff…", working: true,
+                "Desk asked the master to write handoff.md, and restarts it as soon as the file is there. If the master doesn't answer, restart without it: the new master then starts from the task list and its open questions only."
+            ) {
+                Button("Restart without the handoff") { model.restartMaster(handoff: false) }.buttonStyle(.desk)
+                Button("Cancel") { model.cancelRestart() }.buttonStyle(.desk)
             }
-            ForEach(asks) { ask in
-                RuledRow(minHeight: 44) {
-                    // Orange, as the master's own dot is while it waits for you.
-                    HStack(spacing: 8) {
-                        Circle().fill(Theme.warn).frame(width: 8, height: 8)
-                        StageChip2(text: ask.task, color: Theme.warn).font(AppTextStyle.code.font(scale: model.textScale))
-                        Text(Format.age(ask.askedAt)).scaled(.code).foregroundStyle(Theme.quiet)
-                    }
-                    .scaledFrame(width: 140, alignment: .leading)
-                    Text(ask.text).fixedSize(horizontal: false, vertical: true).frame(maxWidth: .infinity, alignment: .leading)
-                    Button("Answer in iTerm") { model.openMaster() }.buttonStyle(.desk(.secondary, .small))
-                }
+        } else if model.confirmingMasterRestart, model.masterRestart == nil, model.state.master != nil {
+            panel(
+                "Restart the master?", working: false,
+                "Desk asks the master to write its handoff and waits for it. Then it stops the master and starts a new one, with a new conversation, which reads the handoff. Your workers run on."
+            ) {
+                Button("Restart") { model.restartMaster(handoff: true) }.buttonStyle(.deskPrimary)
+                Button("Cancel") { model.confirmingMasterRestart = false }.buttonStyle(.desk)
             }
-            if !asks.isEmpty { Rectangle().fill(Theme.ruleSoft).frame(height: 1) }
-            Text("You answer in the master's pane. Desk shows the questions; it sends nothing to a session.")
-                .scaled(.secondary).foregroundStyle(Theme.quiet).padding(.top, 8)
         }
+    }
+
+    private func panel(_ title: String, working: Bool, _ text: String, @ViewBuilder presses: () -> some View) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                if working { ProgressView().controlSize(.mini) }
+                Text(title).fontWeight(.semibold)
+            }
+            Text(text).fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 8) { presses() }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Theme.tint, in: RoundedRectangle(cornerRadius: 10))
+        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Theme.tintLine))
     }
 
     @ViewBuilder private var events: some View {
@@ -103,16 +131,15 @@ struct MasterScreen: View {
     }
 }
 
-/// The sessions Desk knows of: the master first, the open tasks' workers at work and done, and the review sessions. A
-/// press shows that session's pane in iTerm.
+/// The sessions Desk knows of: the master first, each open task's worker under its task's title, and the review
+/// sessions. A press shows that session's pane in iTerm.
 private struct SessionsColumn: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
         var seen = Set<String>()
-        let workers = model.state.tasks.compactMap(\.worker).filter { seen.insert($0.id).inserted }
-        let working = workers.filter(\.isBusy)
-        let done = workers.filter { !$0.isBusy }
+        let workers = model.state.tasks.compactMap { task in task.worker.map { (job: $0, task: task) } }
+            .filter { seen.insert($0.job.id).inserted }
         let reviews = model.state.claudeJobs.filter { $0.role == .review }
         VStack(alignment: .leading, spacing: 2) {
             Text("Sessions").scaled(.title).padding(.horizontal, 8).frame(minHeight: 32).padding(.bottom, 10)
@@ -121,16 +148,15 @@ private struct SessionsColumn: View {
                     masterRow
                     if !workers.isEmpty {
                         SectionLabel("Workers", count: workers.count).padding(EdgeInsets(top: 18, leading: 8, bottom: 4, trailing: 8))
-                        if !working.isEmpty { group("Working", working) }
-                        if !done.isEmpty { group("Done", done) }
+                        ForEach(workers, id: \.job.id) { SessionRow2(job: $0.job, line: $0.task.title) }
                     }
                     if !reviews.isEmpty {
                         SectionLabel("Reviews", count: reviews.count).padding(EdgeInsets(top: 18, leading: 8, bottom: 4, trailing: 8))
-                        ForEach(reviews) { SessionRow2(job: $0) }
+                        ForEach(reviews) { SessionRow2(job: $0, line: nil) }
                     }
                 }
             }
-            Text("The master starts one worker per task. A session that runs or waits has a pane in iTerm; a finished one gives its pane back.")
+            Text("The master starts one worker per task. What each is doing is in claude agents, on the right in iTerm.")
                 .scaled(.secondary).foregroundStyle(Theme.quiet).fixedSize(horizontal: false, vertical: true)
                 .padding(EdgeInsets(top: 12, leading: 8, bottom: 0, trailing: 8))
                 .overlay(alignment: .top) { Rectangle().fill(Theme.ruleSoft).frame(height: 1) }
@@ -146,7 +172,7 @@ private struct SessionsColumn: View {
         Button { model.openMaster() } label: {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 8) {
-                    Circle().fill(model.state.master == nil ? Theme.control : Theme.warn).frame(width: 8, height: 8)
+                    Circle().fill(model.masterDot).frame(width: 8, height: 8)
                     Text("Master").fontWeight(.semibold)
                 }
                 Text(model.masterStatus).scaled(.secondary).foregroundStyle(Theme.quiet).padding(.leading, 16)
@@ -160,31 +186,24 @@ private struct SessionsColumn: View {
         .buttonStyle(.plain)
         .help("Show the master's pane in iTerm")
     }
-
-    private func group(_ title: String, _ jobs: [ClaudeJob]) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text("\(title) · \(jobs.count)").scaled(.secondary).foregroundStyle(Theme.quiet).padding(.horizontal, 8).padding(.vertical, 2)
-            ForEach(jobs) { SessionRow2(job: $0) }
-        }
-    }
 }
 
-/// A session in the column: its state's mark, its name in DM Mono and its age, and under them what it is doing.
+/// A session in the column: the session mark, its name in DM Mono, and under them what it is on, a worker's task.
 private struct SessionRow2: View {
     @Environment(AppModel.self) private var model
     var job: ClaudeJob
+    var line: String?
 
     var body: some View {
         Button { model.show(jobId: job.id) } label: {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 8) {
-                    SessionMark(job: job).frame(width: 12)
-                    Text(job.name).scaled(.code.weight(job.isBusy ? .medium : .regular)).lineLimit(1)
-                    Spacer(minLength: 4)
-                    if job.isBusy { Text(Format.age(job.updatedAt)).scaled(.caption.monospaced()).foregroundStyle(Theme.quiet) }
+                    SessionMark().frame(width: 12)
+                    Text(job.name).scaled(.code).lineLimit(1)
                 }
-                Text("\(Text(state).foregroundStyle(SessionMark.tone(job)))\(job.detail.map { " · \($0)" } ?? "")")
-                    .scaled(.secondary).foregroundStyle(Theme.quiet).lineLimit(2).padding(.leading, 20)
+                if let line {
+                    Text(line).scaled(.secondary).foregroundStyle(Theme.quiet).lineLimit(2).padding(.leading, 20)
+                }
             }
             .padding(8)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -193,34 +212,12 @@ private struct SessionRow2: View {
         .buttonStyle(.plain)
         .help("Show \(job.name) in iTerm")
     }
-
-    private var state: String { job.isAsking ? "Waiting for you" : job.isRunning ? "Working" : "Done" }
 }
 
-/// A session's state as a small mark: an arc while it works, a filled dot while it waits for you, a tick when done.
+/// A background session's mark, the same for every one: Desk says which session, never what it is doing.
 struct SessionMark: View {
-    var job: ClaudeJob
-
     var body: some View {
-        Group {
-            if job.isAsking {
-                Circle().fill(Theme.warn).frame(width: 9, height: 9)
-            } else if job.isRunning {
-                ZStack {
-                    Circle().stroke(Theme.quiet, lineWidth: 1.5)
-                    Circle().trim(from: 0, to: 0.25).stroke(Theme.accentInk, lineWidth: 1.5).rotationEffect(.degrees(-90))
-                }
-                .frame(width: 10, height: 10)
-            } else {
-                Image(systemName: "checkmark").font(.system(size: 9, weight: .semibold)).foregroundStyle(Theme.quiet)
-            }
-        }
-        .accessibilityLabel(job.isAsking ? "Waiting for you" : job.isRunning ? "Working" : "Done")
-    }
-
-    /// The mark's colour, for the word that says the same: orange while it waits for you, the accent while it works.
-    static func tone(_ job: ClaudeJob) -> Color {
-        job.isAsking ? Theme.warn : job.isRunning ? Theme.accentInk : Theme.quiet
+        Image(systemName: "terminal").font(.system(size: 10, weight: .medium)).foregroundStyle(Theme.quiet).accessibilityHidden(true)
     }
 }
 
@@ -264,17 +261,13 @@ private struct LayoutSketch: View {
     }
 
     private var agentsPane: some View {
-        let running = model.state.claudeJobs.filter { $0.role != .master && $0.isBusy }
         let showing = model.agentsShowing.flatMap { id in model.state.claudeJobs.first { $0.id == id } }
         return VStack(alignment: .leading, spacing: 8) {
-            paneHeader(name: showing?.name ?? "claude agents", state: showing.map { _ in "in claude agents' place" } ?? "\(running.count) at work",
-                       dot: Theme.accentInk) { model.openMaster() }
+            paneHeader(name: showing?.name ?? "claude agents", state: showing.map { _ in "in claude agents' place" } ?? "") { model.openMaster() }
             Text(showing.map { "claude attach \($0.name)" } ?? "claude agents").foregroundStyle(Theme.quiet)
-            ForEach(running.prefix(6)) { job in
-                HStack(spacing: 6) {
-                    Circle().fill(job.isAsking ? Theme.warn : Theme.accentInk).frame(width: 6, height: 6)
-                    Text(job.name).lineLimit(1)
-                }
+            if showing == nil {
+                Text("Every background session and what it is doing: who works, who is done, who waits for you.")
+                    .scaled(.secondary).foregroundStyle(Theme.quiet).fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 0)
         }
@@ -287,9 +280,8 @@ private struct LayoutSketch: View {
     private func window(_ key: String) -> some View {
         let job = model.state.claudeJobs.first { $0.id == key }
         return HStack(spacing: 8) {
-            Circle().fill(job?.isAsking == true ? Theme.warn : Theme.accentInk).frame(width: 7, height: 7)
+            Circle().fill(Theme.accentInk).frame(width: 7, height: 7)
             Text(job?.name ?? (key.hasPrefix("review:") ? "review" : key)).scaled(.code.weight(.medium)).lineLimit(1)
-            Text(job.map { $0.isAsking ? "waiting for you" : $0.isRunning ? "working" : "done" } ?? "review").scaled(.secondary).foregroundStyle(Theme.quiet)
             Spacer(minLength: 4)
             Button("Show") { if key.hasPrefix("review:") { model.showPane(key) } else { model.show(jobId: key) } }
                 .buttonStyle(.desk(.secondary, .small))
@@ -299,14 +291,9 @@ private struct LayoutSketch: View {
     }
 
     private func masterPane(_ spec: PaneSpec?) -> some View {
-        let master = model.state.master
-        let ask = model.state.asks.first
         return VStack(alignment: .leading, spacing: 8) {
-            paneHeader(name: "master", state: master == nil ? "not running" : master!.isAsking ? "waiting for you" : master!.status,
-                       dot: master?.isAsking == true ? Theme.warn : Theme.accentInk) { model.openMaster() }
+            paneHeader(name: "master", state: model.state.master == nil ? "not running" : "") { model.openMaster() }
             Text(spec == nil ? "claude --bg -n master" : "claude attach master").foregroundStyle(Theme.quiet)
-            if let ask { Text("\(ask.task): \(ask.text)").fixedSize(horizontal: false, vertical: true) }
-            else if let detail = master?.detail { Text(detail).fixedSize(horizontal: false, vertical: true) }
             Spacer(minLength: 0)
             Text("> _").foregroundStyle(Theme.quiet)
         }
@@ -317,9 +304,9 @@ private struct LayoutSketch: View {
         .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Theme.tintLine))
     }
 
-    private func paneHeader(name: String, state: String, dot: Color, show: @escaping () -> Void) -> some View {
+    private func paneHeader(name: String, state: String, show: @escaping () -> Void) -> some View {
         HStack(spacing: 8) {
-            Circle().fill(dot).frame(width: 7, height: 7)
+            Circle().fill(Theme.accentInk).frame(width: 7, height: 7)
             Text(name).scaled(.code.weight(.medium)).lineLimit(1)
             Text(state).scaled(.secondary).foregroundStyle(Theme.quiet).lineLimit(1)
             Spacer(minLength: 4)

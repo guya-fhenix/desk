@@ -77,7 +77,7 @@ enum Snapshot {
         let screen = arguments.first ?? ""
         let screens = ["settings", "setup", "master", "menubar"]
         guard arguments.count >= 2, screens.contains(screen) || DeskWindow.Tab(rawValue: screen) != nil else {
-            print("usage: --snapshot window <upNext|pullRequests|reviews|tickets|master|settings|setup|menubar> <out.png> [height] [dark|light|system] [accent=<hex>] [open=<pr url>] [pane=<pane>] [step=<step>] [update=<current>,<latest>] [ghError=<text>] [asks=1] [steps=key:j;move:700,338;shot:<png>;report;wait:1]")
+            print("usage: --snapshot window <upNext|pullRequests|reviews|tickets|master|settings|setup|menubar> <out.png> [height] [dark|light|system] [accent=<hex>] [open=<pr url>] [pane=<pane>] [step=<step>] [update=<current>,<latest>] [ghError=<text>] [steps=key:j;move:700,338;shot:<png>;report;wait:1]")
             return
         }
         func value(_ name: String) -> String? { arguments.first { $0.hasPrefix("\(name)=") }.map { String($0.dropFirst(name.count + 1)) } }
@@ -107,10 +107,6 @@ enum Snapshot {
             model.showingFinder = true
         }
         if let error = value("ghError") { model.state.errors[.github] = error }
-        // `asks=1`: a question from the master, in memory only, for the screens that show one.
-        if value("asks") != nil {
-            model.state.asks = [MasterAsk(id: "sample", task: "PRO-650", text: "The signer options doc is written. Share it with Roee on the ticket, or keep it a draft?", askedAt: Date().addingTimeInterval(-720))]
-        }
         // `steps=key:j;key:x;move:700,338;shot:<png>;report;wait:1`: keys, pointer moves, captures and the model's state,
         // run against the window before the last capture.
         let steps = value("steps").map { $0.split(separator: ";").map(String.init) } ?? []
