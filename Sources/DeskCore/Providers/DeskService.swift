@@ -10,6 +10,8 @@ public enum DeskError: Error, CustomStringConvertible, Sendable {
     /// Opening the terminal app on the layout failed, and why, in a sentence.
     case terminal(String)
     case sessionNotStarted(String)
+    /// Stop master was pointed at a session that is not the master, by its name.
+    case notTheMaster(String)
 
     public var description: String {
         switch self {
@@ -19,6 +21,7 @@ public enum DeskError: Error, CustomStringConvertible, Sendable {
         case .jiraSignedOut: return "Not signed in to Jira. Run `acli jira auth login --web` in a terminal, then press Recheck in Settings → Jira."
         case .claudeNotFound: return "claude CLI not found. Install it or set the path in Settings."
         case .sessionNotStarted(let output): return "claude --bg printed no session id: \(output.prefix(200))"
+        case .notTheMaster(let name): return "\(name) is not the master session, so Desk left it running."
         case .terminal(let why): return why
         }
     }
@@ -102,7 +105,10 @@ public actor DeskService {
     /// `keepIn`: the tracked clones, where, as in your repo roots themselves, a session with no PR or ticket is still a
     /// task.
     public func claudeJobs(keepIn: [String] = []) -> [ClaudeJob] {
-        ClaudeJobs.scan(tickets: TicketKeyMatcher(projectKeys: config.jiraProjectKeys), keepIn: keepIn, roots: config.expandedRepoRoots)
+        ClaudeJobs.scan(
+            tickets: TicketKeyMatcher(projectKeys: config.jiraProjectKeys), keepIn: keepIn, roots: config.expandedRepoRoots,
+            masterFolder: MasterFolder(support: support).path
+        )
     }
 
     /// Your Claude plan's limits, for the sidebar. A local file too, read with the git scan.
@@ -148,14 +154,20 @@ public actor DeskService {
     public func startMaster(in folder: String) async throws -> ClaudeJob {
         try FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
         let id = try await claude().startBackground(
-            Self.masterPrompt(config: config), cwd: folder, flags: ["-n", "master"] + Self.workerFlags(config: config)
+            Self.masterPrompt(config: config), cwd: folder, flags: ["-n", SessionRole.masterName] + Self.workerFlags(config: config)
         )
-        return ClaudeJob(id: id, name: "master", state: "working", cwd: folder, prKeys: [], updatedAt: Date(), role: .master)
+        return ClaudeJob(
+            id: id, name: SessionRole.masterName, state: "working", cwd: folder, prKeys: [], updatedAt: Date(), role: .master
+        )
     }
 
     /// Stops the master and takes it off Claude Code's list, so the next one is a new session rather than this one
-    /// attached again. Its workers run on; a new master picks them up from the graph.
-    public func stopMaster(_ id: String) async throws { try await claude().remove(id) }
+    /// attached again. Its workers run on; a new master picks them up from the graph. Any other session is refused
+    /// before a command runs: removing a worker deletes its worktree and branch with it.
+    public func stopMaster(_ session: ClaudeJob) async throws {
+        guard session.role == .master, session.name == SessionRole.masterName else { throw DeskError.notTheMaster(session.name) }
+        try await claude().remove(session.id)
+    }
 
     public func markReady(_ pr: PullRequest) async throws {
         try await gh().markReady(repo: pr.repo, number: pr.number)

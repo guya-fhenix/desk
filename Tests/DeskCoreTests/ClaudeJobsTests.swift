@@ -63,7 +63,7 @@ import Testing
         #expect(jobs.first?.ticketKey == "PRO-9")
     }
 
-    /// The master, workers and reviews are kept by the skill their prompt names, and any session in a tracked clone by
+    /// The master is kept by its name, workers and reviews by the skill their prompt names, and any session in a tracked clone by
     /// where it runs: a session started there with no ticket is still a task. Each brings its live status line, and a
     /// worker started on what the person asked brings the ask.
     @Test func scanKeepsDeskRolesAndSessionsInTrackedClones() throws {
@@ -221,5 +221,76 @@ import Testing
 
         let refused: ShellRun = { _, arguments, _, _, _, _ in arguments.first == "rm" ? .failed("unpushed commits") : .ok("[]") }
         await #expect(throws: (any Error).self) { try await ClaudeCLI(path: "/bin/claude", run: refused).remove("abc12345") }
+    }
+
+    /// The master is the session named `master`. A worker whose prompt mentions the master's skill is a worker, in the
+    /// master folder too, and of two sessions named `master` only the one in the master folder is it.
+    @Test func theMasterIsKnownByItsNameNeverByItsPrompt() throws {
+        let mention = "Use the fhenix-workflow:work-on-task skill: fix how the coordinate-tasks skill starts workers. Report to master."
+        #expect(SessionRole.of(name: "fix-skill", intent: mention) == .worker)
+        #expect(SessionRole.of(name: "notes", intent: "what does the coordinate-tasks skill do?") == .other)
+        #expect(SessionRole.of(name: "master", intent: nil) == .master)
+        #expect(SessionRole.of(name: "master-detection", intent: nil) == .other)
+
+        let home = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: home) }
+        // The worker is the newest, so the first Desk would have taken while the prompt decided.
+        try job(home, id: "aaaaaaaa", body: """
+            {"state": "working", "name": "fix-skill", "cwd": "/support/master", "updatedAt": "2026-11-22T10:00:00Z",
+             "intent": "\(mention)"}
+            """)
+        try job(home, id: "bbbbbbbb", body: """
+            {"state": "working", "name": "master", "cwd": "/r/elsewhere", "updatedAt": "2026-11-22T09:00:00Z"}
+            """)
+        try job(home, id: "cccccccc", body: """
+            {"state": "done", "name": "master", "cwd": "/support/master/", "updatedAt": "2026-11-22T08:00:00Z",
+             "intent": "Use the fhenix-workflow:coordinate-tasks skill."}
+            """)
+
+        var state = DeskState(config: DeskConfig())
+        state.claudeJobs = ClaudeJobs.scan(home: home.path, masterFolder: "/support/master")
+        #expect(state.claudeJobs.map(\.role) == [.worker, .other, .master])
+        #expect(state.master?.id == "cccccccc")
+
+        // With no master in the master folder, the one named master somewhere else is it.
+        state.claudeJobs = ClaudeJobs.scan(home: home.path, masterFolder: "/nowhere")
+        #expect(state.master?.id == "bbbbbbbb")
+        try FileManager.default.removeItem(at: home.appendingPathComponent("jobs/bbbbbbbb"))
+        try FileManager.default.removeItem(at: home.appendingPathComponent("jobs/cccccccc"))
+        state.claudeJobs = ClaudeJobs.scan(home: home.path, masterFolder: "/support/master")
+        #expect(state.master == nil)
+    }
+
+    /// Stop master stops and removes the master and nothing else: handed a worker, it throws before any `claude` command
+    /// runs, since `claude rm` deletes a worker's worktree and branch.
+    @Test func stopMasterOnlyEverRemovesTheMaster() async throws {
+        let folder = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        // A stand-in `claude` that records what it was run with.
+        let log = folder.appendingPathComponent("calls")
+        let claude = folder.appendingPathComponent("claude")
+        try "#!/bin/sh\necho \"$@\" >> '\(log.path)'\n[ \"$1\" = agents ] && echo '[]'\nexit 0\n"
+            .write(to: claude, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: claude.path)
+        var config = DeskConfig()
+        config.claudePath = claude.path
+        let service = DeskService(config: config, support: AppSupport(directory: folder))
+
+        let prompt = "Use the fhenix-workflow:work-on-task skill: fix the coordinate-tasks skill. Report to master."
+        let worker = ClaudeJob(
+            id: "w0000000", name: "fix-skill", state: "working", cwd: "/r", prKeys: [], updatedAt: Date(),
+            role: SessionRole.of(name: "fix-skill", intent: prompt)
+        )
+        // Not by a role someone else set on it either: the name decides.
+        let mislabelled = ClaudeJob(id: "x0000000", name: "fix-skill", state: "working", cwd: "/r", prKeys: [], updatedAt: Date(), role: .master)
+        for session in [worker, mislabelled] {
+            await #expect(throws: DeskError.self) { try await service.stopMaster(session) }
+        }
+        #expect(!FileManager.default.fileExists(atPath: log.path))
+
+        let master = ClaudeJob(id: "m0000000", name: "master", state: "working", cwd: "/support/master", prKeys: [], updatedAt: Date(), role: .master)
+        try await service.stopMaster(master)
+        #expect(try String(contentsOf: log, encoding: .utf8) == "stop m0000000\nagents --json\nrm m0000000\n")
     }
 }

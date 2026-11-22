@@ -644,7 +644,7 @@ final class AppModel {
         guard let master = state.master, masterRestart == nil else { return }
         Task {
             do {
-                try await service.stopMaster(master.id)
+                try await service.stopMaster(master)
                 masterError = nil
                 await refresh(.git)
             } catch {
@@ -672,7 +672,7 @@ final class AppModel {
                     while !masterFolder.handoffWritten(since: asked) { try await Task.sleep(for: .seconds(1)) }
                 }
                 masterRestart = .restarting
-                try await service.stopMaster(master.id)
+                try await service.stopMaster(master)
                 state.claudeJobs.removeAll { $0.id == master.id }
                 // Held until the next scan reads it off disk, as Start master's is.
                 state.claudeJobs.insert(try await service.startMaster(in: masterFolder.path), at: 0)
@@ -767,7 +767,9 @@ final class AppModel {
             return
         }
         let job = state.claudeJobs.first { $0.id == jobId }
-        let spec = PaneSpec(key: jobId, name: job?.role == .master ? "master" : job?.name ?? jobId, isMaster: job?.role == .master)
+        // The one master, as Stop master and the layout take it: a second session named master shows like any other.
+        let isMaster = jobId == state.master?.id
+        let spec = PaneSpec(key: jobId, name: isMaster ? "master" : job?.name ?? jobId, isMaster: isMaster)
         await presentNow(spec, command: TmuxLayout.attachCommand(claude: claude, id: jobId))
     }
 
