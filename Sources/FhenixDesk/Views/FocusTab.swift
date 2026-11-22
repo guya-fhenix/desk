@@ -22,12 +22,12 @@ struct FocusTab: View {
     private var filters = ReviewFilters()
 
     var body: some View {
-        let items = model.focus(filters)
-        RouteStack(path: $path, back: "Focus") { page(items) }
+        let page = model.state.focusPage(reviewDays: filters.window, hiding: filters.hidden, needingApproval: filters.needsApproval)
+        RouteStack(path: $path, back: "Focus") { self.page(page.items, reviewsLeftOut: page.reviewsLeftOut) }
             .focusedSceneValue(\.routePath, $path)
     }
 
-    @ViewBuilder private func page(_ items: [FocusItem]) -> some View {
+    @ViewBuilder private func page(_ items: [FocusItem], reviewsLeftOut: Int) -> some View {
         // The sources that have neither answered nor failed yet: until GitHub has, an empty page means nothing.
         let pending = Source.allCases.filter { model.state.lastRefresh[$0] == nil && model.state.errors[$0] == nil }
         let urgent = items.filter { $0.level == .now }.count
@@ -66,14 +66,14 @@ struct FocusTab: View {
                 )
                 .padding(.vertical, 20)
             }
-            if !items.isEmpty, !pending.contains(.github) { columns(items) }
+            if !items.isEmpty, !pending.contains(.github) { columns(items, reviewsLeftOut: reviewsLeftOut) }
             Spacer(minLength: 0)
             KeyHints(hints: [(["J", "K"], "move"), (["↩"], "open"), (["M"], "master"), (["⌘R"], "sync")])
         }
     }
 
     /// Now and Next on the left, Can wait and Background on the right, scrolling together.
-    private func columns(_ items: [FocusItem]) -> some View {
+    private func columns(_ items: [FocusItem], reviewsLeftOut: Int) -> some View {
         let rows = items.map(\.id)
         return ScrollViewReader { proxy in
             ScrollView {
@@ -88,7 +88,7 @@ struct FocusTab: View {
                     .frame(maxWidth: .infinity, alignment: .topLeading)
                     VStack(alignment: .leading, spacing: 8) {
                         group(.canWait, items)
-                        moreReviews(items)
+                        moreReviews(reviewsLeftOut)
                         group(.background, items)
                     }
                     .frame(maxWidth: .infinity, alignment: .topLeading)
@@ -138,12 +138,10 @@ struct FocusTab: View {
 
     /// The reviews the page leaves out, a press away: it lists every one asked of you by name and only the first few of
     /// the rest.
-    @ViewBuilder private func moreReviews(_ items: [FocusItem]) -> some View {
-        let queue = model.state.reviewQueue(.needsYou, days: filters.window, hiding: filters.hidden, needingApproval: filters.needsApproval)
-        let shown = items.filter { [.reviewAsked, .reviewTeam, .reviewOpen, .reviewDraft].contains($0.kind) }.count
-        if queue.count > shown {
+    @ViewBuilder private func moreReviews(_ count: Int) -> some View {
+        if count > 0 {
             Button { model.pendingTab = .reviews } label: {
-                Text("\(queue.count - shown) more in Reviews").underline(color: Theme.control)
+                Text("\(count) more in Reviews").underline(color: Theme.control)
             }
             .buttonStyle(.plain).handCursor().scaled(.secondary).foregroundStyle(Theme.quiet).padding(.horizontal, 10)
         }
@@ -318,29 +316,16 @@ private struct FocusCard: View {
         }
     }
 
-    private var chip: some View { StageChip2(text: item.kind.title, color: tone) }
+    private var chip: some View { StageChip2(text: item.kind.title, color: item.kind.tone) }
 
-    /// Only on what Desk lifted because GitHub changed after the master ranked.
+    /// Only on what Desk lifted because it changed after the master ranked.
     private var newChip: some View {
         StageChip2(text: "New", color: Theme.warn).help("Changed on GitHub since the master last ranked")
     }
 
-    /// The chip's colour, and a large card's edge: red for yours to fix, green to merge, orange to answer, the accent for
-    /// a review asked of you, Jira's blue for a ticket in motion; none for what only waits.
-    private var tone: Color? {
-        switch item.kind {
-        case .ciFailed, .conflicts, .changesRequested: return Theme.danger
-        case .readyToMerge: return Theme.ok
-        case .needsRebase, .openThreads, .reviewDraft: return Theme.warn
-        case .reviewAsked: return Theme.accentInk
-        case .jiraMove, .inProgress: return Theme.jira
-        case .draftReviewed, .draft, .waitingOnReview, .reviewTeam, .reviewOpen, .toStart, .merged: return nil
-        }
-    }
-
     private var edge: Color {
         switch item.level {
-        case .now: return tone ?? Theme.ruleStrong
+        case .now: return item.kind.tone ?? Theme.ruleStrong
         case .background: return .clear
         case .next, .canWait: return Theme.rule
         }
@@ -471,6 +456,21 @@ private struct FocusCard: View {
                 Button(item.kind == .readyToMerge ? "Open to merge" : "Open PR", action: open).buttonStyle(.desk(kind, size))
                     .help("The PR's page")
             }
+        }
+    }
+}
+
+extension FocusKind {
+    /// The chip's colour, a large card's edge and the menu bar's dot: red for yours to fix, green to merge, orange to
+    /// answer, the accent for a review asked of you, Jira's blue for a ticket in motion; none for what only waits.
+    var tone: Color? {
+        switch self {
+        case .ciFailed, .conflicts, .changesRequested: return Theme.danger
+        case .readyToMerge: return Theme.ok
+        case .needsRebase, .openThreads, .reviewDraft: return Theme.warn
+        case .reviewAsked: return Theme.accentInk
+        case .jiraMove, .inProgress: return Theme.jira
+        case .draftReviewed, .draft, .waitingOnReview, .reviewTeam, .reviewOpen, .toStart, .merged: return nil
         }
     }
 }

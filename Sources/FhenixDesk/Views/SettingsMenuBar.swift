@@ -190,7 +190,7 @@ struct SettingsMenuBarPopover: View {
     private var needsYou: [Item] {
         let model = model
         return model.focus(filters).filter { $0.level >= .next }.map { item in
-            let dot = item.level == .now ? (item.kind == .readyToMerge ? Theme.ok : Theme.danger) : Theme.accentInk
+            let dot = item.kind.tone ?? Theme.quiet
             switch item.subject {
             case .pullRequest(let pr):
                 return Item(id: item.id, dot: dot, title: pr.title, line: "\(item.kind.title) · \(pr.repoName) #\(pr.number)", date: item.since) {

@@ -77,7 +77,7 @@ enum Snapshot {
         let screen = arguments.first ?? ""
         let screens = ["settings", "setup", "master", "menubar"]
         guard arguments.count >= 2, screens.contains(screen) || DeskWindow.Tab(rawValue: screen) != nil else {
-            print("usage: --snapshot window <focus|pullRequests|reviews|tickets|master|settings|setup|menubar> <out.png> [height] [dark|light|system] [accent=<hex>] [open=<pr url>] [pane=<pane>] [step=<step>] [update=<current>,<latest>] [ghError=<text>] [steps=key:j;move:700,338;shot:<png>;report;wait:1]")
+            print("usage: --snapshot window <focus|pullRequests|reviews|tickets|master|settings|setup|menubar> <out.png> [height] [dark|light|system] [accent=<hex>] [open=<pr url>] [pane=<pane>] [step=<step>] [update=<current>,<latest>] [ghError=<text>] [ranking=<folder with focus.json>] [steps=key:j;move:700,338;shot:<png>;report;wait:1]")
             return
         }
         func value(_ name: String) -> String? { arguments.first { $0.hasPrefix("\(name)=") }.map { String($0.dropFirst(name.count + 1)) } }

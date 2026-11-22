@@ -285,12 +285,20 @@ final class AppModel {
         // Jira failing again and again is asked less and less often, which is what lets a throttle on the account lift.
         if source == .jira { jiraFailures = state.errors[.jira] == nil ? 0 : jiraFailures + 1 }
         state.recompute()
+        // A new ranking from the master: remember what it ranked, so only what changes after it is lifted.
+        if allSourcesReported, state.focusRanking?.rankedAt != focusSeenAt {
+            focusSeenAt = state.focusRanking?.rankedAt
+            state.focusSeen = state.focusRanking == nil ? nil : state.focusKinds()
+        }
         let posted = notifier.deliver(state.nudges, post: config.notificationsEnabled && allSourcesReported)
         writeMasterFiles(posted: posted)
         // The sessions were just scanned: the iTerm layout follows them. Only once every source answered, so the tasks'
         // workers are known, and never before you opened the layout.
         if source == .git, allSourcesReported { await syncTerminals() }
     }
+
+    /// The `rankedAt` of the ranking `state.focusSeen` was remembered for.
+    private var focusSeenAt: Date?
 
     private var allSourcesReported: Bool {
         Source.allCases.allSatisfy { state.lastRefresh[$0] != nil || state.errors[$0] != nil }

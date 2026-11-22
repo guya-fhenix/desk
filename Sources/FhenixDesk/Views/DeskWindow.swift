@@ -183,7 +183,7 @@ struct DeskWindow: View {
         }
     }
 
-    /// The count beside each screen: Focus the rows it lists, Tasks the open tasks, Reviews its Needs you scope inside
+    /// The count beside each screen: Focus its items at Now and Next, Tasks the open tasks, Reviews its Needs you scope inside
     /// its filters, and Jira the tickets in its placement and assignee filter.
     private func badge(for tab: Tab) -> Int {
         switch tab {

@@ -74,10 +74,10 @@ public struct FocusItem: Sendable, Identifiable {
     public var kind: FocusKind
     public var level: FocusLevel
     /// Since when it has been as it is, for the waiting time; nil for what waits on nothing (a ticket to start or in
-    /// progress, a PR merged today).
+    /// progress, a PR merged today), and for your unsent review, which GitHub's search gives no time for.
     public var since: Date?
-    /// Desk raised it on its own after the master last ranked, because GitHub changed: the page marks it New until the
-    /// master ranks again.
+    /// Desk raised it on its own after the master last ranked, because it became something else: the page marks it New
+    /// until the master ranks again.
     public var lifted = false
 
     /// A PR's url or a ticket's key.
@@ -138,50 +138,72 @@ extension DeskState {
         focus(reviewDays: reviewDays, hiding: hiding, needingApproval: needingApproval, now: now).filter { $0.level >= .next }.count
     }
 
-    /// The Focus page: everything of yours in one list, largest first. Each of your open PRs by its own state on GitHub
-    /// (its session has no say); the reviews you started and have not sent, whatever the day filter; the reviews asked of
-    /// you by name, and the first few asked of a team of yours or open to anyone, inside the Reviews screen's filters (`reviewDays`, `hiding`,
-    /// `needingApproval`); the Jira moves Desk suggests; your tickets in progress with no PR yet; the sprint's tickets
-    /// nothing has started; and your PRs merged today.
+    /// The Focus page's items, largest first. See `focusPage`.
+    public func focus(reviewDays: Int?, hiding: Set<String> = [], needingApproval: Bool = false, now: Date = Date()) -> [FocusItem] {
+        focusPage(reviewDays: reviewDays, hiding: hiding, needingApproval: needingApproval, now: now).items
+    }
+
+    /// What every item is now, by `FocusItem.rankKey`: what Desk remembers in `focusSeen` when the master ranks.
+    public func focusKinds(now: Date = Date()) -> [String: FocusKind] {
+        Dictionary(focus(reviewDays: nil, now: now).map { ($0.rankKey, $0.kind) }, uniquingKeysWith: { first, _ in first })
+    }
+
+    /// The Focus page: everything of yours in one list, largest first, and how many reviews it left to the Reviews
+    /// screen. Each of your open PRs by its own state on GitHub (its session has no say); the reviews you started and
+    /// have not sent, whatever the day filter; the reviews asked of you by name, and the first few asked of a team of
+    /// yours or open to anyone, inside the Reviews screen's filters (`reviewDays`, `hiding`, `needingApproval`); the Jira
+    /// moves Desk suggests; your tickets in progress with no PR yet; the sprint's tickets nothing has started; and your
+    /// PRs merged today.
     ///
     /// The level is the kind's own (`FocusKind.level`) unless the master's ranking names the item: then it is the
-    /// master's, in the master's order. What changed after the master ranked, to something Desk puts higher than the
-    /// master did, or that the master has not seen at all, takes Desk's level and leads it, marked `lifted`.
-    public func focus(reviewDays: Int?, hiding: Set<String> = [], needingApproval: Bool = false, now: Date = Date()) -> [FocusItem] {
+    /// master's, in the master's order. What has become something else since the master ranked (`focusSeen`), something
+    /// Desk puts higher than it stood, takes Desk's level and leads it, marked `lifted`; so does what was not there
+    /// then and would show at Next or above. What an item is decides, not when it moved: GitHub's times move with every
+    /// push and comment.
+    public func focusPage(
+        reviewDays: Int?, hiding: Set<String> = [], needingApproval: Bool = false, now: Date = Date()
+    ) -> (items: [FocusItem], reviewsLeftOut: Int) {
         var items: [FocusItem] = []
+        // A PR that merged between the search for your open PRs and the one for your merged ones is in both: once here.
+        var listed = Set<String>()
         func add(_ subject: FocusItem.Subject, _ kind: FocusKind, since: Date?) {
-            items.append(FocusItem(subject: subject, kind: kind, level: kind.level, since: since))
+            let item = FocusItem(subject: subject, kind: kind, level: kind.level, since: since)
+            if listed.insert(item.id).inserted { items.append(item) }
         }
 
         for pr in mine.sorted(by: { $0.updatedAt > $1.updatedAt }) {
             let (kind, since) = focusKind(of: pr)
             add(.pullRequest(pr), kind, since: since)
         }
+        // No waiting time: the search gives Desk no time for a pending review.
         for pr in reviewQueue(.all, hiding: hiding) where pr.pendingReview != nil {
             add(.pullRequest(pr), .reviewDraft, since: nil)
         }
         let onYou = Set(reviewRequests.map(\.url))
         // A review the master ranked is listed whatever the cap: the master chose it.
-        let ranked = Set((focusRanking?.items ?? []).map { $0.id.lowercased() })
+        let named = Set((focusRanking?.items ?? []).map { $0.id.lowercased() })
         var others = 0
+        var leftOut = 0
         for pr in reviewQueue(.needsYou, days: reviewDays, hiding: hiding, needingApproval: needingApproval, now: now)
         where pr.pendingReview == nil && reviewNeed(for: pr) != nil {
             if pr.requestedReviewers.contains(login) {
                 // Since you were last asked; only the latest request events are fetched, so failing one, since it opened.
                 let asked = pr.reviewRequestEvents.filter { !$0.isTeam && $0.reviewer == login }.map(\.createdAt).max()
                 add(.pullRequest(pr), .reviewAsked, since: asked ?? pr.createdAt)
-            } else if ClaudeJobs.prKey(pr.url).map(ranked.contains) == true {
+            } else if ClaudeJobs.prKey(pr.url).map(named.contains) == true {
                 add(.pullRequest(pr), onYou.contains(pr.url) ? .reviewTeam : .reviewOpen, since: pr.createdAt)
             } else if others < Self.focusOtherReviews {
                 others += 1
                 add(.pullRequest(pr), onYou.contains(pr.url) ? .reviewTeam : .reviewOpen, since: pr.createdAt)
+            } else {
+                leftOut += 1
             }
         }
         for drift in ticketDrifts {
             add(.move(drift), .jiraMove, since: drift.pullRequests.map { $0.mergedAt ?? $0.updatedAt }.max())
         }
-        let named = Set(ticketKeys.values.joined())
-        for ticket in openTickets where ticket.category == .inProgress && !named.contains(ticket.key) {
+        let withPR = Set(ticketKeys.values.joined())
+        for ticket in openTickets where ticket.category == .inProgress && !withPR.contains(ticket.key) {
             add(.ticket(ticket), .inProgress, since: nil)
         }
         for ticket in ticketsToStart { add(.ticket(ticket), .toStart, since: nil) }
@@ -195,31 +217,33 @@ extension DeskState {
             let ranked = Dictionary(ranking.items.enumerated().map { ($1.id.lowercased(), ($0, $1.level)) }, uniquingKeysWith: { first, _ in first })
             for index in items.indices {
                 let item = items[index]
-                let changed = item.since.map { $0 > ranking.rankedAt } ?? false
+                let was = focusSeen?[item.rankKey]
+                var lift = false
                 if let (position, level) = ranked[item.rankKey] {
                     let level = FocusLevel(rawValue: min(max(level, 0), 3)) ?? .background
-                    if changed, item.kind.level > level {
-                        items[index].lifted = true
-                        order[item.id] = -1
-                    } else {
+                    lift = focusSeen != nil && was != item.kind && item.kind.level > level
+                    if !lift {
                         items[index].level = level
                         order[item.id] = position
                     }
-                } else if changed, item.level > .background {
+                } else if focusSeen != nil {
+                    lift = was.map { item.kind.level > $0.level } ?? (item.kind.level >= .next)
+                }
+                if lift {
                     items[index].lifted = true
                     order[item.id] = -1
                 }
             }
         }
         // Largest first; within a level what Desk lifted, then the master's order, then Desk's own.
-        return items.enumerated().sorted { a, b in
+        let sorted = items.enumerated().sorted { a, b in
             (-a.element.level.rawValue, order[a.element.id] ?? Int.max, a.offset) < (-b.element.level.rawValue, order[b.element.id] ?? Int.max, b.offset)
         }
-        .map(\.element)
+        return (sorted.map(\.element), leftOut)
     }
 
     /// What one of your open PRs is on the page, and since when. GitHub gives no time for a check's failure, a conflict or
-    /// a draft, so those go by when the PR last moved.
+    /// a draft, so those go by when the PR last moved: good enough for a waiting time, and nothing else reads it.
     private func focusKind(of pr: PullRequest) -> (FocusKind, Date) {
         switch RowState.of(pr) {
         case .conflicts: return (.conflicts, pr.updatedAt)

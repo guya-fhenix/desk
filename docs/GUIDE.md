@@ -92,7 +92,8 @@ is all the page says about how much it matters, and an item only grows or shrink
 (with the PR's facts and its press) and **Next** as medium ones; on the right, **Can wait** as small items and
 **Background** as quiet ones. Every item, at any size, shows what it is, its name, its title and a line of detail (a
 PR's ticket, approvals and CI; a review's author, size and risk; a ticket's status, sprint or backlog, and priority),
-and how long it has waited when it waits on something. When nothing is urgent the page says so and forces nothing to
+and how long it has waited when it waits on something (your unsent review shows none: GitHub gives Desk no time
+for it). When nothing is urgent the page says so and forces nothing to
 the top; the title's right side says "2 to act on now · 12 in all".
 
 The items: each of your open PRs by its own state on GitHub (a PR's session has no say), the reviews you started on
@@ -113,9 +114,11 @@ its level and its order:
 ```
 
 `level` is 3 Now, 2 Next, 1 Can wait, 0 Background; `id` is `owner/name#number` or a ticket key; the file is rewritten
-whole with each ranking, and Desk reads it with its local scan. What changes on GitHub after `rankedAt`, to something
-Desk would put higher than the master did, Desk lifts to its own level, first, with a **New** chip; so is an item the
-master has not seen yet. The chip goes with the master's next ranking. None of the master's words show on the page.
+whole with each ranking, and Desk reads it with its local scan. Desk remembers what each item was when it first read a
+ranking. An item that has since become something else, something Desk would put higher than it stood (CI failed on a
+PR the master had put in Background, say), Desk lifts to its own level, first, with a **New** chip; so is an item that
+was not there then and would show at Next or above. A push or a comment alone lifts nothing. The chip goes with the
+master's next ranking (a new `rankedAt`). None of the master's words show on the page.
 
 A click on an item, or Return on the one J and K walked to, opens the PR's page here, or the ticket in Jira. M shows
 the master in iTerm. The reviews follow the Reviews screen's filters.

@@ -97,30 +97,66 @@ import Testing
         #expect(numbers(items, .next) == [5] && numbers(items, .canWait) == [1, 2, 3])
     }
 
-    /// The master's ranking sets the level and the order of what it names; the rest keep Desk's. What changed on GitHub
-    /// after it ranked, to something Desk puts higher, is lifted to Desk's level, first, and marked; so is a review asked
-    /// since, which the master has not seen. Nothing older is marked.
-    @Test func theMastersRankingOrdersAndDeskLiftsWhatChangedSince() {
+    /// The master's ranking sets the level and the order of what it names, a level out of range held to the nearest;
+    /// the rest keep Desk's. What has become something Desk puts higher since Desk first read the ranking is lifted to
+    /// Desk's level, first, and marked, whatever its times say: a PR gone red, one that became ready to merge on an
+    /// approval older than the ranking. So is a review asked since. A push to a PR that was red already lifts nothing.
+    @Test func theMastersRankingOrdersAndDeskLiftsWhatBecameSomethingElse() {
         var state = state
-        let failing = Fixtures.pr(number: 1, head: "a", updated: Fixtures.t0, checks: .failure)
-        let quiet = Fixtures.pr(number: 2, head: "b", updated: Fixtures.t0 - 7_200, checks: .failure)
-        let waiting = Fixtures.pr(number: 3, head: "c", updated: Fixtures.t0 - 7_200)
-        state.github?.mine = [failing, quiet, waiting]
-        var fresh = Fixtures.pr(number: 10, head: "x", author: "alice", events: [Fixtures.event(at: Fixtures.t0)])
-        fresh.requestedReviewers = ["me"]
+        let old = Fixtures.t0 - 7_200
+        state.github?.mine = [
+            Fixtures.pr(number: 1, head: "a", updated: old), Fixtures.pr(number: 2, head: "b", updated: old, checks: .failure),
+            Fixtures.pr(number: 3, head: "c", updated: old), Fixtures.pr(number: 4, head: "d", updated: old),
+        ]
         let seen = Fixtures.pr(number: 11, head: "y", author: "alice", created: Fixtures.t0 - 86_400)
-        state.github?.reviewRequests = [fresh, seen]
+        state.github?.reviewRequests = [seen]
         state.focusRanking = FocusRanking(rankedAt: Fixtures.t0 - 3_600, items: [
-            .init(id: "FhenixProtocol/cofhe#3", level: 3), .init(id: "fhenixprotocol/cofhe#11", level: 3),
+            .init(id: "FhenixProtocol/cofhe#3", level: 9), .init(id: "fhenixprotocol/cofhe#11", level: 3),
             .init(id: "FhenixProtocol/cofhe#2", level: 1), .init(id: "FhenixProtocol/cofhe#1", level: 0),
-            .init(id: "FhenixProtocol/cofhe#99", level: 9),
+            .init(id: "FhenixProtocol/cofhe#4", level: 0),
         ])
         state.recompute(now: Fixtures.t0)
+        state.focusSeen = state.focusKinds(now: Fixtures.t0)
+        #expect(state.focus(reviewDays: nil, now: Fixtures.t0).filter(\.lifted).isEmpty)
+
+        let failing = Fixtures.pr(number: 1, head: "a", updated: Fixtures.t0, checks: .failure)
+        let pushed = Fixtures.pr(number: 2, head: "b", updated: Fixtures.t0, checks: .failure)
+        let ready = Fixtures.pr(number: 4, head: "d", updated: old, review: .approved, merge: .clean, reviews: [Fixtures.review(.approved, at: old, by: "alice")])
+        state.github?.mine = [failing, pushed, Fixtures.pr(number: 3, head: "c", updated: old), ready]
+        var fresh = Fixtures.pr(number: 10, head: "x", author: "alice", events: [Fixtures.event(at: Fixtures.t0)])
+        fresh.requestedReviewers = ["me"]
+        state.github?.reviewRequests = [fresh, seen]
+        state.recompute(now: Fixtures.t0)
         let items = state.focus(reviewDays: nil, now: Fixtures.t0)
-        // #1 went red after the ranking: lifted over the master's two. #2 was red when the master put it at Can wait.
-        #expect(numbers(items, .now) == [1, 3, 11])
+        #expect(numbers(items, .now) == [1, 4, 3, 11])
         #expect(numbers(items, .next) == [10])
         #expect(numbers(items, .canWait) == [2])
-        #expect(Set(items.filter(\.lifted).map(\.id)) == [failing.url, fresh.url])
+        #expect(Set(items.filter(\.lifted).map(\.id)) == [failing.url, ready.url, fresh.url])
+
+        // Until Desk has remembered what a ranking saw, the ranking alone decides.
+        state.focusSeen = nil
+        let unseen = state.focus(reviewDays: nil, now: Fixtures.t0)
+        #expect(unseen.filter(\.lifted).isEmpty && numbers(unseen, .background) == [1, 4])
+    }
+
+    /// The page says how many reviews it left to the Reviews screen: those past the cap, whatever else it lists.
+    @Test func thePageCountsTheReviewsItLeftOut() {
+        var state = state
+        var drafted = Fixtures.pr(number: 9, head: "z", author: "alice")
+        drafted.pendingReview = Fixtures.pending()
+        state.github?.reviewRequests = (1...4).map { Fixtures.pr(number: $0, head: "h\($0)", author: "alice", created: Fixtures.t0 - Double(10 - $0) * 86_400) } + [drafted]
+        state.recompute(now: Fixtures.t0)
+        let page = state.focusPage(reviewDays: nil, now: Fixtures.t0)
+        #expect(page.reviewsLeftOut == 1)
+        #expect(page.items.map(\.kind) == [.reviewDraft, .reviewTeam, .reviewTeam, .reviewTeam])
+    }
+
+    /// A PR that merged between GitHub's two searches is in both lists, and on the page once.
+    @Test func aPullRequestInTwoListsIsListedOnce() {
+        var state = state
+        state.github?.mine = [Fixtures.pr(number: 1, head: "a")]
+        state.github?.mergedRecent = [Fixtures.pr(number: 1, head: "a", merged: Fixtures.t0)]
+        state.recompute(now: Fixtures.t0)
+        #expect(state.focus(reviewDays: nil, now: Fixtures.t0).count == 1)
     }
 }

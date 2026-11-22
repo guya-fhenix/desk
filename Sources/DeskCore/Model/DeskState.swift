@@ -85,6 +85,10 @@ public struct DeskState: Sendable {
     public var asks: [MasterAsk] = []
     /// The master's ranking of the Focus page, read off its `focus.json` with the local scan; nil until it writes one.
     public var focusRanking: FocusRanking?
+    /// What each Focus item was when Desk first read that ranking, by `FocusItem.rankKey`: what the master ranked by. Nil
+    /// with no ranking, and until every source has answered; then nothing is lifted. Kept in memory only, so after a
+    /// relaunch it is what the items are then, and only later changes lift.
+    public var focusSeen: [String: FocusKind]?
     /// Your work by task: ticket, session started without one, or a stack with neither. See `Linker.tasks`.
     public private(set) var tasks: [WorkTask] = []
 
