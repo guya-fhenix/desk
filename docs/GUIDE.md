@@ -55,8 +55,8 @@ sidebar, white details columns, small uppercase section labels, Instrument Sans 
 Appearance picks System, Light or Dark, and the accent (indigo, teal, violet or graphite); both apply at once. The
 fonts ship inside the app, with their licences (SIL Open Font License) in `Resources/Fonts`.
 
-The sidebar has the app's mark, Search (⌘K), and Up Next, Tasks, Reviews and Jira, each with a count of the rows it opens
-on. ⌘1 to ⌘4 pick a screen. The sidebar collapses with its toggle or
+The sidebar has the app's mark, Search (⌘K), and Focus, Tasks, Reviews and Jira, each with a count of the rows it opens
+on (Focus counts its items at Now and Next). ⌘1 to ⌘4 pick a screen. The sidebar collapses with its toggle or
 View → Show/Hide Sidebar (⌃⌘S). At its foot, the Master block is the master session: under its name, whether one runs (not
 running, starting, running, restarting), and no more; it opens the Master
 screen, or Start starts a master. Desk never says what a session is doing, or what the master or a worker asked you:
@@ -69,7 +69,7 @@ every six hours; without access to the repo, it never shows.
 
 Under the status block, your GitHub login and which accounts are signed in open Settings (⌘,).
 
-Up Next, Tasks, Reviews and Jira are a list with a details column on the right. The arrow keys, or J and K, walk the
+Tasks, Reviews and Jira are a list with a details column on the right; Focus is a page of cards, described below. The arrow keys, or J and K, walk the
 rows; a click selects one and the details column shows it in full, with its presses at the foot. Return, → or a
 double-click opens the row's page in place of the list; the page's breadcrumb, ← or Go → Back (⌘[) returns to the list
 with the row still selected. M shows the master in iTerm. Each list's key hints sit under it.
@@ -79,27 +79,50 @@ key or summary, and has commands: Open master in iTerm, Sync now, Settings. ↩ 
 one in the review queue on Reviews, a ticket on Jira. ⌘↩ opens it on GitHub or Jira. A PR on none of those screens
 opens on GitHub.
 
-A click on the menu bar item shows a popover: the master with Open, what needs you (the items Up Next counts, each
+A click on the menu bar item shows a popover: the master with Open, what needs you (the items Focus has at Now and Next, each
 opening Desk on it), the sync line and Open Desk. When GitHub's last refresh
 failed, a banner says why with Retry, and the lists say how old they are. A right-click or Control-click shows the menu:
 open Desk, quit, your open PRs and the reviews that need you, each opening its page. A nudge also comes as a macOS notification, unless Settings
 → General turns them off.
 
-## Up Next
+## Focus
 
-The window opens on Up Next, today's date beside its title: what waits on you, under the section that says what to
-do. **Needs you** first: the questions the master has open for you, each with the task it is about and how long ago it
-asked (its details column has Answer in iTerm, which shows the master's pane), then your PRs whose move is yours. Then
-Ready to merge, Your move (CI failed, conflicts, changes requested, a review
-thread open, or needs a rebase; conflicts by GitHub's own `mergeable`, whatever its merge state
-sums up; a PR's session has no say in where it sits), Drafts to submit (reviews you started on GitHub and have not sent), To review (the first few, then a link to
-Reviews), Jira moves (the moves Desk
-suggests), Ready to start (sprint tickets of yours nothing has started: tell the master "start PRO-123"), and Waiting
-(your PRs that wait on someone else). The rows are the other screens' own, and open their pages here.
+The window opens on Focus, today's date beside its title: everything of yours on one page. How large an item is drawn
+is all the page says about how much it matters, and an item only grows or shrinks. On the left, **Now** as large cards
+(with the PR's facts and its press) and **Next** as medium ones; on the right, **Can wait** as small items and
+**Background** as quiet ones. Every item, at any size, shows what it is, its name, its title and a line of detail (a
+PR's ticket, approvals and CI; a review's author, size and risk; a ticket's status, sprint or backlog, and priority),
+and how long it has waited when it waits on something. When nothing is urgent the page says so and forces nothing to
+the top; the title's right side says "2 to act on now · 12 in all".
 
-Until GitHub has answered, Up Next names the sources it is still reading over grey placeholder rows. If GitHub never
+The items: each of your open PRs by its own state on GitHub (a PR's session has no say), the reviews you started on
+GitHub and have not sent, the reviews asked of you by name, the first three asked of a team of yours or open to anyone
+(then a link to Reviews), the Jira moves Desk suggests (with Move and Dismiss at any size), your tickets in progress
+with no PR yet, the sprint tickets of yours nothing has started (tell the master "start PRO-123"), and your PRs merged
+today.
+
+Without a ranking, each item's own state sets its size: Now for CI failed, conflicts, changes requested and ready to
+merge; Next for open threads, a needed rebase, a self-reviewed draft, a review asked of you by name, your unsent review
+and a ticket in progress; Can wait for other drafts, the other reviews, Jira moves and tickets to start; Background for
+PRs waiting on review and today's merges. When the master writes `focus.json` in its folder, the items it names take
+its level and its order:
+
+```json
+{"rankedAt": "2026-11-22T09:10:00Z",
+ "items": [{"id": "FhenixProtocol/cofhe#1186", "level": 3}, {"id": "PRO-670", "level": 2}]}
+```
+
+`level` is 3 Now, 2 Next, 1 Can wait, 0 Background; `id` is `owner/name#number` or a ticket key; the file is rewritten
+whole with each ranking, and Desk reads it with its local scan. What changes on GitHub after `rankedAt`, to something
+Desk would put higher than the master did, Desk lifts to its own level, first, with a **New** chip; so is an item the
+master has not seen yet. The chip goes with the master's next ranking. None of the master's words show on the page.
+
+A click on an item, or Return on the one J and K walked to, opens the PR's page here, or the ticket in Jira. M shows
+the master in iTerm. The reviews follow the Reviews screen's filters.
+
+Until GitHub has answered, Focus names the sources it is still reading over grey placeholder bars. If GitHub never
 answered, it says so with GitHub's error and Retry. A source that failed after loading shows a banner over its last
-good rows. All clear shows only once every source answered without an error.
+good items. All clear shows only once every source answered without an error.
 
 ## Tasks
 
@@ -125,7 +148,7 @@ Each PR row leads with the title, and under it its branches, size and ticket. On
 its own: State (a green Open chip, or a grey Draft one with a dashed edge), Self (self-reviewed: the `local-reviewed`
 label), CI, Review (approved, the review gate's count of approvals, changes requested, or waiting), Threads (open ones)
 and Branch (conflicts, behind its base, or its base merged). A column with nothing to say is left empty. Ready to merge
-is every column green. Then when the PR last moved. Up Next's rows of your PRs show the
+is every column green. Then when the PR last moved. Focus's large cards of your PRs show the
 same columns.
 
 Your PR's page leads with a back button (or ←) and a breadcrumb to Tasks, its title, which you can edit while it is
@@ -157,7 +180,7 @@ One Filters menu holds the rest, and each filter in force shows under the bar as
 approval**, on by default, keeps to the PRs the `review-gate/approvals` status on the head commit says still need one:
 fewer approvals on the latest commit than the risk tier needs, CodeRabbit not done reviewing it yet, or a repo that
 posts no such status at all. "low risk: no approval needed" and a met count drop out. A day limit keeps to the PRs
-opened in the last few days, and you can hide authors. Up Next, the sidebar badge and the menu bar's menu follow the
+opened in the last few days, and you can hide authors. Focus, the sidebar badge and the menu bar's menu follow the
 same filters. The tier shows as a Risk chip on each row, and PRs CodeRabbit labels `needs-human` come first, with a
 Needs a person chip. Drafts and bot PRs stay out of the queue altogether.
 
@@ -234,7 +257,7 @@ tickets. From the PRs it works out where the ticket should be: `👀 Review Read
 ready, `Done` once they have all merged and one of them landed on the repo's default branch. A revert lands nothing.
 
 Where Jira is behind, Desk suggests the move; it never makes it. Each suggestion waits for your **Move** or
-**Dismiss**: on the Jira screen above the status groups (Move all moves every one), under Jira moves on Up Next, and in
+**Dismiss**: on the Jira screen above the status groups (Move all moves every one), on its item on Focus, and in
 the ticket's details column and under its row. Move runs `acli jira workitem transition`; a ticket still in To Do passes through
 the in-progress status on its way. If Jira refuses, the suggestion turns red with Jira's reason, and Move becomes Retry.
 Dismiss hides the suggestion until the ticket's PRs point it somewhere else. A Jira row shows the suggested status as a

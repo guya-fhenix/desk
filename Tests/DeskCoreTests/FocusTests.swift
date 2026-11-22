@@ -31,7 +31,9 @@ import Testing
         var reviewed = Fixtures.pr(number: 6, head: "f", draft: true)
         reviewed.labels = [SelfReview.reviewedLabel]
         state.github?.mine = [failing, ready, inReview, threads, draft, reviewed]
-        let asked = Fixtures.pr(number: 10, head: "x", author: "alice", created: Fixtures.t0 - 2 * 86_400, events: [Fixtures.event(at: Fixtures.t0 - 3_600)])
+        var asked = Fixtures.pr(number: 10, head: "x", author: "alice", created: Fixtures.t0 - 2 * 86_400, events: [Fixtures.event(at: Fixtures.t0 - 3_600)])
+        asked.requestedReviewers = ["me"]
+        // Asked of a team of yours, not of you by name.
         let old = Fixtures.pr(number: 11, head: "y", author: "alice", created: Fixtures.t0 - 30 * 86_400)
         // Its draft not submitted yet: outside the day filter, still listed, since you started it.
         var drafted = Fixtures.pr(number: 12, head: "z", author: "alice", created: Fixtures.t0 - 40 * 86_400)
@@ -44,13 +46,14 @@ import Testing
         #expect(numbers(items, .now) == [1, 2])
         #expect(numbers(items, .next) == [4, 6, 12, 10])
         #expect(numbers(items, .canWait) == [5, 20])
+        #expect(items.filter { $0.kind == .reviewOpen }.count == 1 && items.filter { $0.kind == .reviewTeam }.isEmpty)
         #expect(numbers(items, .background) == [3])
         #expect(state.focusCount(reviewDays: 14, now: Fixtures.t0) == 6)
         #expect(items.filter(\.lifted).isEmpty)
         // Asked an hour ago, whenever the PR opened.
         #expect(items.first { $0.kind == .reviewAsked }?.since == Fixtures.t0 - 3_600)
         // All time takes the old request in; a hidden author's PRs leave, yours stay.
-        #expect(numbers(state.focus(reviewDays: nil, now: Fixtures.t0), .next).contains(11))
+        #expect(state.focus(reviewDays: nil, now: Fixtures.t0).first { $0.kind == .reviewTeam }?.id == old.url)
         #expect(numbers(state.focus(reviewDays: nil, hiding: ["alice"], now: Fixtures.t0), .next) == [4, 6])
     }
 
@@ -83,6 +86,17 @@ import Testing
         #expect(items.last?.since == nil)
     }
 
+    /// Only the first three reviews not asked of you by name are listed, oldest first, and any the master ranked.
+    @Test func otherReviewsAreCappedUnlessTheMasterRankedThem() {
+        var state = state
+        state.github?.reviewRequests = (1...5).map { Fixtures.pr(number: $0, head: "h\($0)", author: "alice", created: Fixtures.t0 - Double(10 - $0) * 86_400) }
+        state.recompute(now: Fixtures.t0)
+        #expect(numbers(state.focus(reviewDays: nil, now: Fixtures.t0), .canWait) == [1, 2, 3])
+        state.focusRanking = FocusRanking(rankedAt: Fixtures.t0, items: [.init(id: "FhenixProtocol/cofhe#5", level: 2)])
+        let items = state.focus(reviewDays: nil, now: Fixtures.t0)
+        #expect(numbers(items, .next) == [5] && numbers(items, .canWait) == [1, 2, 3])
+    }
+
     /// The master's ranking sets the level and the order of what it names; the rest keep Desk's. What changed on GitHub
     /// after it ranked, to something Desk puts higher, is lifted to Desk's level, first, and marked; so is a review asked
     /// since, which the master has not seen. Nothing older is marked.
@@ -92,7 +106,8 @@ import Testing
         let quiet = Fixtures.pr(number: 2, head: "b", updated: Fixtures.t0 - 7_200, checks: .failure)
         let waiting = Fixtures.pr(number: 3, head: "c", updated: Fixtures.t0 - 7_200)
         state.github?.mine = [failing, quiet, waiting]
-        let fresh = Fixtures.pr(number: 10, head: "x", author: "alice", events: [Fixtures.event(at: Fixtures.t0)])
+        var fresh = Fixtures.pr(number: 10, head: "x", author: "alice", events: [Fixtures.event(at: Fixtures.t0)])
+        fresh.requestedReviewers = ["me"]
         let seen = Fixtures.pr(number: 11, head: "y", author: "alice", created: Fixtures.t0 - 86_400)
         state.github?.reviewRequests = [fresh, seen]
         state.focusRanking = FocusRanking(rankedAt: Fixtures.t0 - 3_600, items: [

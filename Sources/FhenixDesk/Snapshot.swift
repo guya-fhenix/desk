@@ -107,6 +107,8 @@ enum Snapshot {
             model.showingFinder = true
         }
         if let error = value("ghError") { model.state.errors[.github] = error }
+        // `ranking=<folder>`: Focus as ranked by the `focus.json` in that folder, in place of the master's own.
+        if let folder = value("ranking") { model.state.focusRanking = MasterFolder(url: URL(fileURLWithPath: folder)).focusRanking() }
         // `steps=key:j;key:x;move:700,338;shot:<png>;report;wait:1`: keys, pointer moves, captures and the model's state,
         // run against the window before the last capture.
         let steps = value("steps").map { $0.split(separator: ";").map(String.init) } ?? []

@@ -88,6 +88,7 @@ struct FocusTab: View {
                     .frame(maxWidth: .infinity, alignment: .topLeading)
                     VStack(alignment: .leading, spacing: 8) {
                         group(.canWait, items)
+                        moreReviews(items)
                         group(.background, items)
                     }
                     .frame(maxWidth: .infinity, alignment: .topLeading)
@@ -132,6 +133,19 @@ struct FocusTab: View {
                     .id(item.id)
                     .contextMenu { menu(item) }
             }
+        }
+    }
+
+    /// The reviews the page leaves out, a press away: it lists every one asked of you by name and only the first few of
+    /// the rest.
+    @ViewBuilder private func moreReviews(_ items: [FocusItem]) -> some View {
+        let queue = model.state.reviewQueue(.needsYou, days: filters.window, hiding: filters.hidden, needingApproval: filters.needsApproval)
+        let shown = items.filter { [.reviewAsked, .reviewTeam, .reviewOpen, .reviewDraft].contains($0.kind) }.count
+        if queue.count > shown {
+            Button { model.pendingTab = .reviews } label: {
+                Text("\(queue.count - shown) more in Reviews").underline(color: Theme.control)
+            }
+            .buttonStyle(.plain).handCursor().scaled(.secondary).foregroundStyle(Theme.quiet).padding(.horizontal, 10)
         }
     }
 
@@ -320,7 +334,7 @@ private struct FocusCard: View {
         case .needsRebase, .openThreads, .reviewDraft: return Theme.warn
         case .reviewAsked: return Theme.accentInk
         case .jiraMove, .inProgress: return Theme.jira
-        case .draftReviewed, .draft, .waitingOnReview, .reviewOpen, .toStart, .merged: return nil
+        case .draftReviewed, .draft, .waitingOnReview, .reviewTeam, .reviewOpen, .toStart, .merged: return nil
         }
     }
 
@@ -342,7 +356,7 @@ private struct FocusCard: View {
             case .merged:
                 Image(systemName: "arrow.triangle.merge").font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.merged)
                     .accessibilityLabel("Merged pull request")
-            case .reviewAsked, .reviewOpen, .reviewDraft:
+            case .reviewAsked, .reviewTeam, .reviewOpen, .reviewDraft:
                 Image(systemName: "eye").font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.accentInk)
                     .accessibilityLabel("Review")
             default:
@@ -382,7 +396,7 @@ private struct FocusCard: View {
             case .reviewDraft:
                 let count = pr.pendingReview?.comments ?? 0
                 parts = [pr.author, "your draft, \(count) \(count == 1 ? "comment" : "comments"), not sent"]
-            case .reviewAsked, .reviewOpen:
+            case .reviewAsked, .reviewTeam, .reviewOpen:
                 parts = [pr.author, "+\(pr.additions) −\(pr.deletions)", pr.risk.map { "\($0) risk" }, "CI \(FocusTab.checks(pr))"]
             default:
                 let facts = PullRequestFacets(pr: pr, rebase: model.state.rebaseReason(pr)).facts
@@ -401,7 +415,7 @@ private struct FocusCard: View {
     private var facts: [(label: String, value: String, color: Color)] {
         guard case .pullRequest(let pr) = item.subject, item.kind != .merged else { return [] }
         switch item.kind {
-        case .reviewAsked, .reviewOpen, .reviewDraft:
+        case .reviewAsked, .reviewTeam, .reviewOpen, .reviewDraft:
             return [
                 ("Size", "+\(pr.additions) −\(pr.deletions)", Theme.ink), ("Risk", pr.risk ?? "–", Theme.ink),
                 ("CI", FocusTab.checks(pr), pr.checks.isRed ? Theme.danger : pr.checks == .success ? Theme.ok : Theme.ink),
@@ -440,7 +454,7 @@ private struct FocusCard: View {
         case .pullRequest(let pr):
             switch item.kind {
             case .merged: EmptyView()
-            case .reviewAsked, .reviewOpen:
+            case .reviewAsked, .reviewTeam, .reviewOpen:
                 Button(model.reviewRunning(pr) ? "Show review" : "Start review") {
                     if model.reviewRunning(pr) {
                         model.showReview(pr)

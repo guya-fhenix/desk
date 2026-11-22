@@ -21,8 +21,9 @@ public enum FocusLevel: Int, Sendable, Comparable, CaseIterable {
 public enum FocusKind: Sendable, Equatable {
     // Your own PRs.
     case ciFailed, conflicts, changesRequested, needsRebase, openThreads(Int), readyToMerge, draftReviewed, draft, waitingOnReview
-    // Other people's PRs: asked of you, open to anyone, and one you started a review on and have not sent.
-    case reviewAsked, reviewOpen, reviewDraft
+    // Other people's PRs: asked of you by name, asked of a team of yours, open to anyone, and one you started a review
+    // on and have not sent.
+    case reviewAsked, reviewTeam, reviewOpen, reviewDraft
     // Tickets: Jira behind its PRs, one in progress with no PR yet, one nothing has started.
     case jiraMove, inProgress, toStart
     case merged
@@ -39,6 +40,7 @@ public enum FocusKind: Sendable, Equatable {
         case .draft: return "Draft"
         case .waitingOnReview: return "Waiting on review"
         case .reviewAsked: return "Review asked"
+        case .reviewTeam: return "Review asked of team"
         case .reviewOpen: return "Open to review"
         case .reviewDraft: return "Review to submit"
         case .jiraMove: return "Jira move"
@@ -54,7 +56,7 @@ public enum FocusKind: Sendable, Equatable {
         switch self {
         case .ciFailed, .conflicts, .changesRequested, .readyToMerge: return .now
         case .needsRebase, .openThreads, .draftReviewed, .reviewAsked, .reviewDraft, .inProgress: return .next
-        case .draft, .reviewOpen, .jiraMove, .toStart: return .canWait
+        case .draft, .reviewTeam, .reviewOpen, .jiraMove, .toStart: return .canWait
         case .waitingOnReview, .merged: return .background
         }
     }
@@ -128,8 +130,8 @@ extension DeskState {
         }
     }
 
-    /// How many reviews nobody asked of you the page lists: the rest are on Reviews.
-    static let focusOpenReviews = 3
+    /// How many reviews nobody asked of you by name the page lists, oldest first: the rest are on Reviews.
+    public static let focusOtherReviews = 3
 
     /// What the Focus badge and the menu bar count: the items at Now and Next.
     public func focusCount(reviewDays: Int?, hiding: Set<String> = [], needingApproval: Bool = false, now: Date = Date()) -> Int {
@@ -138,7 +140,7 @@ extension DeskState {
 
     /// The Focus page: everything of yours in one list, largest first. Each of your open PRs by its own state on GitHub
     /// (its session has no say); the reviews you started and have not sent, whatever the day filter; the reviews asked of
-    /// you and the first few open to anyone, inside the Reviews screen's filters (`reviewDays`, `hiding`,
+    /// you by name, and the first few asked of a team of yours or open to anyone, inside the Reviews screen's filters (`reviewDays`, `hiding`,
     /// `needingApproval`); the Jira moves Desk suggests; your tickets in progress with no PR yet; the sprint's tickets
     /// nothing has started; and your PRs merged today.
     ///
@@ -159,16 +161,20 @@ extension DeskState {
             add(.pullRequest(pr), .reviewDraft, since: nil)
         }
         let onYou = Set(reviewRequests.map(\.url))
-        var open = 0
+        // A review the master ranked is listed whatever the cap: the master chose it.
+        let ranked = Set((focusRanking?.items ?? []).map { $0.id.lowercased() })
+        var others = 0
         for pr in reviewQueue(.needsYou, days: reviewDays, hiding: hiding, needingApproval: needingApproval, now: now)
         where pr.pendingReview == nil && reviewNeed(for: pr) != nil {
-            if onYou.contains(pr.url) {
-                // Since you were last asked; a request through a team has no event of yours, so since it opened.
-                let asked = pr.reviewRequestEvents.filter { $0.reviewer == login }.map(\.createdAt).max()
+            if pr.requestedReviewers.contains(login) {
+                // Since you were last asked; only the latest request events are fetched, so failing one, since it opened.
+                let asked = pr.reviewRequestEvents.filter { !$0.isTeam && $0.reviewer == login }.map(\.createdAt).max()
                 add(.pullRequest(pr), .reviewAsked, since: asked ?? pr.createdAt)
-            } else if open < Self.focusOpenReviews {
-                open += 1
-                add(.pullRequest(pr), .reviewOpen, since: pr.createdAt)
+            } else if ClaudeJobs.prKey(pr.url).map(ranked.contains) == true {
+                add(.pullRequest(pr), onYou.contains(pr.url) ? .reviewTeam : .reviewOpen, since: pr.createdAt)
+            } else if others < Self.focusOtherReviews {
+                others += 1
+                add(.pullRequest(pr), onYou.contains(pr.url) ? .reviewTeam : .reviewOpen, since: pr.createdAt)
             }
         }
         for drift in ticketDrifts {
