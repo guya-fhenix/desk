@@ -382,7 +382,7 @@ struct ClaudeSessionButton: View {
 }
 
 /// Where a ticket's pull requests say it should be: a suggested move, which waits for your Move on the Jira screen,
-/// the ticket's page or Up Next. A spinner while the move runs, red when Jira refused it. It names the pull requests
+/// the ticket's page or Focus. A spinner while the move runs, red when Jira refused it. It names the pull requests
 /// it is arguing from: a move nobody can explain is one nobody should make.
 struct DriftBadge: View {
     var drift: TicketDrift

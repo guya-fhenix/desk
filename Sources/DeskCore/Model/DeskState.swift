@@ -10,7 +10,7 @@ public struct TicketGroup: Sendable, Identifiable {
 
 /// Which slice of the review queue to show: the ones that need you — asked of you, or open and not yet reviewed — the
 /// ones asked of you, the ones you reviewed that wait on their authors, or every open PR by someone else. `needsYou` is
-/// the screen's first scope and its default, and what the sidebar badge, Up Next and the menu bar count. A scope saved by
+/// the screen's first scope and its default, and what the Reviews badge counts. A scope saved by
 /// an older version, such as `open`, reads as none, so the screen falls back to its default.
 public enum ReviewScope: String, CaseIterable, Sendable, Identifiable {
     case needsYou, onMe, reviewed, all
@@ -83,6 +83,12 @@ public struct DeskState: Sendable {
     public private(set) var reviewNeeds: [String: ReviewNeed] = [:]
     /// The questions the master session has open for you, read off its `asks.json` with the local scan.
     public var asks: [MasterAsk] = []
+    /// The master's ranking of the Focus page, read off its `focus.json` with the local scan; nil until it writes one.
+    public var focusRanking: FocusRanking?
+    /// What each Focus item was when Desk first read that ranking, by `FocusItem.rankKey`: what the master ranked by. Nil
+    /// with no ranking, and until every source has answered; then nothing is lifted. Kept in memory only, so after a
+    /// relaunch it is what the items are then, and only later changes lift.
+    public var focusSeen: [String: FocusKind]?
     /// Your work by task: ticket, session started without one, or a stack with neither. See `Linker.tasks`.
     public private(set) var tasks: [WorkTask] = []
 
@@ -332,77 +338,4 @@ public struct DeskState: Sendable {
     }
 
     public func reviewStatus(for pr: PullRequest) -> ReviewStatus { ReviewStatus.derive(pr: pr, login: login) }
-}
-
-/// Up Next's sections, in the order the screen lists them: what you can finish now, what is yours to fix, the reviews
-/// waiting on you, and your PRs that wait on someone else.
-public enum UpNextSection: Int, CaseIterable, Sendable, Hashable {
-    case readyToMerge, yourMove, draftsToSubmit, toReview, waiting
-
-    public var title: String {
-        switch self {
-        case .readyToMerge: return "Ready to merge"
-        case .yourMove: return "Your move"
-        case .draftsToSubmit: return "Drafts to submit"
-        case .toReview: return "To review"
-        case .waiting: return "Waiting"
-        }
-    }
-}
-
-extension DeskState {
-    /// Up Next's new work: your tickets in the open sprint that are still to do, with no PR of yours naming them, open or
-    /// merged, and no session started on them, in Jira's order, most recently updated first. One whose PR merged is
-    /// finished work Jira is behind on, which Jira moves suggests, not new work.
-    public var ticketsToStart: [Ticket] {
-        let named = Set(ticketKeys.values.joined())
-        return openTickets.filter { ticket in
-            ticket.placement == .sprint && ticket.category == .todo && !named.contains(ticket.key) && sessions(forTicket: ticket.key).isEmpty
-        }
-    }
-}
-
-/// One section of Up Next and its PRs.
-public struct UpNextGroup: Sendable, Identifiable {
-    public var section: UpNextSection
-    public var pullRequests: [PullRequest]
-    public var id: UpNextSection { section }
-}
-
-extension DeskState {
-    /// What Up Next has waiting on you, for its badge: every section but Waiting, and the Jira moves it suggests. The
-    /// filters are the Reviews screen's, as `upNext` takes them.
-    public func upNextCount(reviewDays: Int?, hiding: Set<String> = [], needingApproval: Bool = false, now: Date = Date()) -> Int {
-        upNext(reviewDays: reviewDays, hiding: hiding, needingApproval: needingApproval, now: now)
-            .filter { $0.section != .waiting }.reduce(0) { $0 + $1.pullRequests.count }
-            + ticketDrifts.count
-    }
-
-    /// Up Next: every PR of yours under one section — your move when it is red, conflicts, has changes requested or a
-    /// review thread open, or needs a rebase; ready to merge when it is approved and GitHub would take the merge now;
-    /// otherwise waiting on others — most recently updated first. Its session has no say: what a session is doing shows
-    /// in `claude agents`, not here. Then the reviews you have a draft on that is not submitted yet, whatever
-    /// the day filter, since you started them; then the review queue's PRs that need your review, inside the Reviews
-    /// screen's day and approval filters (`reviewDays`, nil for all time; `needingApproval`), oldest first as the queue
-    /// lists them. Both leave out the authors the Reviews screen hides (`hiding`). Empty sections are
-    /// left out. The PR's own state decides, not its nudges: drafts get none, and a red draft is still yours.
-    public func upNext(reviewDays: Int?, hiding: Set<String> = [], needingApproval: Bool = false, now: Date = Date()) -> [UpNextGroup] {
-        var sections: [UpNextSection: [PullRequest]] = [:]
-        for pr in mine.sorted(by: { $0.updatedAt > $1.updatedAt }) {
-            // An open thread is something to answer or fix, so it is yours too: it held the PR in Waiting, on nobody.
-            let fix = pr.checks.isRed || pr.hasConflicts || pr.reviewDecision == .changesRequested || pr.unresolvedThreads > 0
-                || rebaseReason(pr) != nil
-            // The ready-to-merge nudge's own test, without its "no session on it": a worker's PR is ready too.
-            let ready = !pr.isDraft && FlowStage.of(pr) == .approved && pr.mergeState == .clean && !pr.checks.isPending
-            let section: UpNextSection = fix ? .yourMove : ready ? .readyToMerge : .waiting
-            sections[section, default: []].append(pr)
-        }
-        sections[.draftsToSubmit] = reviewQueue(.all, hiding: hiding).filter { $0.pendingReview != nil }
-        sections[.toReview] = reviewQueue(.needsYou, days: reviewDays, hiding: hiding, needingApproval: needingApproval, now: now)
-            .filter { $0.pendingReview == nil && reviewNeed(for: $0) != nil }
-        return UpNextSection.allCases.compactMap { section in
-            guard let prs = sections[section], !prs.isEmpty else { return nil }
-            return UpNextGroup(section: section, pullRequests: prs)
-        }
-    }
 }

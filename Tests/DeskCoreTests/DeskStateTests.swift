@@ -42,55 +42,6 @@ import Testing
         #expect(state.github?.mergedRecent.map(\.number) == [1])
     }
 
-    /// Up Next's badge: your PRs in every section but Waiting, and the suggested Jira moves.
-    @Test func upNextCountsAllButWaitingAndTheMoves() {
-        var state = state
-        state.github?.mine = [Fixtures.pr(number: 1, head: "feat/pro-391-gauge", checks: .failure), Fixtures.pr(number: 2, head: "b")]
-        state.tickets = [Fixtures.ticket("PRO-391")]
-        state.recompute()
-        #expect(state.ticketDrifts.count == 1)
-        #expect(state.upNext(reviewDays: nil).map(\.section) == [.yourMove, .waiting])
-        #expect(state.upNextCount(reviewDays: nil) == 2)
-    }
-
-    /// An open review thread is something to answer or fix, and a conflict something to resolve, so both put the PR in
-    /// Your move: a PR with threads open sat in Waiting, as if it were on someone else.
-    @Test func openThreadsAndConflictsAreYourMove() {
-        var state = state
-        var threads = Fixtures.pr(number: 1, head: "a")
-        threads.unresolvedThreads = 2
-        var conflicting = Fixtures.pr(number: 2, head: "b", merge: .blocked)
-        conflicting.conflicting = true
-        let waiting = Fixtures.pr(number: 3, head: "c")
-        state.github?.mine = [threads, conflicting, waiting]
-        state.recompute()
-        let plan = state.upNext(reviewDays: nil)
-        #expect(plan.first { $0.section == .yourMove }?.pullRequests.map(\.number).sorted() == [1, 2])
-        #expect(plan.first { $0.section == .waiting }?.pullRequests.map(\.number) == [3])
-    }
-
-    /// A PR's own state on GitHub puts it in its section, whatever its session is doing: an approved one a worker
-    /// carries is ready to merge, and a session asking you something moves nothing.
-    @Test func sessionsHaveNoSayInUpNext() {
-        var state = state
-        let approved = Fixtures.pr(number: 1, head: "a", review: .approved, merge: .clean)
-        let inReview = Fixtures.pr(number: 2, head: "b")
-        let draft = Fixtures.pr(number: 3, head: "c", draft: true)
-        state.github?.mine = [approved, inReview, draft]
-        state.claudeJobs = [approved, inReview, draft].enumerated().map { index, pr in
-            let key = ClaudeJobs.prKey(pr.url)!
-            return ClaudeJob(
-                id: "job\(index)", name: "w\(index)", state: index == 1 ? "blocked" : "done", cwd: "/r/cofhe", prKeys: [key],
-                updatedAt: Fixtures.t0, startedOn: [key], role: .worker
-            )
-        }
-        state.recompute()
-        let plan = state.upNext(reviewDays: nil)
-        #expect(plan.first { $0.section == .readyToMerge }?.pullRequests.map(\.number) == [1])
-        #expect(plan.first { $0.section == .waiting }?.pullRequests.map(\.number).sorted() == [2, 3])
-        #expect(!plan.contains { $0.section == .yourMove })
-    }
-
     /// A move or edit of this app's is laid over a Jira answer that does not show it yet, and dropped once one does.
     @Test func ticketEditsCorrectALaggingJira() {
         var state = state
@@ -178,35 +129,8 @@ import Testing
         #expect(state.nudges.filter { $0.kind == .reviewRequested }.map(\.url) == [ready.url])
     }
 
-    /// Up Next sorts your PRs by what they wait for and adds the reviews that wait on you, inside the day filter.
-    @Test func upNextSortsYourPullRequestsAndTheReviewsOnYou() {
-        var state = state
-        state.gitScan = GitScan(repos: [Fixtures.repo()], worktrees: [])
-        let failing = Fixtures.pr(number: 1, head: "a", checks: .failure)
-        let ready = Fixtures.pr(number: 2, head: "b", review: .approved, merge: .clean)
-        let inReview = Fixtures.pr(number: 3, head: "c")
-        // A draft gets no nudge, but red is still yours to fix.
-        let redDraft = Fixtures.pr(number: 4, head: "d", updated: Fixtures.t0 - 60, checks: .failure, draft: true)
-        state.github?.mine = [failing, ready, inReview, redDraft]
-        let recent = Fixtures.pr(number: 10, head: "x", author: "alice", created: Fixtures.t0 - 2 * 86_400)
-        let old = Fixtures.pr(number: 11, head: "y", author: "alice", created: Fixtures.t0 - 30 * 86_400)
-        // Reviewed, and its draft not submitted yet: outside the day filter, still listed, since you started it.
-        var drafted = Fixtures.pr(number: 12, head: "z", author: "alice", created: Fixtures.t0 - 40 * 86_400)
-        drafted.pendingReview = Fixtures.pending()
-        state.github?.reviewRequests = [recent, old, drafted]
-        state.recompute(now: Fixtures.t0)
-        let plan = state.upNext(reviewDays: 14, now: Fixtures.t0)
-        #expect(plan.map(\.section) == [.readyToMerge, .yourMove, .draftsToSubmit, .toReview, .waiting])
-        #expect(plan.map { $0.pullRequests.map(\.number) } == [[2], [1, 4], [12], [10], [3]])
-        // All time takes the old one in too.
-        #expect(state.upNext(reviewDays: nil, now: Fixtures.t0).first { $0.section == .toReview }?.pullRequests.count == 2)
-        // A hidden author's PRs leave the review sections, drafts included; your own PRs stay.
-        let hidden = state.upNext(reviewDays: nil, hiding: ["alice"], now: Fixtures.t0)
-        #expect(hidden.map(\.section) == [.readyToMerge, .yourMove, .waiting])
-    }
-
-    /// Up Next offers your sprint's to-do tickets that nothing has started yet.
-    @Test func upNextOffersTheTicketsNothingHasStarted() {
+    /// Focus offers your sprint's to-do tickets that nothing has started yet.
+    @Test func focusOffersTheTicketsNothingHasStarted() {
         var config = DeskConfig()
         config.jiraProjectKey = "PRO"
         var state = DeskState(config: config)
@@ -320,7 +244,7 @@ import Testing
     }
 
     /// Needs approval keeps what the review gate has not passed — short of approvals, waiting for CodeRabbit, words it
-    /// does not know, or no gate at all — and drops what it has; needs-human still comes first, and Up Next follows it.
+    /// does not know, or no gate at all — and drops what it has; needs-human still comes first, and Focus follows it (FocusTests).
     @Test func needsApprovalKeepsWhatTheGateHasNotPassed() {
         var state = DeskState(config: DeskConfig())
         func pr(_ number: Int, _ gate: String?) -> PullRequest {
@@ -342,14 +266,6 @@ import Testing
         state.github = GitHubSnapshot(login: "me", mine: [], reviewRequests: queue, mergedRecent: [], fetchedAt: Fixtures.t0)
         #expect(state.reviewQueue(.all, needingApproval: true, now: Fixtures.t0).map(\.number) == [6, 1, 4, 5])
         #expect(state.reviewQueue(.all, now: Fixtures.t0).map(\.number) == [6, 1, 2, 3, 4, 5, 7])
-
-        state.gitScan = GitScan(repos: [Fixtures.repo()], worktrees: [])
-        state.recompute(now: Fixtures.t0)
-        let toReview = { (needing: Bool) in
-            state.upNext(reviewDays: nil, needingApproval: needing, now: Fixtures.t0).first { $0.section == .toReview }?.pullRequests.map(\.number)
-        }
-        #expect(toReview(true) == [6, 1, 4, 5])
-        #expect(toReview(false) == [6, 1, 2, 3, 4, 5, 7])
     }
 }
 

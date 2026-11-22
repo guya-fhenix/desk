@@ -28,9 +28,9 @@ make install  # quit a running Desk, build the .app into ~/Applications and open
 To check a view without driving the window, a debug build draws a PR's page, or its review diff at its first thread,
 with live data into a PNG: `.build/debug/FhenixDesk --snapshot <pr url> <out.png> [page|diff] [height] [dark|light]`.
 `--snapshot window <screen> <out.png> [height] [dark|light]` draws the whole window, 1440 wide, sidebar included, on
-one screen: `upNext`, `pullRequests`, `reviews`, `tickets`, `master`, `settings` (`pane=appearance` …), `setup`
+one screen: `focus`, `pullRequests`, `reviews`, `tickets`, `master`, `settings` (`pane=appearance` …), `setup`
 (`step=…`), or `menubar` (the popover alone); `open=<pr url or task id>` opens a page, `finder=<query>` opens Search,
-`asks=1` adds a sample question from the master. `steps=key:j;key:x;move:700,338;shot:<png>;report` presses keys in the
+`asks=1` adds a sample question from the master. `ranking=<folder>` ranks Focus by the `focus.json` in that folder, in place of the master's own. `steps=key:j;key:x;move:700,338;shot:<png>;report` presses keys in the
 window first (`j k x r m`, arrows, `return`, `space`, `escape`), moves the pointer for hover (`move:x,y` from the
 window's top left) or clicks (`click:x,y`), drawing and printing the state between them; `popshot:<png>` draws a popover
 a click opened. `split` draws the real split view, whose sidebar

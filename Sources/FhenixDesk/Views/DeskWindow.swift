@@ -6,13 +6,13 @@ struct DeskWindow: View {
     static let id = "desk"
 
     enum Tab: String, CaseIterable, Identifiable {
-        case upNext, pullRequests, reviews, tickets
+        case focus, pullRequests, reviews, tickets
 
         var id: Tab { self }
 
         var title: String {
             switch self {
-            case .upNext: return "Up Next"
+            case .focus: return "Focus"
             case .pullRequests: return "Tasks"
             case .reviews: return "Reviews"
             case .tickets: return "Jira"
@@ -21,7 +21,7 @@ struct DeskWindow: View {
     }
 
     @Environment(AppModel.self) private var model
-    @State private var tab: Tab = Tab(rawValue: ProcessInfo.processInfo.environment["FHENIX_DESK_OPEN_WINDOW"] ?? "") ?? .upNext
+    @State private var tab: Tab = Tab(rawValue: ProcessInfo.processInfo.environment["FHENIX_DESK_OPEN_WINDOW"] ?? "") ?? .focus
     /// Whether the sidebar shows, as its toggle and ⌃⌘S leave it; setup hides it without changing this.
     @State private var columns = NavigationSplitViewVisibility.all
     /// How many review diffs are on screen — two for a moment, as one replaces another — and the sidebar as it was before
@@ -176,18 +176,18 @@ struct DeskWindow: View {
 
     @ViewBuilder private var screen: some View {
         switch tab {
-        case .upNext: UpNextTab()
+        case .focus: FocusTab()
         case .pullRequests: PullRequestsTab()
         case .reviews: ReviewsTab()
         case .tickets: TicketsTab()
         }
     }
 
-    /// The count beside each screen: Up Next the rows it lists, Tasks the open tasks, Reviews its Needs you scope inside
+    /// The count beside each screen: Focus its items at Now and Next, Tasks the open tasks, Reviews its Needs you scope inside
     /// its filters, and Jira the tickets in its placement and assignee filter.
     private func badge(for tab: Tab) -> Int {
         switch tab {
-        case .upNext: return model.upNextCount(filters)
+        case .focus: return model.focusCount(filters)
         case .tickets: return model.state.ticketGroups(tickets.placement, assignees: tickets.assignees).reduce(0) { $0 + $1.tickets.count }
         case .pullRequests: return model.state.tasks.count
         case .reviews: return model.state.reviewQueue(.needsYou, days: filters.window, hiding: filters.hidden, needingApproval: filters.needsApproval).count

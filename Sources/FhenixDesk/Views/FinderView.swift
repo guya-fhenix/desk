@@ -202,7 +202,7 @@ struct FinderView: View {
                 Text(pr.title).lineLimit(1).truncationMode(.tail).frame(maxWidth: .infinity, alignment: .leading)
                 ChecksBadge(pr: pr).scaled(.secondary)
                 facts(([pr.isDraft ? "Draft" : nil, screen == .reviews ? "Review" : screen == nil ? "On GitHub" : nil].compactMap { $0 }
-                    + [UpNextTab.checks(pr)]).joined(separator: " · "))
+                    + [FocusTab.checks(pr)]).joined(separator: " · "))
                     .help(screen == nil ? "On none of the app's screens — reviewed already, a bot's, or someone's draft — so ↩ opens it on GitHub" : "")
             case .command(let command):
                 Image(systemName: command.icon).font(.system(size: 12, weight: .medium)).foregroundStyle(Theme.quiet).frame(width: 18)

@@ -1,7 +1,7 @@
 import DeskCore
 import SwiftUI
 
-/// What a primary click on the menu bar item shows: who you are, the master, what needs you — the rows Up Next counts,
+/// What a primary click on the menu bar item shows: who you are, the master, what needs you — the rows Focus counts,
 /// each a press away — and Open Desk. While GitHub's last refresh failed it says so on top, with Retry and Settings, and
 /// greys the list it kept, marked with when it was read.
 struct SettingsMenuBarPopover: View {
@@ -27,7 +27,7 @@ struct SettingsMenuBarPopover: View {
             if stale { banner }
             master
             VStack(alignment: .leading, spacing: 0) {
-                SectionLabel("Needs you · \(model.upNextCount(filters))\(asOf)").padding(EdgeInsets(top: 6, leading: 8, bottom: 4, trailing: 8))
+                SectionLabel("Needs you · \(model.focusCount(filters))\(asOf)").padding(EdgeInsets(top: 6, leading: 8, bottom: 4, trailing: 8))
                 if needs.isEmpty {
                     Text("Nothing waits on you.").scaled(.secondary).foregroundStyle(Theme.quiet).padding(.horizontal, 8).padding(.vertical, 6)
                 }
@@ -36,7 +36,7 @@ struct SettingsMenuBarPopover: View {
                 }
                 .opacity(stale ? 0.55 : 1)
                 if needs.count > 5 {
-                    Button("\(needs.count - 5) more in Up Next") { go { model.pendingTab = .upNext; AppDelegate.openDesk?() } }
+                    Button("\(needs.count - 5) more in Focus") { go { model.pendingTab = .focus; AppDelegate.openDesk?() } }
                         .buttonStyle(.plain).scaled(.secondary).foregroundStyle(Theme.accentInk)
                         .padding(.horizontal, 8).padding(.vertical, 6)
                 }
@@ -186,32 +186,32 @@ struct SettingsMenuBarPopover: View {
         var open: () -> Void
     }
 
-    /// What Up Next counts, in its order: your PRs that are not waiting on others and the reviews on you, then the Jira
-    /// moves it suggests. Each opens the Desk on it.
+    /// What Focus counts, in its order: its items at Now and Next. Each opens the Desk on it.
     private var needsYou: [Item] {
         let model = model
-        let plan = model.state.upNext(reviewDays: filters.window, hiding: filters.hidden, needingApproval: filters.needsApproval)
-        let prs = plan.filter { $0.section != .waiting }.flatMap { group in
-            group.pullRequests.map { pr in
-                Item(id: pr.url, dot: Self.dot(group.section), title: pr.title,
-                     line: "\(group.section.title) · \(pr.repoName) #\(pr.number)", date: pr.updatedAt) { model.show(pr.url) }
+        return model.focus(filters).filter { $0.level >= .next }.map { item in
+            let dot = item.kind.tone ?? Theme.quiet
+            switch item.subject {
+            case .pullRequest(let pr):
+                return Item(id: item.id, dot: dot, title: pr.title, line: "\(item.kind.title) · \(pr.repoName) #\(pr.number)", date: item.since) {
+                    model.show(pr.url)
+                }
+            case .move(let drift):
+                return Item(id: item.id, dot: dot, title: "Move \(drift.ticket.key) to \(drift.target)", line: drift.ticket.summary, date: item.since) {
+                    Self.show(drift.ticket, model)
+                }
+            case .ticket(let ticket):
+                return Item(id: item.id, dot: dot, title: ticket.summary, line: "\(item.kind.title) · \(ticket.key)", date: nil) {
+                    Self.show(ticket, model)
+                }
             }
         }
-        let moves = model.state.ticketDrifts.map { drift in
-            Item(id: drift.id, dot: Theme.accentInk, title: "Move \(drift.ticket.key) to \(drift.target)", line: drift.ticket.summary, date: nil) {
-                model.selectTicket = drift.ticket.key
-                model.pendingTab = .tickets
-                AppDelegate.openDesk?()
-            }
-        }
-        return prs + moves
     }
 
-    private static func dot(_ section: UpNextSection) -> Color {
-        switch section {
-        case .yourMove: return Theme.danger
-        case .readyToMerge: return Theme.ok
-        default: return Theme.accentInk
-        }
+    /// The Jira screen, on this ticket.
+    private static func show(_ ticket: Ticket, _ model: AppModel) {
+        model.selectTicket = ticket.key
+        model.pendingTab = .tickets
+        AppDelegate.openDesk?()
     }
 }

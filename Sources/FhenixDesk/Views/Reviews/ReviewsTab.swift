@@ -55,7 +55,7 @@ struct ReviewsTab: View {
         // The first row on screen: a group's base comes before the row the sort put first.
         .selectsFirstRow(groups.first?.pullRequests.first?.url, selection: $selection)
         .reviewTogetherSheet($request, model: model)
-        // Search, Up Next and a notification land here with a PR to show: its page, with its row selected behind it.
+        // Search, Focus and a notification land here with a PR to show: its page, with its row selected behind it.
         // One the filters hide is shown by widening them to the whole queue: a find that opens a screen without its
         // PR on it would be no find at all. Yours are left to Pull Requests, the way it leaves these to this screen.
         .onChange(of: model.selectPullRequest, initial: true) { _, url in
@@ -602,7 +602,7 @@ private struct FilterToken: View {
 }
 
 /// The Reviews screen's filters: whether it keeps to the PRs that still need an approval, how far back the queue reaches,
-/// and whose PRs it leaves out. The sidebar badge, Up Next and the menu bar's menu read them too, so what they count is
+/// and whose PRs it leaves out. The sidebar badge, Focus and the menu bar's menu read them too, so what they count is
 /// what the screen lists.
 struct ReviewFilters: DynamicProperty {
     /// On by default: only the PRs the review gate says still need an approval, or has not decided on, and every PR of a
@@ -639,7 +639,7 @@ struct ReviewFilters: DynamicProperty {
 /// The queue's filters in one menu, drawn like the sort menu beside it, its badge counting the ones in force: only the
 /// PRs that still need an approval, how far back the queue reaches, and whose PRs it leaves out. The common spans are
 /// one pick; Other… takes any number of days. Every author in the queue is listed, ticked while shown; unticking one
-/// filters their PRs out here and on Up Next, and one already hidden stays listed, so it can be brought back while it has
+/// filters their PRs out here and on Focus, and one already hidden stays listed, so it can be brought back while it has
 /// nothing open.
 private struct FiltersMenu: View {
     var queue: [PullRequest]

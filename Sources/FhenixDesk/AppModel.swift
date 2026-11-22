@@ -98,7 +98,7 @@ final class AppModel {
     var busyFlows: Set<String> = []
     /// Why the last press on a PR's flow failed, by url, until the next press. Like the stage, nothing of it is saved.
     var flowErrors: [String: String] = [:]
-    /// Set to have the Pull Requests or Reviews screen open this PR's page; the screen clears it. Search, Up Next
+    /// Set to have the Pull Requests or Reviews screen open this PR's page; the screen clears it. Search, Focus
     /// and a notification's Show use it.
     var selectPullRequest: String?
     /// Set to have the Jira screen select this ticket, by key, in its details panel; the screen clears it. Search uses it.
@@ -164,9 +164,14 @@ final class AppModel {
         set { state.config = newValue }
     }
 
-    /// What Up Next has waiting on you, inside the Reviews screen's filters, which Up Next's reviews follow.
-    func upNextCount(_ filters: ReviewFilters) -> Int {
-        state.upNextCount(reviewDays: filters.window, hiding: filters.hidden, needingApproval: filters.needsApproval)
+    /// The Focus page's items, inside the Reviews screen's filters, which its reviews follow.
+    func focus(_ filters: ReviewFilters) -> [FocusItem] {
+        state.focus(reviewDays: filters.window, hiding: filters.hidden, needingApproval: filters.needsApproval)
+    }
+
+    /// What Focus has at Now and Next: its badge, and the menu bar's count.
+    func focusCount(_ filters: ReviewFilters) -> Int {
+        state.focusCount(reviewDays: filters.window, hiding: filters.hidden, needingApproval: filters.needsApproval)
     }
 
     /// The polls start first: reading the Jira account can wait out acli's whole timeout offline, and the window would
@@ -249,6 +254,7 @@ final class AppModel {
                 state.gitScan = scan
                 state.claudeJobs = await service.claudeJobs(keepIn: scan.repos.map(\.root))
                 state.asks = masterFolder.asks()
+                state.focusRanking = masterFolder.focusRanking(keeping: state.focusRanking)
                 state.claudeLimits = await service.claudeLimits()
                 state.workflowSkill = await service.reviewSkill()
                 state.errors[.git] = scan.errors.isEmpty ? nil : scan.errors.joined(separator: "\n")
@@ -279,12 +285,21 @@ final class AppModel {
         // Jira failing again and again is asked less and less often, which is what lets a throttle on the account lift.
         if source == .jira { jiraFailures = state.errors[.jira] == nil ? 0 : jiraFailures + 1 }
         state.recompute()
+        // A new ranking from the master: remember what it ranked, so only what changes after it is lifted. Only once
+        // every source has answered: remembered while one had only failed, everything it brings later would look new.
+        if Source.allCases.allSatisfy({ state.lastRefresh[$0] != nil }), state.focusRanking?.rankedAt != focusSeenAt {
+            focusSeenAt = state.focusRanking?.rankedAt
+            state.focusSeen = state.focusRanking == nil ? nil : state.focusKinds()
+        }
         let posted = notifier.deliver(state.nudges, post: config.notificationsEnabled && allSourcesReported)
         writeMasterFiles(posted: posted)
         // The sessions were just scanned: the iTerm layout follows them. Only once every source answered, so the tasks'
         // workers are known, and never before you opened the layout.
         if source == .git, allSourcesReported { await syncTerminals() }
     }
+
+    /// The `rankedAt` of the ranking `state.focusSeen` was remembered for.
+    private var focusSeenAt: Date?
 
     private var allSourcesReported: Bool {
         Source.allCases.allSatisfy { state.lastRefresh[$0] != nil || state.errors[$0] != nil }

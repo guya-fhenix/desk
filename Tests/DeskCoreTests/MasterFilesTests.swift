@@ -26,6 +26,25 @@ import Testing
         #expect(try text(master, "events.jsonl").split(separator: "\n").map { $0.contains("#2") || $0.contains("#3") } == [true, true])
     }
 
+    /// The ranking the skill writes; a missing file is none, and a half-written one keeps the last.
+    @Test func focusRankingReadsWhatTheSkillWrites() throws {
+        let master = folder()
+        defer { try? FileManager.default.removeItem(at: master.url) }
+        #expect(master.focusRanking() == nil)
+        try FileManager.default.createDirectory(at: master.url, withIntermediateDirectories: true)
+        try #"{"rankedAt": "2026-11-22T09:10:00Z", "items": [{"id": "FhenixProtocol/cofhe#1186", "level": 3}, {"id": "PRO-670", "level": 2}]}"#
+            .write(to: master.url.appendingPathComponent("focus.json"), atomically: true, encoding: .utf8)
+        #expect(master.focusRanking() == FocusRanking(
+            rankedAt: JSON.parseISO8601("2026-11-22T09:10:00Z")!, items: [.init(id: "FhenixProtocol/cofhe#1186", level: 3), .init(id: "PRO-670", level: 2)]
+        ))
+        try #"{"rankedAt": "#.write(to: master.url.appendingPathComponent("focus.json"), atomically: true, encoding: .utf8)
+        // Halfway through a write: the ranking read before it stays; with none before, none.
+        let last = FocusRanking(rankedAt: Fixtures.t0, items: [])
+        #expect(master.focusRanking(keeping: last) == last && master.focusRanking() == nil)
+        try FileManager.default.removeItem(at: master.url.appendingPathComponent("focus.json"))
+        #expect(master.focusRanking(keeping: last) == nil)
+    }
+
     /// The asks the skill writes; a missing or half-written file is no asks.
     @Test func asksReadWhatTheSkillWrites() throws {
         let master = folder()

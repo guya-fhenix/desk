@@ -105,7 +105,7 @@ public struct TaskGraph: Codable, Sendable, Equatable {
 }
 
 /// The folder the master session runs in, under Desk's own: the files Desk writes for it (`graph.json`, `events.jsonl`),
-/// the ones it writes (`asks.json`, and `handoff.md` before a restart), and its `.claude/settings.json`.
+/// the ones it writes (`asks.json`, `focus.json`, and `handoff.md` before a restart), and its `.claude/settings.json`.
 public struct MasterFolder: Sendable {
     public let url: URL
 
@@ -170,6 +170,14 @@ public struct MasterFolder: Sendable {
         struct File: Decodable { var asks: [MasterAsk] }
         guard let data = try? Data(contentsOf: file("asks.json")) else { return [] }
         return (try? JSON.decoder().decode(File.self, from: data))?.asks ?? []
+    }
+
+    /// The master's ranking of the Focus page. With no file, none, and Desk ranks on its own. A file that does not read,
+    /// such as one the master is halfway through writing, keeps `last`, the ranking read before it: dropping it for one
+    /// scan would resize the whole page and back.
+    public func focusRanking(keeping last: FocusRanking? = nil) -> FocusRanking? {
+        guard let data = try? Data(contentsOf: file("focus.json")) else { return nil }
+        return (try? JSON.decoder().decode(FocusRanking.self, from: data)) ?? last
     }
 
     /// What Desk types to the master before it restarts it: the skill's own handoff, asked for by name.
