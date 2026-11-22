@@ -110,7 +110,7 @@ struct TicketsTab: View {
                     .task(id: path.isEmpty) { if path.isEmpty { listFocused = true } }
                     .onKeyPress(keys: ["j", "k"]) { press in
                         guard press.modifiers.isEmpty else { return .ignored }
-                        selection = UpNextTab.step(rows, from: selection, by: press.key == "j" ? 1 : -1)
+                        selection = FocusTab.step(rows, from: selection, by: press.key == "j" ? 1 : -1)
                         return .handled
                     }
                     // ⌘↩ goes out to Jira, as it does in Search; the list's primary action never sees it.
@@ -162,7 +162,7 @@ struct TicketsTab: View {
 
     private func filterBar(rows: [String]) -> some View {
         HStack(spacing: 20) {
-            SearchBox(prompt: "Key or summary", text: $search) { selection = UpNextTab.step(rows, from: selection, by: $0) }
+            SearchBox(prompt: "Key or summary", text: $search) { selection = FocusTab.step(rows, from: selection, by: $0) }
             AssigneeFilter(
                 selection: Binding(get: { assignees }, set: { filters.assignees = $0 }),
                 me: model.state.ticketSelf,
@@ -419,12 +419,12 @@ private struct TicketSessionRow: View {
     }
 }
 
-/// A move the app suggests, as a row of the Jira screen's Suggested moves and Up Next's Jira moves: the ticket's key in
+/// A move the app suggests, as a row of the Jira screen's Suggested moves and Focus's Jira moves: the ticket's key in
 /// DM Mono, its summary, the move and the pull requests behind it, why Jira refused it if it did, and the two presses.
 struct MoveRow: View {
     var drift: TicketDrift
     var model: AppModel
-    /// The key's column: the Jira table's, or Up Next's wider one.
+    /// The key's column: the Jira table's, or Focus's wider one.
     var keyWidth: CGFloat
 
     var body: some View {

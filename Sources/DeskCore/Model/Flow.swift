@@ -23,7 +23,7 @@ public enum FlowStage: String, Sendable, CaseIterable {
 
     /// A PR's stage: a draft is a draft, whatever its self-review found (`SelfReviewStatus` says that); a ready PR with the
     /// approvals it needs, nothing open, CI not red and no conflicts is ready to merge, and in review until then. The one
-    /// definition of ready: the stage, the ready-to-merge nudge and Up Next all go by it.
+    /// definition of ready: the stage, the ready-to-merge nudge and Focus all go by it.
     public static func of(_ pr: PullRequest) -> FlowStage {
         switch pr.state {
         case .merged: return .merged

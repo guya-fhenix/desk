@@ -98,7 +98,7 @@ final class AppModel {
     var busyFlows: Set<String> = []
     /// Why the last press on a PR's flow failed, by url, until the next press. Like the stage, nothing of it is saved.
     var flowErrors: [String: String] = [:]
-    /// Set to have the Pull Requests or Reviews screen open this PR's page; the screen clears it. Search, Up Next
+    /// Set to have the Pull Requests or Reviews screen open this PR's page; the screen clears it. Search, Focus
     /// and a notification's Show use it.
     var selectPullRequest: String?
     /// Set to have the Jira screen select this ticket, by key, in its details panel; the screen clears it. Search uses it.
@@ -164,9 +164,14 @@ final class AppModel {
         set { state.config = newValue }
     }
 
-    /// What Up Next has waiting on you, inside the Reviews screen's filters, which Up Next's reviews follow.
-    func upNextCount(_ filters: ReviewFilters) -> Int {
-        state.upNextCount(reviewDays: filters.window, hiding: filters.hidden, needingApproval: filters.needsApproval)
+    /// The Focus page's items, inside the Reviews screen's filters, which its reviews follow.
+    func focus(_ filters: ReviewFilters) -> [FocusItem] {
+        state.focus(reviewDays: filters.window, hiding: filters.hidden, needingApproval: filters.needsApproval)
+    }
+
+    /// What Focus has at Now and Next: its badge, and the menu bar's count.
+    func focusCount(_ filters: ReviewFilters) -> Int {
+        state.focusCount(reviewDays: filters.window, hiding: filters.hidden, needingApproval: filters.needsApproval)
     }
 
     /// The polls start first: reading the Jira account can wait out acli's whole timeout offline, and the window would
@@ -249,6 +254,7 @@ final class AppModel {
                 state.gitScan = scan
                 state.claudeJobs = await service.claudeJobs(keepIn: scan.repos.map(\.root))
                 state.asks = masterFolder.asks()
+                state.focusRanking = masterFolder.focusRanking()
                 state.claudeLimits = await service.claudeLimits()
                 state.workflowSkill = await service.reviewSkill()
                 state.errors[.git] = scan.errors.isEmpty ? nil : scan.errors.joined(separator: "\n")

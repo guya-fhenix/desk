@@ -268,7 +268,7 @@ struct AgeText: View {
     }
 }
 
-/// The page's title with the quiet line beside it: "Up Next  Monday 16 November".
+/// The page's title with the quiet line beside it: "Focus  Monday 16 November".
 struct ScreenTitle<Trailing: View>: View {
     var title: String
     var subtitle: String?

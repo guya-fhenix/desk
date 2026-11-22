@@ -36,7 +36,7 @@ struct PullRequestsTab: View {
         .selectsFirstRow(shown.first, selection: $selection)
         // A view opens on its first row, unless the selection is already in it: search may have switched it to show its PR.
         .onChange(of: scope) { reselect(shown) }
-        // Search, Up Next and a notification land here with a PR to show: its page, with its row selected behind it. Only
+        // Search, Focus and a notification land here with a PR to show: its page, with its row selected behind it. Only
         // yours: one on its way to Reviews passes through while this screen is still on show, and is Reviews' to take. A
         // task's id selects its row, or opens its PR's page when the task is a PR.
         .onChange(of: model.selectPullRequest, initial: true) { _, target in
@@ -63,7 +63,7 @@ struct PullRequestsTab: View {
 
     /// The row `offset` down the list, or up it; the first when none is selected.
     private func step(_ offset: Int, in shown: [String]) {
-        selection = UpNextTab.step(shown, from: selection, by: offset)
+        selection = FocusTab.step(shown, from: selection, by: offset)
     }
 
     private func reselect(_ shown: [String]) {

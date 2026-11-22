@@ -9,7 +9,7 @@ public enum ReviewNeed: String, Sendable, Hashable {
 
     public var title: String {
         switch self {
-        // One name for this state across the app: the Reviews header, Up Next and the menu panel say the same.
+        // One name for this state across the app: the Reviews header, Focus and the menu panel say the same.
         case .notReviewed: return "Needs review"
         case .reRequested: return "Review again"
         }
