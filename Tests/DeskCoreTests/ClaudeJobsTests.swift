@@ -261,8 +261,9 @@ import Testing
         #expect(state.master == nil)
     }
 
-    /// Stop master stops and removes the master and nothing else: handed a worker, it throws before any `claude` command
-    /// runs, since `claude rm` deletes a worker's worktree and branch.
+    /// Stop master stops and removes the master Desk started, named `master` in the master folder, and nothing else:
+    /// handed any other session, it throws before any `claude` command runs, since `claude rm` deletes a worker's
+    /// worktree and branch.
     @Test func stopMasterOnlyEverRemovesTheMaster() async throws {
         let folder = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -284,12 +285,26 @@ import Testing
         )
         // Not by a role someone else set on it either: the name decides.
         let mislabelled = ClaudeJob(id: "x0000000", name: "fix-skill", state: "working", cwd: "/r", prKeys: [], updatedAt: Date(), role: .master)
-        for session in [worker, mislabelled] {
+        // Nor a session named master that is not Desk's own: the one that lost to the master in the master folder, one
+        // started by hand somewhere else, and one whose folder nothing recorded.
+        let masterFolder = MasterFolder(support: AppSupport(directory: folder))
+        let named = { (id: String, cwd: String, role: SessionRole) in
+            ClaudeJob(id: id, name: "master", state: "working", cwd: cwd, prKeys: [], updatedAt: Date(), role: role)
+        }
+        let refused = [
+            worker, mislabelled, named("l0000000", masterFolder.path, .other), named("e0000000", "/r/elsewhere", .master),
+            named("n0000000", "", .master),
+        ]
+        for session in refused {
             await #expect(throws: DeskError.self) { try await service.stopMaster(session) }
         }
         #expect(!FileManager.default.fileExists(atPath: log.path))
 
-        let master = ClaudeJob(id: "m0000000", name: "master", state: "working", cwd: "/support/master", prKeys: [], updatedAt: Date(), role: .master)
+        // Desk's own master, also when its folder is reached through a symlink.
+        try FileManager.default.createDirectory(at: masterFolder.url, withIntermediateDirectories: true)
+        let link = folder.appendingPathComponent("link")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: masterFolder.url)
+        let master = named("m0000000", link.path, .master)
         try await service.stopMaster(master)
         #expect(try String(contentsOf: log, encoding: .utf8) == "stop m0000000\nagents --json\nrm m0000000\n")
     }

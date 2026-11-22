@@ -136,9 +136,9 @@ public enum ClaudeJobs {
     }
 
     /// With several sessions named `master`, only the one in `folder`, the master folder, keeps the role: the others are
-    /// sessions like any other, which Stop master must never reach. With none of them in that folder, a master you
-    /// started by hand somewhere else, they all keep it. The folder alone never gives the role: a worker on an
-    /// investigation runs there too.
+    /// sessions like any other. With none of them in that folder, a master you started by hand somewhere else, they all
+    /// keep it, to show and to talk to: Stop master still refuses one outside the folder. The folder alone never gives
+    /// the role: a worker on an investigation runs there too.
     static func settlingMaster(_ jobs: [ClaudeJob], folder: String?) -> [ClaudeJob] {
         guard let folder, jobs.contains(where: { $0.role == .master && samePath($0.cwd, folder) }) else { return jobs }
         return jobs.map { job in
@@ -149,8 +149,11 @@ public enum ClaudeJobs {
         }
     }
 
-    private static func samePath(_ a: String, _ b: String) -> Bool {
-        URL(fileURLWithPath: a).standardizedFileURL.path == URL(fileURLWithPath: b).standardizedFileURL.path
+    /// Whether two paths name one folder, through symlinks too: Claude Code records the folder a session runs in as the
+    /// real path. No path is no folder, where `URL` would read it as the folder Desk itself runs in.
+    static func samePath(_ a: String, _ b: String) -> Bool {
+        guard !a.isEmpty, !b.isEmpty else { return false }
+        return URL(fileURLWithPath: a).resolvingSymlinksInPath().path == URL(fileURLWithPath: b).resolvingSymlinksInPath().path
     }
 
     /// The session that carries a PR through the flow, which its presses stop and resume: the newest of those started on

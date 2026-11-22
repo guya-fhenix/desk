@@ -10,7 +10,7 @@ public enum DeskError: Error, CustomStringConvertible, Sendable {
     /// Opening the terminal app on the layout failed, and why, in a sentence.
     case terminal(String)
     case sessionNotStarted(String)
-    /// Stop master was pointed at a session that is not the master, by its name.
+    /// Stop master was pointed at a session that is not the master Desk started: another name, or another folder.
     case notTheMaster(String)
 
     public var description: String {
@@ -21,7 +21,7 @@ public enum DeskError: Error, CustomStringConvertible, Sendable {
         case .jiraSignedOut: return "Not signed in to Jira. Run `acli jira auth login --web` in a terminal, then press Recheck in Settings → Jira."
         case .claudeNotFound: return "claude CLI not found. Install it or set the path in Settings."
         case .sessionNotStarted(let output): return "claude --bg printed no session id: \(output.prefix(200))"
-        case .notTheMaster(let name): return "\(name) is not the master session, so Desk left it running."
+        case .notTheMaster(let name): return "The session \(name) is not the master Desk started in its master folder, so Desk left it running. Stop it with claude stop."
         case .terminal(let why): return why
         }
     }
@@ -163,9 +163,12 @@ public actor DeskService {
 
     /// Stops the master and takes it off Claude Code's list, so the next one is a new session rather than this one
     /// attached again. Its workers run on; a new master picks them up from the graph. Any other session is refused
-    /// before a command runs: removing a worker deletes its worktree and branch with it.
+    /// before a command runs: removing a worker deletes its worktree and branch with it. So is a master outside the
+    /// master folder, one you started by hand: Desk shows it, and only removes the one it started.
     public func stopMaster(_ session: ClaudeJob) async throws {
-        guard session.role == .master, session.name == SessionRole.masterName else { throw DeskError.notTheMaster(session.name) }
+        guard session.role == .master, session.name == SessionRole.masterName,
+              ClaudeJobs.samePath(session.cwd, MasterFolder(support: support).path)
+        else { throw DeskError.notTheMaster(session.name) }
         try await claude().remove(session.id)
     }
 
