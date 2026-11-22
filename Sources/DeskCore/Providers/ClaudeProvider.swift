@@ -41,7 +41,7 @@ public struct ClaudeJob: Sendable, Hashable, Identifiable {
     public var question: String?
     /// What it is doing, in a line, as Claude Code keeps it up to date (`detail`).
     public var detail: String?
-    /// What it was started as, read off the prompt it started from.
+    /// What it was started as: the master by its name, a worker or a review by the prompt it started from.
     public var role: SessionRole
     /// For a worker started on what the person asked rather than on a ticket, the ask: "find why decrypt requests fail".
     public var request: String?
@@ -80,15 +80,19 @@ public struct ClaudeJob: Sendable, Hashable, Identifiable {
     public var isIdle: Bool { state == "done" }
 }
 
-/// What a session was started as, by the skill its prompt names: the master the person talks to, a worker on one task, a
-/// review of a teammate's PRs, or anything else.
+/// What a session was started as: the master the person talks to, by its name; a worker on one task or a review of a
+/// teammate's PRs, by the skill its prompt names; or anything else.
 public enum SessionRole: String, Sendable, Codable {
     case master, worker, review, other
 
-    /// The master is also known by its name, which Desk and the person give it.
+    /// The name Desk starts the master under, and the one its workers report to.
+    public static let masterName = "master"
+
+    /// The master is known by its name alone, never by its prompt: a worker's prompt can mention the master's skill, and
+    /// Desk stops and removes the session it takes for the master.
     public static func of(name: String?, intent: String?) -> SessionRole {
+        if name == masterName { return .master }
         let prompt = intent ?? ""
-        if name == "master" || prompt.contains("coordinate-tasks") { return .master }
         if prompt.contains("work-on-task") { return .worker }
         if prompt.contains("review-teammate-task") { return .review }
         return .other
@@ -103,15 +107,15 @@ public enum ClaudeJobs {
     /// Background sessions that mention a pull request, whose prompt names a ticket, that run a Fhenix Desk role (the
     /// master, a worker, a review), or that run in one of `keepIn`, the tracked clones, or in one of `roots`, your repo
     /// roots: a session started there with no ticket is still a task. Newest first. The rest, a session in some other
-    /// folder about nothing Desk tracks, are dropped.
+    /// folder about nothing Desk tracks, are dropped. `masterFolder`: where Desk starts the master, see `settlingMaster`.
     public static func scan(
         home: String = ClaudeJobs.home, tickets: TicketKeyMatcher = TicketKeyMatcher(projectKeys: []), keepIn: [String] = [],
-        roots: [String] = []
+        roots: [String] = [], masterFolder: String? = nil
     ) -> [ClaudeJob] {
         let root = URL(fileURLWithPath: home).appendingPathComponent("jobs")
         guard let ids = try? FileManager.default.contentsOfDirectory(atPath: root.path) else { return [] }
         let decoder = JSON.decoder()
-        return ids.compactMap { id in
+        let jobs: [ClaudeJob] = ids.compactMap { id in
             let file = root.appendingPathComponent(id).appendingPathComponent("state.json")
             guard let data = try? Data(contentsOf: file), let state = try? decoder.decode(JobState.self, from: data) else { return nil }
             let keys = state.prKeys
@@ -128,7 +132,28 @@ public enum ClaudeJobs {
                 role: role, request: role == .worker && ticketKey == nil ? state.intent.flatMap(request(in:)) : nil
             )
         }
-        .sorted { $0.updatedAt > $1.updatedAt }
+        return settlingMaster(jobs.sorted { $0.updatedAt > $1.updatedAt }, folder: masterFolder)
+    }
+
+    /// With several sessions named `master`, only the one in `folder`, the master folder, keeps the role: the others are
+    /// sessions like any other. With none of them in that folder, a master you started by hand somewhere else, they all
+    /// keep it, to show and to talk to: Stop master still refuses one outside the folder. The folder alone never gives
+    /// the role: a worker on an investigation runs there too.
+    static func settlingMaster(_ jobs: [ClaudeJob], folder: String?) -> [ClaudeJob] {
+        guard let folder, jobs.contains(where: { $0.role == .master && samePath($0.cwd, folder) }) else { return jobs }
+        return jobs.map { job in
+            guard job.role == .master, !samePath(job.cwd, folder) else { return job }
+            var other = job
+            other.role = .other
+            return other
+        }
+    }
+
+    /// Whether two paths name one folder, through symlinks too: Claude Code records the folder a session runs in as the
+    /// real path. No path is no folder, where `URL` would read it as the folder Desk itself runs in.
+    static func samePath(_ a: String, _ b: String) -> Bool {
+        guard !a.isEmpty, !b.isEmpty else { return false }
+        return URL(fileURLWithPath: a).resolvingSymlinksInPath().path == URL(fileURLWithPath: b).resolvingSymlinksInPath().path
     }
 
     /// The session that carries a PR through the flow, which its presses stop and resume: the newest of those started on
