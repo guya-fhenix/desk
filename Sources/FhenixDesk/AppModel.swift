@@ -254,7 +254,7 @@ final class AppModel {
                 state.gitScan = scan
                 state.claudeJobs = await service.claudeJobs(keepIn: scan.repos.map(\.root))
                 state.asks = masterFolder.asks()
-                state.focusRanking = masterFolder.focusRanking()
+                state.focusRanking = masterFolder.focusRanking(keeping: state.focusRanking)
                 state.claudeLimits = await service.claudeLimits()
                 state.workflowSkill = await service.reviewSkill()
                 state.errors[.git] = scan.errors.isEmpty ? nil : scan.errors.joined(separator: "\n")
@@ -285,8 +285,9 @@ final class AppModel {
         // Jira failing again and again is asked less and less often, which is what lets a throttle on the account lift.
         if source == .jira { jiraFailures = state.errors[.jira] == nil ? 0 : jiraFailures + 1 }
         state.recompute()
-        // A new ranking from the master: remember what it ranked, so only what changes after it is lifted.
-        if allSourcesReported, state.focusRanking?.rankedAt != focusSeenAt {
+        // A new ranking from the master: remember what it ranked, so only what changes after it is lifted. Only once
+        // every source has answered: remembered while one had only failed, everything it brings later would look new.
+        if Source.allCases.allSatisfy({ state.lastRefresh[$0] != nil }), state.focusRanking?.rankedAt != focusSeenAt {
             focusSeenAt = state.focusRanking?.rankedAt
             state.focusSeen = state.focusRanking == nil ? nil : state.focusKinds()
         }

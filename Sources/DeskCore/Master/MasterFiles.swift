@@ -172,10 +172,12 @@ public struct MasterFolder: Sendable {
         return (try? JSON.decoder().decode(File.self, from: data))?.asks ?? []
     }
 
-    /// The master's ranking of the Focus page. A file it has not written yet, or one it is halfway through writing, reads
-    /// as none, and Desk ranks on its own.
-    public func focusRanking() -> FocusRanking? {
-        (try? Data(contentsOf: file("focus.json"))).flatMap { try? JSON.decoder().decode(FocusRanking.self, from: $0) }
+    /// The master's ranking of the Focus page. With no file, none, and Desk ranks on its own. A file that does not read,
+    /// such as one the master is halfway through writing, keeps `last`, the ranking read before it: dropping it for one
+    /// scan would resize the whole page and back.
+    public func focusRanking(keeping last: FocusRanking? = nil) -> FocusRanking? {
+        guard let data = try? Data(contentsOf: file("focus.json")) else { return nil }
+        return (try? JSON.decoder().decode(FocusRanking.self, from: data)) ?? last
     }
 
     /// What Desk types to the master before it restarts it: the skill's own handoff, asked for by name.

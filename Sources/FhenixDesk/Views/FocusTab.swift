@@ -320,7 +320,7 @@ private struct FocusCard: View {
 
     /// Only on what Desk lifted because it changed after the master ranked.
     private var newChip: some View {
-        StageChip2(text: "New", color: Theme.warn).help("Changed on GitHub since the master last ranked")
+        StageChip2(text: "New", color: Theme.warn).help("Changed since the master last ranked")
     }
 
     private var edge: Color {

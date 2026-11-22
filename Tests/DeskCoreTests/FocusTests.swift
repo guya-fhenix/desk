@@ -139,6 +139,26 @@ import Testing
         #expect(unseen.filter(\.lifted).isEmpty && numbers(unseen, .background) == [1, 4])
     }
 
+    /// A change in how many threads are open is the same kind of thing, and lifts nothing. What the master did not name
+    /// is lifted when it grew, and when it is new at Next or above; a new item at Can wait is not marked.
+    @Test func aThreadCountIsNoChangeAndUnrankedItemsLiftWhenTheyGrow() {
+        var state = state
+        var threads = Fixtures.pr(number: 1, head: "a")
+        threads.unresolvedThreads = 2
+        state.github?.mine = [threads, Fixtures.pr(number: 2, head: "b")]
+        state.focusRanking = FocusRanking(rankedAt: Fixtures.t0, items: [.init(id: "FhenixProtocol/cofhe#1", level: 0)])
+        state.recompute(now: Fixtures.t0)
+        state.focusSeen = state.focusKinds(now: Fixtures.t0)
+
+        threads.unresolvedThreads = 1
+        let draft = Fixtures.pr(number: 3, head: "c", draft: true)
+        state.github?.mine = [threads, Fixtures.pr(number: 2, head: "b", checks: .failure), draft]
+        state.recompute(now: Fixtures.t0)
+        let items = state.focus(reviewDays: nil, now: Fixtures.t0)
+        #expect(numbers(items, .background) == [1] && numbers(items, .canWait) == [3] && numbers(items, .now) == [2])
+        #expect(items.filter(\.lifted).map(\.id) == ["https://github.com/FhenixProtocol/cofhe/pull/2"])
+    }
+
     /// The page says how many reviews it left to the Reviews screen: those past the cap, whatever else it lists.
     @Test func thePageCountsTheReviewsItLeftOut() {
         var state = state

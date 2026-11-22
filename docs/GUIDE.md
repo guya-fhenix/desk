@@ -98,7 +98,7 @@ the top; the title's right side says "2 to act on now · 12 in all".
 
 The items: each of your open PRs by its own state on GitHub (a PR's session has no say), the reviews you started on
 GitHub and have not sent, the reviews asked of you by name, the first three asked of a team of yours or open to anyone
-(then a link to Reviews), the Jira moves Desk suggests (with Move and Dismiss at any size), your tickets in progress
+(then a link to Reviews; one the master ranked is listed whatever the count), the Jira moves Desk suggests (with Move and Dismiss at any size), your tickets in progress
 with no PR yet, the sprint tickets of yours nothing has started (tell the master "start PRO-123"), and your PRs merged
 today.
 
@@ -117,8 +117,11 @@ its level and its order:
 whole with each ranking, and Desk reads it with its local scan. Desk remembers what each item was when it first read a
 ranking. An item that has since become something else, something Desk would put higher than it stood (CI failed on a
 PR the master had put in Background, say), Desk lifts to its own level, first, with a **New** chip; so is an item that
-was not there then and would show at Next or above. A push or a comment alone lifts nothing. The chip goes with the
-master's next ranking (a new `rankedAt`). None of the master's words show on the page.
+was not there then and would show at Next or above. A push or a comment alone lifts nothing, nor does a change in how
+many threads are open. The chip goes with the master's next ranking (a new `rankedAt`), and when Desk relaunches: what
+it remembers is kept in memory, so after a relaunch only later changes lift. A ranking never expires: a `focus.json`
+left by a master that stopped still sets the sizes until the file is replaced or removed. None of the master's words
+show on the page.
 
 A click on an item, or Return on the one J and K walked to, opens the PR's page here, or the ticket in Jira. M shows
 the master in iTerm. The reviews follow the Reviews screen's filters.

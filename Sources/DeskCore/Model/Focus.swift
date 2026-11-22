@@ -50,6 +50,12 @@ public enum FocusKind: Sendable, Equatable {
         }
     }
 
+    /// The same kind of thing, whatever the count: a PR with one thread fewer has not become something else.
+    public func isSame(as other: FocusKind) -> Bool {
+        if case .openThreads = self, case .openThreads = other { return true }
+        return self == other
+    }
+
     /// The level Desk gives it on its own, with no ranking from the master, and the one it lifts an item to when GitHub
     /// changes after the master last ranked.
     public var level: FocusLevel {
@@ -221,7 +227,7 @@ extension DeskState {
                 var lift = false
                 if let (position, level) = ranked[item.rankKey] {
                     let level = FocusLevel(rawValue: min(max(level, 0), 3)) ?? .background
-                    lift = focusSeen != nil && was != item.kind && item.kind.level > level
+                    lift = focusSeen != nil && was?.isSame(as: item.kind) != true && item.kind.level > level
                     if !lift {
                         items[index].level = level
                         order[item.id] = position
