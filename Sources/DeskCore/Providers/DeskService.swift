@@ -166,9 +166,7 @@ public actor DeskService {
     /// before a command runs: removing a worker deletes its worktree and branch with it. So is a master outside the
     /// master folder, one you started by hand: Desk shows it, and only removes the one it started.
     public func stopMaster(_ session: ClaudeJob) async throws {
-        guard session.role == .master, session.name == SessionRole.masterName,
-              ClaudeJobs.samePath(session.cwd, MasterFolder(support: support).path)
-        else { throw DeskError.notTheMaster(session.name) }
+        guard MasterFolder(support: support).holds(session) else { throw DeskError.notTheMaster(session.name) }
         try await claude().remove(session.id)
     }
 

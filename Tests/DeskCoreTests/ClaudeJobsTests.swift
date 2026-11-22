@@ -284,7 +284,10 @@ import Testing
             role: SessionRole.of(name: "fix-skill", intent: prompt)
         )
         // Not by a role someone else set on it either: the name decides.
-        let mislabelled = ClaudeJob(id: "x0000000", name: "fix-skill", state: "working", cwd: "/r", prKeys: [], updatedAt: Date(), role: .master)
+        let mislabelled = ClaudeJob(
+            id: "x0000000", name: "fix-skill", state: "working", cwd: folder.appendingPathComponent("master").path, prKeys: [],
+            updatedAt: Date(), role: .master
+        )
         // Nor a session named master that is not Desk's own: the one that lost to the master in the master folder, one
         // started by hand somewhere else, and one whose folder nothing recorded.
         let masterFolder = MasterFolder(support: AppSupport(directory: folder))
@@ -299,6 +302,9 @@ import Testing
             await #expect(throws: DeskError.self) { try await service.stopMaster(session) }
         }
         #expect(!FileManager.default.fileExists(atPath: log.path))
+        // No path is no folder, not the one the process runs in.
+        #expect(!masterFolder.holds(named("n0000000", "", .master)))
+        #expect(!MasterFolder(url: URL(fileURLWithPath: FileManager.default.currentDirectoryPath)).holds(named("n0000000", "", .master)))
 
         // Desk's own master, also when its folder is reached through a symlink.
         try FileManager.default.createDirectory(at: masterFolder.url, withIntermediateDirectories: true)

@@ -113,6 +113,13 @@ public struct MasterFolder: Sendable {
     public init(url: URL) { self.url = url }
 
     public var path: String { url.path }
+
+    /// Whether `session` is the master Desk started: named `master`, and running here. The only session Stop master
+    /// and Restart may remove, since removing any other deletes its worktree and branch. A master you started by hand
+    /// in another folder shows as the master and is not this.
+    public func holds(_ session: ClaudeJob) -> Bool {
+        session.role == .master && session.name == SessionRole.masterName && ClaudeJobs.samePath(session.cwd, path)
+    }
     private func file(_ name: String) -> URL { url.appendingPathComponent(name) }
 
     private static func encoder() -> JSONEncoder {

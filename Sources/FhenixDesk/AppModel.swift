@@ -639,9 +639,17 @@ final class AppModel {
         }
     }
 
+    /// Whether Stop master and Restart may act on `master`: the service's own check, made first so that a master you
+    /// started by hand in another folder is left alone, with the reason on the Master screen.
+    private func isDesksMaster(_ master: ClaudeJob) -> Bool {
+        if masterFolder.holds(master) { return true }
+        masterError = DeskError.notTheMaster(master.name).description
+        return false
+    }
+
     /// Stops the master, on your press on the Master screen; its pane closes at the next sync.
     func stopMaster() {
-        guard let master = state.master, masterRestart == nil else { return }
+        guard let master = state.master, masterRestart == nil, isDesksMaster(master) else { return }
         Task {
             do {
                 try await service.stopMaster(master)
@@ -659,9 +667,11 @@ final class AppModel {
     /// `cancelRestart`. Then the master is stopped and removed, and a new one started as Start master starts it. The
     /// workers run on throughout.
     func restartMaster(handoff: Bool) {
+        // Checked before the handoff is asked for: a master Desk won't stop is not told it is about to be restarted.
         guard let master = state.master, masterRestart != .restarting else { return }
-        restartTask?.cancel()
         confirmingMasterRestart = false
+        guard isDesksMaster(master) else { return }
+        restartTask?.cancel()
         masterError = nil
         restartTask = Task {
             do {
