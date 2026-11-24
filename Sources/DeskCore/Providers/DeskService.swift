@@ -170,6 +170,27 @@ public actor DeskService {
         try await claude().remove(session.id)
     }
 
+    /// Starts a run of the review learning pass in `clone`, the repo's local clone: a folder for the run, the session
+    /// on its skill with that folder to write to, and the start on record. A start that fails leaves no run behind.
+    public func startReviewLearning(in clone: String, now: Date = Date()) async throws -> ClaudeJob {
+        let folder = ReviewLearningFolder(support: support)
+        let run = try folder.newRun(now: now)
+        do {
+            // The prompt after `--`: `--add-dir` takes several folders, and would take the prompt for one more.
+            let id = try await claude().startBackground(
+                ReviewLearning.prompt(run: run), cwd: clone,
+                flags: ["-n", ReviewLearning.sessionName] + Self.workerFlags(config: config) + ["--add-dir", run.path, "--"]
+            )
+            try folder.recordStart(ReviewLearning.Start(startedAt: now, jobId: id), in: run)
+            return ClaudeJob(
+                id: id, name: ReviewLearning.sessionName, state: "working", cwd: clone, prKeys: [], updatedAt: now, role: .learning
+            )
+        } catch {
+            try? FileManager.default.removeItem(at: run)
+            throw error
+        }
+    }
+
     public func markReady(_ pr: PullRequest) async throws {
         try await gh().markReady(repo: pr.repo, number: pr.number)
     }

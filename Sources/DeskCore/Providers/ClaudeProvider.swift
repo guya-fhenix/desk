@@ -83,7 +83,10 @@ public struct ClaudeJob: Sendable, Hashable, Identifiable {
 /// What a session was started as: the master the person talks to, by its name; a worker on one task or a review of a
 /// teammate's PRs, by the skill its prompt names; or anything else.
 public enum SessionRole: String, Sendable, Codable {
-    case master, worker, review, other
+    case master, worker, review
+    /// The weekly review learning pass Desk starts: a session of its own, never a task.
+    case learning
+    case other
 
     /// The name Desk starts the master under, and the one its workers report to.
     public static let masterName = "master"
@@ -95,6 +98,7 @@ public enum SessionRole: String, Sendable, Codable {
         let prompt = intent ?? ""
         if prompt.contains("work-on-task") { return .worker }
         if prompt.contains("review-teammate-task") { return .review }
+        if prompt.contains("fhenix-workflow:\(ReviewLearning.skill)") { return .learning }
         return .other
     }
 }

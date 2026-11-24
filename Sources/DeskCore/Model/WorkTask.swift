@@ -80,7 +80,7 @@ extension Linker {
         let mineByURL = Dictionary(mine.map { ($0.url, $0) }, uniquingKeysWith: { first, _ in first })
         let openByURL = Dictionary(allOpen.map { ($0.url, $0) }, uniquingKeysWith: { first, _ in first })
         let mergedHeads = mergedHeadsByRepo(merged)
-        let eligible = sessions.filter { $0.role != .master && $0.role != .review }
+        let eligible = sessions.filter { $0.role != .master && $0.role != .review && $0.role != .learning }
 
         func root(of pr: PullRequest) -> PullRequest {
             var current = pr
