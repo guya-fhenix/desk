@@ -2,9 +2,10 @@ import DeskCore
 import SwiftUI
 
 /// The master and its workers, as they run in iTerm: the sessions down a column, each with its task, and the events
-/// Desk told the master today; beside them where the master runs and how its terminal is set up. What a session is doing, and what the master asked you, are not here: the first is in `claude
-/// agents`, the second in the master's pane. Every press puts a pane in front, and you type there; Restart alone types
-/// for you, one line asking the master for its handoff.
+/// Desk told the master today; beside them where the master runs and how its terminal is set up. What a session is
+/// doing, and what the master asked you, are not here: the first is in `claude agents`, the second in the master's
+/// pane. Every press puts a pane in front, and you type there; Restart alone types for you, one line asking the master
+/// for its handoff.
 struct MasterScreen: View {
     @Environment(AppModel.self) private var model
 
