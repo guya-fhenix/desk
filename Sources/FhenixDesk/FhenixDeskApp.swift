@@ -129,13 +129,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     /// kept a scene alive.
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 
-    /// A review session's `fhenixdesk://show/…`: the Desk comes forward on that PR's diff, at that line. Only for a PR
-    /// it knows: any web page can open the link, and must not pull focus with it.
-    func application(_ application: NSApplication, open urls: [URL]) {
-        // Every link is read, not only up to the first that matches.
-        if urls.map({ model?.open($0) == true }).contains(true) { Self.openDesk?() }
-    }
-
     /// Reopening the app (Dock, Spotlight, `open -a`) shows the Desk window. This is the way in when
     /// the menu bar is full and macOS hides the status item behind the notch.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {

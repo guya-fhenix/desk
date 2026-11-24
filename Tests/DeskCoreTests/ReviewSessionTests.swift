@@ -3,28 +3,7 @@ import Foundation
 import Testing
 
 @Suite struct ReviewSessionTests {
-    @Test func readsAShowLink() throws {
-        let url = try #require(URL(string: "fhenixdesk://show/FhenixProtocol/cofhe/1166/new/193/.github/review/review-gate.mts"))
-        let link = try #require(DeskLink(url))
-        #expect(link == DeskLink(repo: "FhenixProtocol/cofhe", number: 1166, side: .right, line: 193, path: ".github/review/review-gate.mts"))
-        // The same key a PR's url gives, which is how the link finds its PR.
-        #expect(link.prKey == ClaudeJobs.prKey("https://github.com/FhenixProtocol/cofhe/pull/1166"))
-        #expect(DeskLink(try #require(URL(string: "fhenixdesk://show/o/r/7/old/3/a.rs")))?.side == .left)
-    }
-
-    @Test func refusesAnythingElse() {
-        for text in [
-            "fhenixdesk://show/o/r/7/new/3", // no path
-            "fhenixdesk://show/o/r/x/new/3/a.rs", // no number
-            "fhenixdesk://show/o/r/7/both/3/a.rs", // no side
-            "fhenixdesk://run/o/r/7/new/3/a.rs", // not show
-            "https://show/o/r/7/new/3/a.rs",
-        ] {
-            #expect(URL(string: text).flatMap(DeskLink.init) == nil, "\(text)")
-        }
-    }
-
-    @Test func aLinkLandsOnTheLineOrTheNearestOne() throws {
+    @Test func aThreadLandsOnItsLineOrTheNearestOne() throws {
         let file = try #require(DiffParser.parse(#"""
         diff --git a/a.txt b/a.txt
         --- a/a.txt
@@ -42,46 +21,16 @@ import Testing
         #expect(file.row(nearest: 1, on: .right) == 1)
     }
 
-    /// A review of one PR is a group of one, on review-teammate-task: told how to move the diff, the prompt last.
-    @Test func theSessionIsToldHowToMoveTheDiffAndThePromptGoesLast() {
+    /// A review of one PR is a group of one, on review-teammate-task. The session gets no command it may run without
+    /// asking and no way to move the diff: it is only told the diff is there, and the prompt goes last.
+    @Test func theSessionCannotMoveTheDiffAndThePromptGoesLast() {
         let pr = Fixtures.pr(number: 1166, head: "chore/x")
         let arguments = DeskService.groupReviewArguments(ReviewGroup(pullRequests: [pr]), tickets: ["PRO-1 — Fix it"], otherClones: [], config: DeskConfig())
-        let helper = DeskService.showHelper.path
-        // Unquoted in the rule and the command alike, which only a path without spaces allows.
-        #expect(!helper.contains(" "))
-        #expect(Array(arguments.prefix(2)) == ["--allowedTools", "Bash(\(helper) *)"])
-        #expect(arguments[2] == "--append-system-prompt")
-        #expect(arguments[3].contains("\(helper) fhenixdesk://show/<owner>/<repo>/<number>/<side>/<line>/<path>"))
+        #expect(arguments.count == 3)
+        #expect(arguments[0] == "--append-system-prompt")
+        #expect(arguments[1].contains(pr.url))
+        #expect(!arguments[1].contains("://show/"))
         #expect(arguments.last == "Review these together with the fhenix-workflow:review-teammate-task skill:\nhttps://github.com/FhenixProtocol/cofhe/pull/1166\n\nThe tickets they are for:\n\nPRO-1 — Fix it")
-    }
-
-    /// The allowed helper refuses anything but one show link: an extra argument, a space, or another kind of URL never
-    /// reaches `open`.
-    @Test func theShowHelperOpensOneShowLinkOnly() async throws {
-        try DeskService.installShowHelper()
-        try DeskService.installShowHelper()
-        let helper = DeskService.showHelper.path
-        #expect(FileManager.default.isExecutableFile(atPath: helper))
-        for arguments in [
-            [],
-            ["fhenixdesk://show/o/r/7/new/3/a.rs", "https://example.com"],
-            ["fhenixdesk://show/o/r/7/new/3/a b.rs"],
-            ["https://example.com"],
-            ["/etc/passwd"],
-        ] {
-            #expect(try await Shell.run(helper, arguments).status == 64, "\(arguments)")
-        }
-    }
-
-    /// A show link moves the diff only for an open PR Desk knows, matched by repo, any case, and number.
-    @Test func aShowLinkFindsItsPullRequest() {
-        var state = DeskState(config: DeskConfig())
-        let pr = Fixtures.pr(number: 5, head: "h", author: "bob")
-        state.github = GitHubSnapshot(login: "me", mine: [], reviewRequests: [pr], mergedRecent: [], fetchedAt: Fixtures.t0)
-        func link(_ repo: String, _ number: Int) -> DeskLink { DeskLink(repo: repo, number: number, side: .right, line: 1, path: "a.rs") }
-        #expect(state.pullRequest(for: link("fhenixprotocol/COFHE", 5))?.url == pr.url)
-        #expect(state.pullRequest(for: link("FhenixProtocol/cofhe", 6)) == nil)
-        #expect(state.pullRequest(for: link("FhenixProtocol/other", 5)) == nil)
     }
 
     @Test func theTicketGoesAlongWithItsTextWhenDeskHasIt() {
@@ -91,8 +40,8 @@ import Testing
         #expect(DeskService.reviewTicket(for: Fixtures.pr(number: 2, head: "chore/x"), tickets: [], projectKeys: ["PRO"]) == nil)
     }
 
-    /// A group review: the plugin folder and the other clones come before the one allowed command, the prompt names the
-    /// skill and every PR, then the notes and the tickets, and comes last.
+    /// A group review: the plugin folder and the other clones come first, the prompt names the skill and every PR, then
+    /// the notes and the tickets, and comes last.
     @Test func aGroupReviewNamesTheSkillEveryPullRequestAndTheNotes() {
         let stack = Fixtures.pr(number: 120, repo: "FhenixProtocol/powershot", head: "roee/2", author: "roee")
         let other = Fixtures.pr(number: 14, repo: "FhenixProtocol/teecryptor", head: "roee/cidr", author: "roee")
@@ -101,9 +50,8 @@ import Testing
         config.pluginDir = "/mp/plugins"
         let arguments = DeskService.groupReviewArguments(group, tickets: ["PRO-646"], otherClones: ["/r/teecryptor"], config: config)
         #expect(Array(arguments.prefix(4)) == ["--plugin-dir", "/mp/plugins", "--add-dir", "/r/teecryptor"])
-        #expect(arguments[4] == "--allowedTools")
-        #expect(arguments[6] == "--append-system-prompt")
-        #expect(arguments[7].contains("fhenixdesk://show/<owner>/<repo>/<number>/<side>/<line>/<path>"))
+        #expect(arguments[4] == "--append-system-prompt")
+        #expect(!arguments.contains("--allowedTools"))
         #expect(arguments.last == """
             Review these together with the fhenix-workflow:review-teammate-task skill:
             https://github.com/FhenixProtocol/powershot/pull/120

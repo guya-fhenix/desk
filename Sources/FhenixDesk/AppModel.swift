@@ -925,8 +925,7 @@ final class AppModel {
     /// `review-teammate-task`.
     func canReviewTogether(_ pr: PullRequest) -> Bool { state.reviewSkill(for: pr)?.groupReview == true }
 
-    /// Shows a PR's diff on the Reviews screen, as a review session's link does: how the review screen moves between
-    /// the PRs of a group.
+    /// Shows a PR's diff on the Reviews screen: how the review screen moves between the PRs of a group.
     func showInReview(_ pr: PullRequest) {
         reviewing = pr.url
         loadDiff(pr)
@@ -968,12 +967,6 @@ final class AppModel {
                 + "or a plugin folder that has it in Settings → Master → Load plugins from."
             return
         }
-        do {
-            try DeskService.installShowHelper()
-        } catch {
-            sessionErrors[first.url] = "Can't start the review session: couldn't write \(DeskService.showHelper.path): \(error)"
-            return
-        }
         var others: [String] = []
         for pr in prs.dropFirst() {
             if let root = state.localRepo(for: pr)?.root, root != repo.root, !others.contains(root) { others.append(root) }
@@ -1013,23 +1006,6 @@ final class AppModel {
                 diffErrors[pr.url] = "\(error)"
             }
         }
-    }
-
-    /// A review session's `fhenixdesk://show/…`: that PR's diff, at that line. A PR Desk does not know is ignored —
-    /// any app can open the link, so it only ever moves the diff. Whether it was a PR Desk knows.
-    func open(_ url: URL) -> Bool {
-        guard let link = DeskLink(url) else { return false }
-        guard let pr = state.pullRequest(for: link) else {
-            Self.log.info("link for an unknown PR: \(url.absoluteString, privacy: .public)")
-            return false
-        }
-        reviewing = pr.url
-        loadDiff(pr)
-        diffJump = DiffJump(url: pr.url, path: link.path, side: link.side, line: link.line)
-        showingSettings = false
-        pendingTab = .reviews
-        selectPullRequest = pr.url
-        return true
     }
 
     // MARK: Ready and draft

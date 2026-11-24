@@ -22,7 +22,7 @@ struct LoadedDiff {
     }
 }
 
-/// Where a session's link asked the diff to go.
+/// The thread picked in the session panel, for the diff to go to.
 struct DiffJump: Equatable {
     var url: String
     var path: String
@@ -354,8 +354,7 @@ struct ReviewDiffScreen: View {
                     withAnimation(reduceMotion ? nil : .default) { proxy.scrollTo(target, anchor: target.index < 0 ? .top : .center) }
                 }
             }
-            // A session's link, or a thread picked in the session panel: the line it named, or the nearest one the diff
-            // has, lit up for a moment.
+            // A thread picked in the session panel: its line, or the nearest one the diff has, lit up for a moment.
             .onChange(of: model.diffJump, initial: true) { _, jump in
                 guard let jump, jump.url == pr.url, let file = diff.files.first(where: { $0.path == jump.path }) else { return }
                 let target = DiffRowID(path: file.path, index: file.row(nearest: jump.line, on: jump.side) ?? -1)
@@ -400,7 +399,7 @@ struct ReviewDiffScreen: View {
         DiffThreads(line: line, path: path, pr: pr, model: model)
     }
 
-    /// A session's link lights a line up for a moment; the selection tints its lines.
+    /// A thread picked in the session panel lights its line up for a moment; the selection tints its lines.
     private func highlight(_ id: DiffRowID) -> Color? {
         if flash == id { return Theme.warn.opacity(0.3) }
         if let selection, selection.path == id.path, selection.range.contains(id.index) { return Theme.tintLine }
