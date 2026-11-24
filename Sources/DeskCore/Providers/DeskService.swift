@@ -12,6 +12,10 @@ public enum DeskError: Error, CustomStringConvertible, Sendable {
     case sessionNotStarted(String)
     /// Stop master was pointed at a session that is not the master Desk started: another name, or another folder.
     case notTheMaster(String)
+    /// Start again was pointed at a session that is not the review learning pass Desk started.
+    case notReviewLearning(String)
+    /// The repo the review learning pass runs in has no clone among the tracked repositories.
+    case noClone(String)
 
     public var description: String {
         switch self {
@@ -22,6 +26,8 @@ public enum DeskError: Error, CustomStringConvertible, Sendable {
         case .claudeNotFound: return "claude CLI not found. Install it or set the path in Settings."
         case .sessionNotStarted(let output): return "claude --bg printed no session id: \(output.prefix(200))"
         case .notTheMaster(let name): return "The session \(name) is not the master Desk started in its master folder, so Desk left it running. Stop it with claude stop."
+        case .notReviewLearning(let name): return "The session \(name) is not the review learning pass Desk started, so Desk left it running."
+        case .noClone(let repo): return "No clone of \(repo) among the repositories Desk tracks. Track it in Settings → GitHub."
         case .terminal(let why): return why
         }
     }
@@ -189,6 +195,13 @@ public actor DeskService {
             try? FileManager.default.removeItem(at: run)
             throw error
         }
+    }
+
+    /// Stops a review learning session and takes it off Claude Code's list, before Start again starts a new run. Any
+    /// other session is refused: removing one deletes what it was working in.
+    public func removeReviewLearning(_ session: ClaudeJob) async throws {
+        guard session.role == .learning, session.name == ReviewLearning.sessionName else { throw DeskError.notReviewLearning(session.name) }
+        try await claude().remove(session.id)
     }
 
     public func markReady(_ pr: PullRequest) async throws {

@@ -12,6 +12,11 @@ import Testing
         #expect(Setup.ghVersion(in: "/opt/homebrew/bin/gh") == nil)
         #expect([2, 69, 0].lexicographicallyPrecedes(Setup.minimumGh))
         #expect(![2, 81, 0].lexicographicallyPrecedes(Setup.minimumGh))
+        // Node 22.18 is the first that runs the review learning script's TypeScript as it is.
+        #expect(Setup.nodeRunsTypeScript("v22.18.0 · /opt/homebrew/bin/node"))
+        #expect(Setup.nodeRunsTypeScript("v24.1.0"))
+        #expect(!Setup.nodeRunsTypeScript("v22.17.1 · ~/.nvm/versions/node/v22.17.1/bin/node"))
+        #expect(!Setup.nodeRunsTypeScript("v20.19.0"))
         #expect(![2, 103, 3].lexicographicallyPrecedes(Setup.minimumGh))
 
         let old = Setup.github(statusOutput: Data(), stderr: "unknown flag: --json\n\nUsage:  gh auth status [flags]\n")

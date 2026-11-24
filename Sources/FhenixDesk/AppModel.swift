@@ -150,7 +150,14 @@ final class AppModel {
         writeMasterSettings()
         applyAppearance()
         Task { await self.start() }
-        Notifier.onShow = { [weak self] url in self?.show(url) }
+        Notifier.onShow = { [weak self] url in
+            guard url == Notifier.focusURL else {
+                self?.show(url)
+                return
+            }
+            self?.pendingTab = .focus
+            AppDelegate.openDesk?()
+        }
         // Settings is where the sentence shows.
         self.configError = configError
         showingSettings = configError != nil
@@ -169,6 +176,7 @@ final class AppModel {
     /// What Focus has at Now and Next: its badge, and the menu bar's count.
     func focusCount(_ filters: ReviewFilters) -> Int {
         state.focusCount(reviewDays: filters.window, hiding: filters.hidden, needingApproval: filters.needsApproval)
+            + (reviewLearning?.needsYou == true ? 1 : 0)
     }
 
     /// The polls start first: reading the Jira account can wait out acli's whole timeout offline, and the window would
@@ -251,6 +259,7 @@ final class AppModel {
                 state.gitScan = scan
                 state.claudeJobs = await service.claudeJobs(keepIn: scan.repos.map(\.root))
                 state.asks = masterFolder.asks()
+                readReviewLearning()
                 state.focusRanking = masterFolder.focusRanking(keeping: state.focusRanking)
                 state.claudeLimits = await service.claudeLimits()
                 state.workflowSkill = await service.reviewSkill()
@@ -290,6 +299,9 @@ final class AppModel {
         }
         let posted = notifier.deliver(state.nudges, post: config.notificationsEnabled && allSourcesReported)
         writeMasterFiles(posted: posted)
+        if allSourcesReported, case .due(let lastFinished, _) = reviewLearning {
+            notifier.deliverReviewLearningDue(lastFinished: lastFinished, post: config.notificationsEnabled)
+        }
         // The sessions were just scanned: the iTerm layout follows them. Only once every source answered, so the tasks'
         // workers are known, and never before you opened the layout.
         if source == .git, allSourcesReported { await syncTerminals() }
@@ -599,6 +611,67 @@ final class AppModel {
     }
 
     // MARK: Background sessions
+
+    // MARK: Review learning
+
+    /// Where the weekly review learning pass stands, read with every scan of the sessions; nil until the first, since a
+    /// started run looks abandoned before Desk knows which sessions are there.
+    var reviewLearning: ReviewLearning.Status?
+    /// Why the pass last failed to start, until it starts.
+    var reviewLearningError: String?
+    private(set) var startingReviewLearning = false
+
+    /// A session that failed never started the pass; any other, at work or idle, is still there.
+    private var reviewLearningSessions: [ClaudeJob] { state.claudeJobs.filter { $0.role == .learning && $0.state != "failed" } }
+
+    private func readReviewLearning() {
+        reviewLearning = ReviewLearning.status(
+            runs: ReviewLearningFolder(support: support).runs(), live: Set(reviewLearningSessions.map(\.id))
+        )
+    }
+
+    /// Starts a run of the pass in the repo's clone and shows its session in iTerm. While a run is started and not
+    /// finished this is Start again: its session is stopped and removed first, for one that hangs or was stopped by
+    /// hand and still reads as there.
+    func startReviewLearning() {
+        guard !startingReviewLearning else { return }
+        // ponytail: the clone comes from the tracked repositories' scan; a search of every repo root when someone runs
+        // the pass without tracking the repo.
+        let clone = state.gitScan?.repos.first { GitParsing.repoSlug(fromRemote: $0.remote) == ReviewLearning.repo.lowercased() }
+        guard let clone else {
+            reviewLearningError = DeskError.noClone(ReviewLearning.repo).description
+            return
+        }
+        startingReviewLearning = true
+        reviewLearningError = nil
+        Task {
+            defer { startingReviewLearning = false }
+            do {
+                if case .running(_, let id) = reviewLearning, let old = reviewLearningSessions.first(where: { $0.id == id }) {
+                    try await service.removeReviewLearning(old)
+                    state.claudeJobs.removeAll { $0.id == id }
+                }
+                let session = try await service.startReviewLearning(in: clone.root)
+                // Held until the next scan reads it off disk, as Start master's is.
+                state.claudeJobs.insert(session, at: 0)
+                readReviewLearning()
+                show(jobId: session.id)
+            } catch {
+                reviewLearningError = "Couldn't start the review learning pass: \(error)"
+                Self.log.error("review learning: \(String(describing: error), privacy: .public)")
+            }
+        }
+    }
+
+    /// The running pass's session in front, in iTerm.
+    func openReviewLearning() {
+        if case .running(_, let id) = reviewLearning { show(jobId: id) }
+    }
+
+    /// The last finished run's report, in whatever opens Markdown.
+    func openReviewLearningReport() {
+        if case .upToDate(_, _, let report) = reviewLearning { NSWorkspace.shared.open(report) }
+    }
 
     // MARK: Master
 

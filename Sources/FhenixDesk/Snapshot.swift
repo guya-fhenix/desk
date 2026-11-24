@@ -77,7 +77,7 @@ enum Snapshot {
         let screen = arguments.first ?? ""
         let screens = ["settings", "setup", "master", "menubar"]
         guard arguments.count >= 2, screens.contains(screen) || DeskWindow.Tab(rawValue: screen) != nil else {
-            print("usage: --snapshot window <focus|pullRequests|reviews|tickets|master|settings|setup|menubar> <out.png> [height] [dark|light|system] [accent=<hex>] [open=<pr url>] [pane=<pane>] [step=<step>] [update=<current>,<latest>] [ghError=<text>] [ranking=<folder with focus.json>] [steps=key:j;move:700,338;shot:<png>;report;wait:1]")
+            print("usage: --snapshot window <focus|pullRequests|reviews|tickets|master|settings|setup|menubar> <out.png> [height] [dark|light|system] [accent=<hex>] [open=<pr url>] [pane=<pane>] [step=<step>] [update=<current>,<latest>] [ghError=<text>] [ranking=<folder with focus.json>] [learning=never|due|stopped|running|finished] [steps=key:j;move:700,338;shot:<png>;report;wait:1]")
             return
         }
         func value(_ name: String) -> String? { arguments.first { $0.hasPrefix("\(name)=") }.map { String($0.dropFirst(name.count + 1)) } }
@@ -109,6 +109,20 @@ enum Snapshot {
         if let error = value("ghError") { model.state.errors[.github] = error }
         // `ranking=<folder>`: Focus as ranked by the `focus.json` in that folder, in place of the master's own.
         if let folder = value("ranking") { model.state.focusRanking = MasterFolder(url: URL(fileURLWithPath: folder)).focusRanking() }
+        // `learning=never|due|stopped|running|finished`: the review learning pass in that state, in place of what its
+        // folder says.
+        if let learning = value("learning") {
+            let now = Date()
+            let last = now.addingTimeInterval(-9 * 86_400)
+            switch learning {
+            case "due": model.reviewLearning = .due(lastFinished: last, unfinishedStart: nil)
+            case "stopped": model.reviewLearning = .due(lastFinished: last, unfinishedStart: now.addingTimeInterval(-3_600))
+            case "running": model.reviewLearning = .running(startedAt: now.addingTimeInterval(-3_600), jobId: "snapshot")
+            case "finished":
+                model.reviewLearning = .upToDate(finishedAt: now, nextDue: now.addingTimeInterval(ReviewLearning.interval), report: URL(fileURLWithPath: "/tmp/report.md"))
+            default: model.reviewLearning = .due(lastFinished: nil, unfinishedStart: nil)
+            }
+        }
         // `steps=key:j;key:x;move:700,338;shot:<png>;report;wait:1`: keys, pointer moves, captures and the model's state,
         // run against the window before the last capture.
         let steps = value("steps").map { $0.split(separator: ";").map(String.init) } ?? []

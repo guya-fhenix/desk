@@ -30,17 +30,21 @@ struct FocusTab: View {
     @ViewBuilder private func page(_ items: [FocusItem], reviewsLeftOut: Int) -> some View {
         // The sources that have neither answered nor failed yet: until GitHub has, an empty page means nothing.
         let pending = Source.allCases.filter { model.state.lastRefresh[$0] == nil && model.state.errors[$0] == nil }
-        let urgent = items.filter { $0.level == .now }.count
+        // The review learning pass, while it waits on you: a card of its own, over the items of its level.
+        let learning = model.reviewLearning.flatMap { $0.needsYou ? $0 : nil }
+        let learningDue = learning.map { if case .due = $0 { true } else { false } } ?? false
+        let urgent = items.filter { $0.level == .now }.count + (learningDue ? 1 : 0)
+        let count = items.count + (learning == nil ? 0 : 1)
         Screen {
             ScreenTitle(title: "Focus", subtitle: Date().formatted(.dateTime.weekday(.wide).day().month(.wide))) {
-                if !items.isEmpty {
-                    Text("\(urgent == 0 ? "Nothing urgent" : "\(urgent) to act on now") · \(items.count) in all")
+                if count > 0 {
+                    Text("\(urgent == 0 ? "Nothing urgent" : "\(urgent) to act on now") · \(count) in all")
                         .scaled(.secondary).foregroundStyle(Theme.quiet)
                 }
             }
             .padding(.bottom, 18)
         } content: {
-            if pending.contains(.github) || (items.isEmpty && !pending.isEmpty) { syncing(pending) }
+            if pending.contains(.github) || (count == 0 && !pending.isEmpty) { syncing(pending) }
             ForEach(Source.allCases, id: \.self) { source in
                 if source == .github, model.state.github == nil, let error = model.state.errors[.github] {
                     // Nothing from GitHub has ever loaded, so this is no stale page: say what is missing.
@@ -57,7 +61,7 @@ struct FocusTab: View {
             }
             if pending.contains(.github) {
                 placeholders
-            } else if items.isEmpty, pending.isEmpty, model.state.errors.isEmpty {
+            } else if count == 0, pending.isEmpty, model.state.errors.isEmpty {
                 // Says how fresh "nothing" is, and where to go next, rather than one grey line.
                 EmptyState(
                     icon: "checkmark.circle",
@@ -66,24 +70,25 @@ struct FocusTab: View {
                 )
                 .padding(.vertical, 20)
             }
-            if !items.isEmpty, !pending.contains(.github) { columns(items, reviewsLeftOut: reviewsLeftOut) }
+            if count > 0, !pending.contains(.github) { columns(items, reviewsLeftOut: reviewsLeftOut, learning: learning) }
             Spacer(minLength: 0)
             KeyHints(hints: [(["J", "K"], "move"), (["↩"], "open"), (["M"], "master"), (["⌘R"], "sync")])
         }
     }
 
     /// Now and Next on the left, Can wait and Background on the right, scrolling together.
-    private func columns(_ items: [FocusItem], reviewsLeftOut: Int) -> some View {
+    private func columns(_ items: [FocusItem], reviewsLeftOut: Int, learning: ReviewLearning.Status?) -> some View {
         let rows = items.map(\.id)
+        let learningDue = learning.map { if case .due = $0 { true } else { false } } ?? false
         return ScrollViewReader { proxy in
             ScrollView {
                 HStack(alignment: .top, spacing: 18) {
                     VStack(alignment: .leading, spacing: 8) {
-                        if !items.contains(where: { $0.level == .now }) {
+                        if !items.contains(where: { $0.level == .now }), !learningDue {
                             Text("Nothing is urgent right now.").foregroundStyle(Theme.quiet).padding(.bottom, 4)
                         }
-                        group(.now, items)
-                        group(.next, items)
+                        group(.now, items, learning: learningDue ? learning : nil)
+                        group(.next, items, learning: learningDue ? nil : learning)
                     }
                     .frame(maxWidth: .infinity, alignment: .topLeading)
                     VStack(alignment: .leading, spacing: 8) {
@@ -123,11 +128,13 @@ struct FocusTab: View {
         }
     }
 
-    /// One level's items under its label; nothing for a level with none.
-    @ViewBuilder private func group(_ level: FocusLevel, _ items: [FocusItem]) -> some View {
+    /// One level's items under its label, the review learning card first when it is at this level; nothing for a level
+    /// with none.
+    @ViewBuilder private func group(_ level: FocusLevel, _ items: [FocusItem], learning: ReviewLearning.Status? = nil) -> some View {
         let shown = items.filter { $0.level == level }
-        if !shown.isEmpty {
+        if !shown.isEmpty || learning != nil {
             SectionLabel(level.title).padding(.top, level == .now || level == .canWait ? 0 : 6)
+            if let learning { ReviewLearningCard(status: learning, model: model) }
             ForEach(shown) { item in
                 FocusCard(item: item, model: model, selected: selection == item.id) { open(item) }
                     .id(item.id)

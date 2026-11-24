@@ -39,7 +39,7 @@ off the tool every time. GitHub and Jira ask for a token there (Create a token o
 ticked, or Atlassian's API tokens page), with Use the browser beside it. Install, Use the browser and the other fixes run
 their command in a window of your terminal app (iTerm2 unless Settings → Master says Terminal), in a login shell, so you
 can follow it and type a password; the checks run again when you come back to Desk. Tools also checks tmux and iTerm2,
-which show the master and its workers. Then come Settings' own GitHub, Repositories (Track my clones ticks every org repo you have a clone of) and
+which show the master and its workers, and Node.js (22.18 or later), which the review learning pass runs its numbers with. Then come Settings' own GitHub, Repositories (Track my clones ticks every org repo you have a clone of) and
 Jira pages, and Finish, which needs the Command Line Tools, `gh` signed in and one tracked repo. On the Jira page you
 pick the project and, from the statuses Jira lists for it, where Desk moves a ticket at each step; Continue waits for
 all three, or for no project, which leaves Jira off. Later closes Setup until
@@ -330,6 +330,31 @@ events, the **fhenix-workflow** check (installed for your user, with Install whe
 **Plugin folder**: a folder of plugins the master, its workers and review sessions load in place of the installed ones
 (`--plugin-dir`), only for trying plugin changes before they're merged into the marketplace. Left empty, as it should be
 day to day, Desk's sessions use the plugins installed for your user.
+
+## Review learning
+
+Once a week Desk has you run the review flow's learning pass for `FhenixProtocol/cofhe`: the week's review numbers,
+each CodeRabbit thread sorted, the incidents from PagerDuty and Jira, and a proposed change for each pattern, which you
+accept or reject. **Start** starts one Claude session named `review-learning` in your cofhe clone, on the
+`fhenix-workflow:review-learning` skill, and shows it in iTerm; you answer it there. cofhe has to be one of the
+repositories Desk tracks.
+
+The pass is due 7 days after the last run that **finished**, and before the first. A run is finished only when the
+skill has written its report and your decisions and, last, its `finished.json`. A session that is at work, waits on
+your decisions, was stopped or failed has finished nothing, and the pass stays due.
+
+- **Focus**: while a run is due, a large card under Now, with Start. While one is started and not finished, a medium
+  card under Next, with Open (its session in iTerm) and Start again, which stops and removes that session and starts
+  a new run, for one that hangs or was closed. Desk sets the card's level, not the master's ranking, and nothing
+  dismisses it. It counts in the Focus number.
+- **Sidebar**: a Review learning card over the master, always there: Due, Started, or Done with the next due date.
+  Its press is Start, Open, or Report, which opens the last finished run's `report.md`.
+- **Menu bar**: the first entry under Needs you while the pass waits on you.
+- **A notification**, once, when the pass becomes due, also at launch when it became due while Desk was closed.
+
+Desk says whether a run is due, started or finished, never what its session is doing. The runs are kept on this Mac,
+in `~/Library/Application Support/Fhenix Desk/review-learning/runs/<start time>/`: `started.json` from Desk, and
+`metrics.md`, `report.md` and `finished.json` from the skill.
 
 ## Conversation
 

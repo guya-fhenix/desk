@@ -132,6 +132,7 @@ struct DeskWindow: View {
             Spacer(minLength: 0)
             VStack(spacing: 10) {
                 UpdateNotice()
+                ReviewLearningSidebarCard()
                 MasterStatus()
                 SidebarStatus()
                 AccountFooter(selected: model.showingSettings) {

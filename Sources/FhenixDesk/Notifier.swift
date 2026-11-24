@@ -35,6 +35,27 @@ final class Notifier {
         center?.requestAuthorization(options: [.alert, .sound]) { _, _ in }
     }
 
+    /// What the review learning banner carries in place of a PR's url: a click opens Desk on Focus.
+    nonisolated static let focusURL = "desk:focus"
+
+    /// One banner each time the review learning pass becomes due: keyed by the last finished run, so the next one is
+    /// news again after the next finished run. Call it only once every source has answered: a pass that became due
+    /// while Desk was closed is still said once, at launch.
+    func deliverReviewLearningDue(lastFinished: Date?, post: Bool) {
+        guard let center else { return }
+        let id = "review-learning:\(lastFinished?.timeIntervalSince1970 ?? 0)"
+        guard delivered[id] == nil else { return }
+        delivered[id] = Date()
+        try? support.save(delivered, to: Self.deliveredFile)
+        guard post else { return }
+        let content = UNMutableNotificationContent()
+        content.title = lastFinished == nil ? "Weekly review learning has not run yet" : "Weekly review learning is due"
+        content.body = "cofhe · " + (lastFinished.map { "last finished \($0.formatted(.dateTime.day().month(.abbreviated)))" } ?? "never run") + ". Click to open Desk."
+        // No category: its one action, Open on GitHub, has nothing to open here.
+        content.userInfo["url"] = Self.focusURL
+        center.add(UNNotificationRequest(identifier: id, content: content, trigger: nil))
+    }
+
     /// Marks every current nudge as seen. Posts a notification only when `post` is true, so
     /// nudges that exist before all sources report once never fire. Returns the ones it posted, which go to the master
     /// as events too.
