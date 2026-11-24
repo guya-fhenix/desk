@@ -336,16 +336,16 @@ day to day, Desk's sessions use the plugins installed for your user.
 Once a week Desk has you run the review flow's learning pass for `FhenixProtocol/cofhe`: the week's review numbers,
 each CodeRabbit thread sorted, the incidents from PagerDuty and Jira, and a proposed change for each pattern, which you
 accept or reject. **Start** starts one Claude session named `review-learning` in your cofhe clone, on the
-`fhenix-workflow:review-learning` skill, and shows it in iTerm; you answer it there. cofhe has to be one of the
-repositories Desk tracks.
+`fhenix-workflow:review-learning` skill, and shows it in iTerm; you answer it there. All of this shows only while cofhe
+is one of the repositories Desk tracks.
 
 The pass is due 7 days after the last run that **finished**, and before the first. A run is finished only when the
 skill has written its report and your decisions and, last, its `finished.json`. A session that is at work, waits on
 your decisions, was stopped or failed has finished nothing, and the pass stays due.
 
 - **Focus**: while a run is due, a large card under Now, with Start. While one is started and not finished, a medium
-  card under Next, with Open (its session in iTerm) and Start again, which stops and removes that session and starts
-  a new run, for one that hangs or was closed. Desk sets the card's level, not the master's ranking, and nothing
+  card under Next, with Open (its session in iTerm) and Start again, which asks first, then stops and removes that
+  session and starts a new run, for one that hangs or was closed. Desk sets the card's level, not the master's ranking, and nothing
   dismisses it. It counts in the Focus number.
 - **Sidebar**: a Review learning card over the master, always there: Due, Started, or Done with the next due date.
   Its press is Start, Open, or Report, which opens the last finished run's `report.md`.

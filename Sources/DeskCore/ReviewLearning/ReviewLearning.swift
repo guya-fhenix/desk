@@ -12,6 +12,9 @@ public enum ReviewLearning {
     public static let skill = "review-learning"
     /// Due again this long after the last finished run: the script's `--days 7`.
     public static let interval: TimeInterval = 7 * 86_400
+    /// How long a run just started counts as running before its session shows in a scan: Claude Code writes the
+    /// session's files a moment after it starts, and a scan in between would call the run abandoned.
+    public static let startGrace: TimeInterval = 60
 
     /// `started.json`, which Desk writes into a run's folder once the session has started.
     public struct Start: Codable, Sendable, Equatable {
@@ -29,14 +32,15 @@ public enum ReviewLearning {
     /// decisions.
     public struct Finish: Codable, Sendable, Equatable {
         public var finishedAt: Date
-        public var repo: String
-        /// The days the run covered, `yyyy-MM-dd`, both inclusive, as the metrics script reports them.
-        public var from: String
-        public var to: String
         /// The report's file name in the run's folder.
         public var report: String
+        // Desk reads none of the three below: a marker without one is still a finished run.
+        public var repo: String?
+        /// The days the run covered, `yyyy-MM-dd`, both inclusive, as the metrics script reports them.
+        public var from: String?
+        public var to: String?
 
-        public init(finishedAt: Date, repo: String, from: String, to: String, report: String) {
+        public init(finishedAt: Date, repo: String? = nil, from: String? = nil, to: String? = nil, report: String) {
             self.finishedAt = finishedAt
             self.repo = repo
             self.from = from
@@ -80,7 +84,8 @@ public enum ReviewLearning {
     /// nothing until it has finished, so one whose session is gone leaves the pass as due as it was.
     public static func status(runs: [Run], live: Set<String>, now: Date = Date()) -> Status {
         let newest = runs.max { $0.start.startedAt < $1.start.startedAt }
-        if let newest, newest.finish == nil, live.contains(newest.start.jobId) {
+        if let newest, newest.finish == nil,
+           live.contains(newest.start.jobId) || now.timeIntervalSince(newest.start.startedAt) < startGrace {
             return .running(startedAt: newest.start.startedAt, jobId: newest.start.jobId)
         }
         let last = runs.filter { $0.finish != nil }.max { $0.finish!.finishedAt < $1.finish!.finishedAt }
@@ -119,9 +124,11 @@ public struct ReviewLearningFolder: Sendable {
     }
 
     /// Every run Desk started. A run is finished only when its `finished.json` reads, is not older than the start, and
-    /// names a report that is there and not empty: the skill writes the marker last, so a session that stopped, failed
-    /// or still waits on the person's decisions has left none. A folder with no `started.json` is a start that failed.
-    public func runs() -> [ReviewLearning.Run] {
+    /// names a report that is a file in the run's folder, with something in it: the skill writes the marker last, so a
+    /// session that stopped, failed or still waits on the person's decisions has left none. A finish time in the
+    /// future counts as `now`, so a wrong clock can't hold the pass finished for longer than a week. A folder with no
+    /// `started.json` is a start that failed.
+    public func runs(now: Date = Date()) -> [ReviewLearning.Run] {
         let folders = (try? FileManager.default.contentsOfDirectory(at: runsURL, includingPropertiesForKeys: nil)) ?? []
         let decoder = JSON.decoder()
         return folders.compactMap { folder in
@@ -131,8 +138,11 @@ public struct ReviewLearningFolder: Sendable {
             if let data = try? Data(contentsOf: folder.appendingPathComponent("finished.json")),
                let finish = try? decoder.decode(ReviewLearning.Finish.self, from: data), finish.finishedAt >= start.startedAt {
                 run.finish = finish
-                let size = run.report.flatMap { try? FileManager.default.attributesOfItem(atPath: $0.path)[.size] as? Int } ?? 0
-                if size == 0 { run.finish = nil }
+                run.finish?.finishedAt = min(finish.finishedAt, now)
+                // A regular file: an empty or dot name resolves to a folder, whose size is never zero.
+                let attributes = run.report.flatMap { try? FileManager.default.attributesOfItem(atPath: $0.path) }
+                let isFile = attributes?[.type] as? FileAttributeType == .typeRegular
+                if !isFile || (attributes?[.size] as? Int ?? 0) == 0 { run.finish = nil }
             }
             return run
         }

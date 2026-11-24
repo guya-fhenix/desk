@@ -32,7 +32,7 @@ struct FocusTab: View {
         let pending = Source.allCases.filter { model.state.lastRefresh[$0] == nil && model.state.errors[$0] == nil }
         // The review learning pass, while it waits on you: a card of its own, over the items of its level.
         let learning = model.reviewLearning.flatMap { $0.needsYou ? $0 : nil }
-        let learningDue = learning.map { if case .due = $0 { true } else { false } } ?? false
+        let learningDue = learning?.isDue == true
         let urgent = items.filter { $0.level == .now }.count + (learningDue ? 1 : 0)
         let count = items.count + (learning == nil ? 0 : 1)
         Screen {
@@ -79,7 +79,7 @@ struct FocusTab: View {
     /// Now and Next on the left, Can wait and Background on the right, scrolling together.
     private func columns(_ items: [FocusItem], reviewsLeftOut: Int, learning: ReviewLearning.Status?) -> some View {
         let rows = items.map(\.id)
-        let learningDue = learning.map { if case .due = $0 { true } else { false } } ?? false
+        let learningDue = learning?.isDue == true
         return ScrollViewReader { proxy in
             ScrollView {
                 HStack(alignment: .top, spacing: 18) {

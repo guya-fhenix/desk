@@ -34,6 +34,17 @@ import Testing
         #expect(runs.runs().first?.finish == nil, "a marker older than the start")
         try "{".write(to: run.appendingPathComponent("finished.json"), atomically: true, encoding: .utf8)
         #expect(runs.runs().first?.finish == nil, "a half-written marker")
+        // A name that resolves to a folder is no report: a folder's size is never zero.
+        for name in ["", ".", "..", "/"] {
+            try #"{"finishedAt": "2026-11-21T15:00:00Z", "report": "\#(name)"}"#
+                .write(to: run.appendingPathComponent("finished.json"), atomically: true, encoding: .utf8)
+            #expect(runs.runs().first?.finish == nil, "report named '\(name)'")
+        }
+        // Only the time and the report are needed, and a time in the future counts as now.
+        try #"{"finishedAt": "2030-01-01T00:00:00Z", "report": "report.md"}"#
+            .write(to: run.appendingPathComponent("finished.json"), atomically: true, encoding: .utf8)
+        let now = JSON.parseISO8601("2026-11-21T16:00:00Z")!
+        #expect(runs.runs(now: now).first?.finish?.finishedAt == now)
 
         try finish(run, at: "2026-11-21T15:00:00Z")
         let finished = try #require(runs.runs().first)
@@ -54,9 +65,11 @@ import Testing
         // Never run.
         #expect(status([], [], t0) == .due(lastFinished: nil, unfinishedStart: nil))
         // Started, its session still there: not finished, whatever the session's state.
-        #expect(status([run("a", started: t0)], ["a"], t0 + 60) == .running(startedAt: t0, jobId: "a"))
+        #expect(status([run("a", started: t0)], ["a"], t0 + 600) == .running(startedAt: t0, jobId: "a"))
+        // Just started, its session not in a scan yet: running, not abandoned.
+        #expect(status([run("a", started: t0)], [], t0 + 30) == .running(startedAt: t0, jobId: "a"))
         // Its session gone before it finished: still due, and it says the start did not finish.
-        #expect(status([run("a", started: t0)], [], t0 + 60) == .due(lastFinished: nil, unfinishedStart: t0))
+        #expect(status([run("a", started: t0)], [], t0 + 600) == .due(lastFinished: nil, unfinishedStart: t0))
 
         let done = run("a", started: t0, finished: t0 + 3_600)
         let report = url.appendingPathComponent("report.md")

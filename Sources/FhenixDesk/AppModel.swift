@@ -615,8 +615,16 @@ final class AppModel {
     // MARK: Review learning
 
     /// Where the weekly review learning pass stands, read with every scan of the sessions; nil until the first, since a
-    /// started run looks abandoned before Desk knows which sessions are there.
+    /// started run looks abandoned before Desk knows which sessions are there, and nil while its repo is not one Desk
+    /// tracks: then the pass shows nowhere, since Start would have no clone to run in.
     var reviewLearning: ReviewLearning.Status?
+
+    /// The local clone the pass runs in: the tracked repository's.
+    // ponytail: from the tracked repositories' scan; a search of every repo root when someone wants the pass without
+    // tracking the repo.
+    var reviewLearningClone: RepoRef? {
+        state.gitScan?.repos.first { GitParsing.repoSlug(fromRemote: $0.remote) == ReviewLearning.repo.lowercased() }
+    }
     /// Why the pass last failed to start, until it starts.
     var reviewLearningError: String?
     private(set) var startingReviewLearning = false
@@ -625,20 +633,22 @@ final class AppModel {
     private var reviewLearningSessions: [ClaudeJob] { state.claudeJobs.filter { $0.role == .learning && $0.state != "failed" } }
 
     private func readReviewLearning() {
+        guard reviewLearningClone != nil else {
+            reviewLearning = nil
+            return
+        }
         reviewLearning = ReviewLearning.status(
             runs: ReviewLearningFolder(support: support).runs(), live: Set(reviewLearningSessions.map(\.id))
         )
     }
 
-    /// Starts a run of the pass in the repo's clone and shows its session in iTerm. While a run is started and not
-    /// finished this is Start again: its session is stopped and removed first, for one that hangs or was stopped by
-    /// hand and still reads as there.
+    /// Starts a run of the pass in the repo's clone and shows its session in iTerm. After a run that never finished
+    /// this is Start again: that run's session, when Claude Code still lists it (at work, hung, failed or stopped by
+    /// hand), is stopped and removed first. It is known by the id Desk recorded when it started it, whatever it is
+    /// named now.
     func startReviewLearning() {
         guard !startingReviewLearning else { return }
-        // ponytail: the clone comes from the tracked repositories' scan; a search of every repo root when someone runs
-        // the pass without tracking the repo.
-        let clone = state.gitScan?.repos.first { GitParsing.repoSlug(fromRemote: $0.remote) == ReviewLearning.repo.lowercased() }
-        guard let clone else {
+        guard let clone = reviewLearningClone else {
             reviewLearningError = DeskError.noClone(ReviewLearning.repo).description
             return
         }
@@ -647,11 +657,11 @@ final class AppModel {
         Task {
             defer { startingReviewLearning = false }
             do {
-                if case .running(_, let id) = reviewLearning, let old = reviewLearningSessions.first(where: { $0.id == id }) {
-                    try await service.removeReviewLearning(old)
-                    state.claudeJobs.removeAll { $0.id == id }
-                }
-                let session = try await service.startReviewLearning(in: clone.root)
+                let runs = ReviewLearningFolder(support: support).runs()
+                let unfinished = runs.max { $0.start.startedAt < $1.start.startedAt }.flatMap { $0.finish == nil ? $0.start.jobId : nil }
+                let old = unfinished.flatMap { id in state.claudeJobs.contains { $0.id == id } ? id : nil }
+                let session = try await service.startReviewLearning(in: clone.root, replacing: old)
+                state.claudeJobs.removeAll { $0.id == old }
                 // Held until the next scan reads it off disk, as Start master's is.
                 state.claudeJobs.insert(session, at: 0)
                 readReviewLearning()

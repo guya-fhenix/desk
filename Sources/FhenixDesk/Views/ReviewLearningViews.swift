@@ -25,7 +25,7 @@ extension ReviewLearning.Status {
         case .due(_, .some): return "Due · last start didn't finish"
         case .due(nil, _): return "Never run"
         case .due(let last?, _): return "Due · last \(Self.day(last))"
-        case .running: return "Started, not finished"
+        case .running: return "Not finished yet"
         case .upToDate(_, let next, _): return "Done · next \(Self.day(next))"
         }
     }
@@ -35,7 +35,7 @@ extension ReviewLearning.Status {
     func detail(now: Date = Date()) -> String {
         let repo = ReviewLearning.repo.split(separator: "/").last.map(String.init) ?? ReviewLearning.repo
         let style = Date.FormatStyle(timeZone: .gmt).day().month(.abbreviated)
-        let covers = "a run now covers \(now.addingTimeInterval(-7 * 86_400).formatted(style)) to \(now.addingTimeInterval(-86_400).formatted(style))"
+        let covers = "a run now covers \(now.addingTimeInterval(-ReviewLearning.interval).formatted(style)) to \(now.addingTimeInterval(-86_400).formatted(style))"
         switch self {
         case .due(let last, let unfinished):
             let parts: [String?] = [
@@ -46,6 +46,12 @@ extension ReviewLearning.Status {
         case .running(let started, _): return "\(repo) · started \(Self.moment(started))"
         case .upToDate(let finished, let next, _): return "\(repo) · finished \(Self.day(finished)) · next \(Self.day(next))"
         }
+    }
+
+    /// A run is due, rather than started and not finished.
+    var isDue: Bool {
+        if case .due = self { return true }
+        return false
     }
 
     /// Since when the pass has been due: 7 days after the last finished run. Nil before the first.
@@ -72,10 +78,18 @@ struct ReviewLearningIcon: View {
 struct ReviewLearningCard: View {
     var status: ReviewLearning.Status
     var model: AppModel
+    /// Start again was pressed while a session is still there, and waits for your yes: it stops and removes it.
+    @State private var confirmingRestart = false
 
     var body: some View {
         Group {
-            if case .running = status { started } else { due }
+            if status.isDue { due } else { started }
+        }
+        .confirmationDialog("Stop this run and start a new one?", isPresented: $confirmingRestart) {
+            Button("Stop it and start again", role: .destructive) { model.startReviewLearning() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("The run's session is stopped and removed. What it has written so far stays in the run's folder.")
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Theme.surface, in: RoundedRectangle(cornerRadius: 10))
@@ -104,7 +118,7 @@ struct ReviewLearningCard: View {
             HStack(spacing: 8) {
                 Text(status.detail()).scaled(.secondary).foregroundStyle(Theme.quiet).lineLimit(1)
                 Spacer(minLength: 4)
-                Button(startTitle) { model.startReviewLearning() }
+                Button(startTitle) { confirmingRestart = true }
                     .buttonStyle(.desk(.quiet, .small)).disabled(model.startingReviewLearning)
                     .help("Stops and removes this run's session and starts a new run")
                 Button("Open") { model.openReviewLearning() }.buttonStyle(.desk(.secondary, .small))
@@ -151,6 +165,11 @@ struct ReviewLearningSidebarCard: View {
     var body: some View {
         let status = model.reviewLearning
         let failed = model.reviewLearningError != nil
+        // Not there at all while the pass's repo is not one Desk tracks; there, reading, until the first scan says.
+        if model.state.gitScan == nil || model.reviewLearningClone != nil { card(status, failed: failed) }
+    }
+
+    private func card(_ status: ReviewLearning.Status?, failed: Bool) -> some View {
         Button(action: press) {
             HStack(spacing: 6) {
                 ReviewLearningIcon()

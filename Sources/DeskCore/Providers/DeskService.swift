@@ -12,7 +12,7 @@ public enum DeskError: Error, CustomStringConvertible, Sendable {
     case sessionNotStarted(String)
     /// Stop master was pointed at a session that is not the master Desk started: another name, or another folder.
     case notTheMaster(String)
-    /// Start again was pointed at a session that is not the review learning pass Desk started.
+    /// Start again was pointed at a session no run of the review learning pass has on record.
     case notReviewLearning(String)
     /// The repo the review learning pass runs in has no clone among the tracked repositories.
     case noClone(String)
@@ -26,7 +26,7 @@ public enum DeskError: Error, CustomStringConvertible, Sendable {
         case .claudeNotFound: return "claude CLI not found. Install it or set the path in Settings."
         case .sessionNotStarted(let output): return "claude --bg printed no session id: \(output.prefix(200))"
         case .notTheMaster(let name): return "The session \(name) is not the master Desk started in its master folder, so Desk left it running. Stop it with claude stop."
-        case .notReviewLearning(let name): return "The session \(name) is not the review learning pass Desk started, so Desk left it running."
+        case .notReviewLearning(let name): return "No run of the review learning pass started the session \(name), so Desk left it running. Stop it with claude stop."
         case .noClone(let repo): return "No clone of \(repo) among the repositories Desk tracks. Track it in Settings → GitHub."
         case .terminal(let why): return why
         }
@@ -177,31 +177,35 @@ public actor DeskService {
     }
 
     /// Starts a run of the review learning pass in `clone`, the repo's local clone: a folder for the run, the session
-    /// on its skill with that folder to write to, and the start on record. A start that fails leaves no run behind.
-    public func startReviewLearning(in clone: String, now: Date = Date()) async throws -> ClaudeJob {
+    /// on its skill with that folder to write to, and the start on record. `replacing` is the session of the last run,
+    /// when that run never finished and its session is still on Claude Code's list: it is stopped and removed first.
+    /// Only ever an id Desk itself recorded in a run's `started.json`, so no other session can be the one removed. A
+    /// start that fails leaves no run folder behind, and no session Desk knows the id of.
+    public func startReviewLearning(in clone: String, replacing: String? = nil, now: Date = Date()) async throws -> ClaudeJob {
         let folder = ReviewLearningFolder(support: support)
+        if let replacing {
+            guard folder.runs(now: now).contains(where: { $0.start.jobId == replacing }) else { throw DeskError.notReviewLearning(replacing) }
+            try await claude().remove(replacing)
+        }
         let run = try folder.newRun(now: now)
+        var started: String?
         do {
             // The prompt after `--`: `--add-dir` takes several folders, and would take the prompt for one more.
             let id = try await claude().startBackground(
                 ReviewLearning.prompt(run: run), cwd: clone,
                 flags: ["-n", ReviewLearning.sessionName] + Self.workerFlags(config: config) + ["--add-dir", run.path, "--"]
             )
+            started = id
             try folder.recordStart(ReviewLearning.Start(startedAt: now, jobId: id), in: run)
             return ClaudeJob(
                 id: id, name: ReviewLearning.sessionName, state: "working", cwd: clone, prKeys: [], updatedAt: now, role: .learning
             )
         } catch {
+            // A session that started but could not be put on record would run on where Desk can't see it.
+            if let started { try? await claude().remove(started) }
             try? FileManager.default.removeItem(at: run)
             throw error
         }
-    }
-
-    /// Stops a review learning session and takes it off Claude Code's list, before Start again starts a new run. Any
-    /// other session is refused: removing one deletes what it was working in.
-    public func removeReviewLearning(_ session: ClaudeJob) async throws {
-        guard session.role == .learning, session.name == ReviewLearning.sessionName else { throw DeskError.notReviewLearning(session.name) }
-        try await claude().remove(session.id)
     }
 
     public func markReady(_ pr: PullRequest) async throws {
