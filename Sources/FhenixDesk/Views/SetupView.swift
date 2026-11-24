@@ -353,6 +353,7 @@ private struct SetupCheckRow: View {
         case .acli: return "acli --version"
         case .claude: return "claude --version"
         case .tmux: return "tmux -V"
+        case .node: return "node --version"
         case .github: return "gh auth status"
         case .jira: return "acli jira auth status"
         case .claudeAccount: return "claude auth status"

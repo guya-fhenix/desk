@@ -150,7 +150,14 @@ final class AppModel {
         writeMasterSettings()
         applyAppearance()
         Task { await self.start() }
-        Notifier.onShow = { [weak self] url in self?.show(url) }
+        Notifier.onShow = { [weak self] url in
+            guard url == Notifier.focusURL else {
+                self?.show(url)
+                return
+            }
+            self?.pendingTab = .focus
+            AppDelegate.openDesk?()
+        }
         // Settings is where the sentence shows.
         self.configError = configError
         showingSettings = configError != nil
@@ -169,6 +176,7 @@ final class AppModel {
     /// What Focus has at Now and Next: its badge, and the menu bar's count.
     func focusCount(_ filters: ReviewFilters) -> Int {
         state.focusCount(reviewDays: filters.window, hiding: filters.hidden, needingApproval: filters.needsApproval)
+            + (reviewLearning?.needsYou == true ? 1 : 0)
     }
 
     /// The polls start first: reading the Jira account can wait out acli's whole timeout offline, and the window would
@@ -251,6 +259,7 @@ final class AppModel {
                 state.gitScan = scan
                 state.claudeJobs = await service.claudeJobs(keepIn: scan.repos.map(\.root))
                 state.asks = masterFolder.asks()
+                readReviewLearning()
                 state.focusRanking = masterFolder.focusRanking(keeping: state.focusRanking)
                 state.claudeLimits = await service.claudeLimits()
                 state.workflowSkill = await service.reviewSkill()
@@ -290,6 +299,9 @@ final class AppModel {
         }
         let posted = notifier.deliver(state.nudges, post: config.notificationsEnabled && allSourcesReported)
         writeMasterFiles(posted: posted)
+        if allSourcesReported, case .due(let lastFinished, _) = reviewLearning {
+            notifier.deliverReviewLearningDue(lastFinished: lastFinished, post: config.notificationsEnabled)
+        }
         // The sessions were just scanned: the iTerm layout follows them. Only once every source answered, so the tasks'
         // workers are known, and never before you opened the layout.
         if source == .git, allSourcesReported { await syncTerminals() }
@@ -599,6 +611,81 @@ final class AppModel {
     }
 
     // MARK: Background sessions
+
+    // MARK: Review learning
+
+    /// Where the weekly review learning pass stands, read with every scan of the sessions; nil until the first, since a
+    /// started run looks abandoned before Desk knows which sessions are there, and nil while its repo is not one Desk
+    /// tracks: then the pass shows nowhere, since Start would have no clone to run in.
+    var reviewLearning: ReviewLearning.Status?
+
+    /// The local clone the pass runs in: the tracked repository's.
+    // ponytail: from the tracked repositories' scan; a search of every repo root when someone wants the pass without
+    // tracking the repo.
+    var reviewLearningClone: RepoRef? {
+        state.gitScan?.repos.first { GitParsing.repoSlug(fromRemote: $0.remote) == ReviewLearning.repo.lowercased() }
+    }
+    /// Why the pass last failed to start, until it starts.
+    var reviewLearningError: String?
+    private(set) var startingReviewLearning = false
+
+    /// A session that failed never started the pass; any other, at work or idle, is still there.
+    private var reviewLearningSessions: [ClaudeJob] { state.claudeJobs.filter { $0.role == .learning && $0.state != "failed" } }
+
+    private func readReviewLearning() {
+        guard reviewLearningClone != nil else {
+            reviewLearning = nil
+            return
+        }
+        reviewLearning = ReviewLearning.status(
+            runs: ReviewLearningFolder(support: support).runs(), live: Set(reviewLearningSessions.map(\.id))
+        )
+    }
+
+    /// Starts a run of the pass in the repo's clone and shows its session in iTerm. After a run that never finished
+    /// this is Start again: that run's session, when Claude Code still lists it (at work, hung, failed or stopped by
+    /// hand), is stopped and removed first. It is known by the id Desk recorded when it started it, whatever it is
+    /// named now.
+    func startReviewLearning() {
+        guard !startingReviewLearning else { return }
+        guard let clone = reviewLearningClone else {
+            reviewLearningError = DeskError.noClone(ReviewLearning.repo).description
+            return
+        }
+        startingReviewLearning = true
+        reviewLearningError = nil
+        Task {
+            defer { startingReviewLearning = false }
+            do {
+                let newest = ReviewLearningFolder(support: support).runs().max { $0.start.startedAt < $1.start.startedAt }
+                let unfinished = newest.flatMap { $0.finish == nil ? $0 : nil }
+                // Its session when a scan lists it, and also when it started so lately that no scan has seen it yet.
+                let old = unfinished.flatMap { run in
+                    let listed = state.claudeJobs.contains { $0.id == run.start.jobId }
+                    return listed || Date().timeIntervalSince(run.start.startedAt) < ReviewLearning.startGrace ? run.start.jobId : nil
+                }
+                let session = try await service.startReviewLearning(in: clone.root, replacing: old)
+                state.claudeJobs.removeAll { $0.id == old }
+                // Held until the next scan reads it off disk, as Start master's is.
+                state.claudeJobs.insert(session, at: 0)
+                readReviewLearning()
+                show(jobId: session.id)
+            } catch {
+                reviewLearningError = "Couldn't start the review learning pass: \(error)"
+                Self.log.error("review learning: \(String(describing: error), privacy: .public)")
+            }
+        }
+    }
+
+    /// The running pass's session in front, in iTerm.
+    func openReviewLearning() {
+        if case .running(_, let id) = reviewLearning { show(jobId: id) }
+    }
+
+    /// The last finished run's report, in whatever opens Markdown.
+    func openReviewLearningReport() {
+        if case .upToDate(_, _, let report) = reviewLearning { NSWorkspace.shared.open(report) }
+    }
 
     // MARK: Master
 

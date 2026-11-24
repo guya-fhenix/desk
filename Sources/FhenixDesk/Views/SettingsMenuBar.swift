@@ -189,7 +189,14 @@ struct SettingsMenuBarPopover: View {
     /// What Focus counts, in its order: its items at Now and Next. Each opens the Desk on it.
     private var needsYou: [Item] {
         let model = model
-        return model.focus(filters).filter { $0.level >= .next }.map { item in
+        // The review learning pass first, while it waits on you: it opens Desk on Focus, where its presses are.
+        let learning = model.reviewLearning.flatMap { $0.needsYou ? $0 : nil }.map { status in
+            Item(id: "review-learning", dot: Theme.warn, title: status.title, line: status.words, date: status.dueSince) {
+                model.pendingTab = .focus
+                AppDelegate.openDesk?()
+            }
+        }
+        return (learning.map { [$0] } ?? []) + model.focus(filters).filter { $0.level >= .next }.map { item in
             let dot = item.kind.tone ?? Theme.quiet
             switch item.subject {
             case .pullRequest(let pr):

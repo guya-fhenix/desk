@@ -35,6 +35,28 @@ final class Notifier {
         center?.requestAuthorization(options: [.alert, .sound]) { _, _ in }
     }
 
+    /// What the review learning banner carries in place of a PR's url: a click opens Desk on Focus.
+    nonisolated static let focusURL = "desk:focus"
+    private static let reviewLearningKey = "review-learning:"
+
+    /// One banner each time the review learning pass becomes due: keyed by the last finished run, so the next one is
+    /// news again after the next finished run. Call it only once every source has answered: a pass that became due
+    /// while Desk was closed is still said once, at launch.
+    func deliverReviewLearningDue(lastFinished: Date?, post: Bool) {
+        guard let center else { return }
+        let id = "\(Self.reviewLearningKey)\(lastFinished?.timeIntervalSince1970 ?? 0)"
+        guard delivered[id] == nil else { return }
+        delivered[id] = Date()
+        try? support.save(delivered, to: Self.deliveredFile)
+        guard post else { return }
+        let content = UNMutableNotificationContent()
+        content.title = ReviewLearning.Status.due(lastFinished: lastFinished, unfinishedStart: nil).title
+        content.body = "cofhe · " + (lastFinished.map { "last finished \($0.formatted(.dateTime.day().month(.abbreviated)))" } ?? "never run") + ". Click to open Desk."
+        // No category: its one action, Open on GitHub, has nothing to open here.
+        content.userInfo["url"] = Self.focusURL
+        center.add(UNNotificationRequest(identifier: id, content: content, trigger: nil))
+    }
+
     /// Marks every current nudge as seen. Posts a notification only when `post` is true, so
     /// nudges that exist before all sources report once never fire. Returns the ones it posted, which go to the master
     /// as events too.
@@ -56,7 +78,8 @@ final class Notifier {
             center.add(UNNotificationRequest(identifier: nudge.id, content: content, trigger: nil))
         }
         let cutoff = now.addingTimeInterval(-Self.retention)
-        delivered = delivered.filter { $0.value > cutoff }
+        // The review learning banner's record stays: forgotten, it would post again while the pass is still due.
+        delivered = delivered.filter { $0.value > cutoff || $0.key.hasPrefix(Self.reviewLearningKey) }
         try? support.save(delivered, to: Self.deliveredFile)
         return post ? fresh : []
     }
