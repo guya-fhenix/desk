@@ -1,11 +1,11 @@
 import DeskCore
 import SwiftUI
 
-/// The master and its workers, as they run in iTerm: the sessions down a column, each with its task, the `desk` layout
-/// drawn with a Show per pane, and the events Desk told the master today; beside them where the master runs and how its
-/// terminal is set up. What a session is doing, and what the master asked you, are not here: the first is in `claude
-/// agents`, the second in the master's pane. Every press puts a pane in front, and you type there; Restart alone types
-/// for you, one line asking the master for its handoff.
+/// The master and its workers, as they run in iTerm: the sessions down a column, each with its task, and the events
+/// Desk told the master today; beside them where the master runs and how its terminal is set up. What a session is
+/// doing, and what the master asked you, are not here: the first is in `claude agents`, the second in the master's
+/// pane. Every press puts a pane in front, and you type there; Restart alone types for you, one line asking the master
+/// for its handoff.
 struct MasterScreen: View {
     @Environment(AppModel.self) private var model
 
@@ -19,7 +19,6 @@ struct MasterScreen: View {
                         Text(error).scaled(.secondary).foregroundStyle(Theme.danger).textSelection(.enabled)
                     }
                     restartPanel
-                    LayoutSketch()
                     events
                 }
                 .padding(EdgeInsets(top: 18, leading: 24, bottom: 20, trailing: 24))
@@ -218,100 +217,6 @@ private struct SessionRow2: View {
 struct SessionMark: View {
     var body: some View {
         Image(systemName: "terminal").font(.system(size: 10, weight: .medium)).foregroundStyle(Theme.quiet).accessibilityHidden(true)
-    }
-}
-
-/// The `desk` window as iTerm shows it: the master in the left half, `claude agents` in the right, each with Show; under
-/// it, the sessions open in windows of their own.
-private struct LayoutSketch: View {
-    @Environment(AppModel.self) private var model
-
-    var body: some View {
-        let master = model.layoutPanes.first { $0.isMaster }
-        let windows = model.panes.filter { $0 != PaneSpec.agentsKey && $0 != master?.key && !$0.isEmpty }.sorted()
-        VStack(alignment: .leading, spacing: 8) {
-            SectionLabel(model.panes.isEmpty ? "In iTerm, once opened" : "In iTerm")
-            VStack(spacing: 0) {
-                HStack(spacing: 6) {
-                    ForEach(0..<3, id: \.self) { _ in Circle().fill(Theme.control).frame(width: 8, height: 8) }
-                    Spacer()
-                    Text("\(TmuxLayout.session) · master | claude agents").scaled(.caption.monospaced()).foregroundStyle(Theme.quiet)
-                    Spacer()
-                }
-                .padding(.horizontal, 10)
-                .frame(height: 28)
-                .overlay(alignment: .bottom) { Rectangle().fill(Theme.rule).frame(height: 1) }
-                HStack(spacing: 6) {
-                    masterPane(master)
-                    agentsPane
-                }
-                .padding(6)
-                .frame(height: 300)
-            }
-            .background(Theme.inset, in: RoundedRectangle(cornerRadius: 10))
-            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Theme.ruleStrong))
-            if !windows.isEmpty {
-                VStack(spacing: 6) {
-                    ForEach(windows.prefix(6), id: \.self) { key in window(key) }
-                }
-            }
-            Text("Desk keeps the master on the left and claude agents, every background session, on the right. A session you show takes claude agents' place until you leave it; a review runs in a window of its own.")
-                .scaled(.secondary).foregroundStyle(Theme.quiet)
-        }
-    }
-
-    private var agentsPane: some View {
-        let showing = model.agentsShowing.flatMap { id in model.state.claudeJobs.first { $0.id == id } }
-        return VStack(alignment: .leading, spacing: 8) {
-            paneHeader(name: showing?.name ?? "claude agents", state: showing.map { _ in "in claude agents' place" } ?? "") { model.openMaster() }
-            Text(showing.map { "claude attach \($0.name)" } ?? "claude agents").foregroundStyle(Theme.quiet)
-            if showing == nil {
-                Text("Every background session and what it is doing: who works, who is done, who waits for you.")
-                    .scaled(.secondary).foregroundStyle(Theme.quiet).fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer(minLength: 0)
-        }
-        .scaled(.code)
-        .padding(12)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(Theme.surface, in: RoundedRectangle(cornerRadius: 6))
-    }
-
-    private func window(_ key: String) -> some View {
-        let job = model.state.claudeJobs.first { $0.id == key }
-        return HStack(spacing: 8) {
-            Circle().fill(Theme.accentInk).frame(width: 7, height: 7)
-            Text(job?.name ?? (key.hasPrefix("review:") ? "review" : key)).scaled(.code.weight(.medium)).lineLimit(1)
-            Spacer(minLength: 4)
-            Button("Show") { if key.hasPrefix("review:") { model.showPane(key) } else { model.show(jobId: key) } }
-                .buttonStyle(.desk(.secondary, .small))
-        }
-        .padding(.horizontal, 10).frame(height: 34)
-        .background(Theme.surface, in: RoundedRectangle(cornerRadius: 6))
-    }
-
-    private func masterPane(_ spec: PaneSpec?) -> some View {
-        return VStack(alignment: .leading, spacing: 8) {
-            paneHeader(name: "master", state: model.state.master == nil ? "not running" : "") { model.openMaster() }
-            Text(spec == nil ? "claude --bg -n master" : "claude attach master").foregroundStyle(Theme.quiet)
-            Spacer(minLength: 0)
-            Text("> _").foregroundStyle(Theme.quiet)
-        }
-        .scaled(.code)
-        .padding(12)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(Theme.surface, in: RoundedRectangle(cornerRadius: 6))
-        .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Theme.tintLine))
-    }
-
-    private func paneHeader(name: String, state: String, show: @escaping () -> Void) -> some View {
-        HStack(spacing: 8) {
-            Circle().fill(Theme.accentInk).frame(width: 7, height: 7)
-            Text(name).scaled(.code.weight(.medium)).lineLimit(1)
-            Text(state).scaled(.secondary).foregroundStyle(Theme.quiet).lineLimit(1)
-            Spacer(minLength: 4)
-            Button("Show", action: show).buttonStyle(.desk(.secondary, .small))
-        }
     }
 }
 

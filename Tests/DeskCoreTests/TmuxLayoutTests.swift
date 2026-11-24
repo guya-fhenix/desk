@@ -22,11 +22,13 @@ struct TmuxLayoutTests {
     }
 
     @Test func parsesPanes() {
-        let output = "%1\t0\tm1\tagents\t\n%4\t1\tagents\tagents\tw2\n%7\t0\tw1\tcofhe-1154\n%9\t2\t\nnot a pane\n"
+        let output = "%1|0|m1||agents\n%4|1|agents|w2|agents\n%7|0|w1||a|b\n%9|2|||agents\n%1_0_m1__agents\nnot a pane\n"
         #expect(TmuxLayout.parse(output) == [
             TmuxPane(paneId: "%1", index: 0, key: "m1"), TmuxPane(paneId: "%4", index: 1, key: "agents", showing: "w2"),
-            TmuxPane(paneId: "%7", index: 0, key: "w1", window: "cofhe-1154"), TmuxPane(paneId: "%9", index: 2, key: ""),
+            TmuxPane(paneId: "%7", index: 0, key: "w1", window: "a|b"), TmuxPane(paneId: "%9", index: 2, key: ""),
         ])
+        // tmux prints a control character in a format as `_`, so the format holds none.
+        #expect(TmuxLayout.listFormat.unicodeScalars.allSatisfy { $0.value >= 0x20 })
     }
 
     @Test func commandsAreQuoted() {

@@ -293,9 +293,8 @@ except the master and review sessions: the master starts the workers.
 
 ## The master and its workers
 
-The **Master** block in the sidebar opens the Master screen: the sessions down a column, each worker with its task, the `desk` layout as iTerm
-shows it with Show on each pane, and the events Desk told it
-today; beside them where it runs and its terminal. Open in iTerm (↩) shows the master's pane. With none running, the
+The **Master** block in the sidebar opens the Master screen: the sessions down a column, each worker with its task,
+and the events Desk told it today; beside them where it runs and its terminal. Open in iTerm (↩) shows the master's pane. With none running, the
 block's Start starts one, named `master`, in the master folder: `~/Library/Application Support/Fhenix Desk/master`. It
 runs the fhenix-workflow `coordinate-tasks` skill, in auto mode, and starts every worker in the same mode, so no worker
 holds its messages for approval. Stop master runs `claude stop`, then `claude rm`, so the master leaves Claude Code's list and the next

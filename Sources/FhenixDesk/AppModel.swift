@@ -109,9 +109,6 @@ final class AppModel {
     /// The keys of the panes the `desk` tmux layout has, as of the last sync: which sessions show there, and which review
     /// sessions run.
     var panes: Set<String> = []
-    /// The session showing in `claude agents`' place in the right half, as of the last sync; nil while `claude agents`
-    /// shows.
-    var agentsShowing: String?
     /// Why the last Show in iTerm failed, in a sentence; nil once one works.
     var terminalError: String?
     /// A sync of the `desk` layout under way, so the next waits for it.
@@ -734,8 +731,7 @@ final class AppModel {
 
     // MARK: Terminals
 
-    /// The `desk` window's two panes: the master on the left, while one runs, and `claude agents` on the right. What the
-    /// Master screen draws.
+    /// The `desk` window's two panes: the master on the left, while one runs, and `claude agents` on the right.
     var layoutPanes: [PaneSpec] { TmuxLayout.panes(master: state.master) }
 
     /// tmux, where it is installed.
@@ -865,11 +861,9 @@ final class AppModel {
         }
     }
 
-    /// What the layout has, for the screens: its panes' keys, and the session in `claude agents`' place.
+    /// What the layout has, for the screens: its panes' keys.
     private func readPanes(_ tmux: Tmux) async {
-        let current = (try? await tmux.panes()) ?? []
-        panes = Set(current.map(\.key))
-        agentsShowing = current.first { $0.key == PaneSpec.agentsKey }.flatMap { $0.showing.isEmpty ? nil : $0.showing }
+        panes = Set(((try? await tmux.panes()) ?? []).map(\.key))
     }
 
     /// A terminal on the session: attached when none is — iTerm2 through tmux's control mode, its control window set to

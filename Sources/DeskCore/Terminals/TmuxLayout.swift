@@ -53,7 +53,10 @@ public enum TmuxLayout {
     public static let option = "@desk-session"
     /// The pane option that says which session `claude agents`' pane shows in its place.
     public static let showingOption = "@desk-showing"
-    public static let listFormat = "#{pane_id}\t#{pane_index}\t#{\(option)}\t#{window_name}\t#{\(showingOption)}"
+    /// Split on `|`, not a tab: tmux 3.7 prints a control character in a format as `_`, which left every line unread, so
+    /// Desk saw no panes and opened the two again at each sync. The window's name is last, the one field that may hold a
+    /// `|`: a session's name, where an id and a PR's URL never do.
+    public static let listFormat = "#{pane_id}|#{pane_index}|#{\(option)}|#{\(showingOption)}|#{window_name}"
 
     /// The `desk` window's two panes: the master's, while one runs, and `claude agents`.
     public static func panes(master: ClaudeJob?) -> [PaneSpec] {
@@ -63,12 +66,9 @@ public enum TmuxLayout {
     /// `list-panes -s -F listFormat` output, every window's. A line that doesn't parse is skipped.
     public static func parse(_ output: String) -> [TmuxPane] {
         output.split(separator: "\n").compactMap { line in
-            let parts = line.split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
-            guard parts.count >= 2, parts[0].hasPrefix("%"), let index = Int(parts[1]) else { return nil }
-            return TmuxPane(
-                paneId: parts[0], index: index, key: parts.count > 2 ? parts[2] : "", window: parts.count > 3 ? parts[3] : window,
-                showing: parts.count > 4 ? parts[4] : ""
-            )
+            let parts = line.split(separator: "|", maxSplits: 4, omittingEmptySubsequences: false).map(String.init)
+            guard parts.count == 5, parts[0].hasPrefix("%"), let index = Int(parts[1]) else { return nil }
+            return TmuxPane(paneId: parts[0], index: index, key: parts[2], window: parts[4], showing: parts[3])
         }
     }
 
