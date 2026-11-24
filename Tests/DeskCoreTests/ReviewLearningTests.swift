@@ -40,11 +40,14 @@ import Testing
                 .write(to: run.appendingPathComponent("finished.json"), atomically: true, encoding: .utf8)
             #expect(runs.runs().first?.finish == nil, "report named '\(name)'")
         }
-        // Only the time and the report are needed, and a time in the future counts as now.
-        try #"{"finishedAt": "2030-01-01T00:00:00Z", "report": "report.md"}"#
+        // Only the time and the report are needed. A time later than the marker was written counts as when it was
+        // written, which does not move: eight days on, the pass is due again.
+        try #"{"finishedAt": "2099-01-01T00:00:00Z", "report": "report.md"}"#
             .write(to: run.appendingPathComponent("finished.json"), atomically: true, encoding: .utf8)
-        let now = JSON.parseISO8601("2026-11-21T16:00:00Z")!
-        #expect(runs.runs(now: now).first?.finish?.finishedAt == now)
+        let written = Date()
+        let capped = try #require(runs.runs().first?.finish?.finishedAt)
+        #expect(abs(capped.timeIntervalSince(written)) < 60)
+        #expect(ReviewLearning.status(runs: runs.runs(), live: [], now: written + 8 * day) == .due(lastFinished: capped, unfinishedStart: nil))
 
         try finish(run, at: "2026-11-21T15:00:00Z")
         let finished = try #require(runs.runs().first)

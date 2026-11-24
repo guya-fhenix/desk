@@ -125,20 +125,22 @@ public struct ReviewLearningFolder: Sendable {
 
     /// Every run Desk started. A run is finished only when its `finished.json` reads, is not older than the start, and
     /// names a report that is a file in the run's folder, with something in it: the skill writes the marker last, so a
-    /// session that stopped, failed or still waits on the person's decisions has left none. A finish time in the
-    /// future counts as `now`, so a wrong clock can't hold the pass finished for longer than a week. A folder with no
-    /// `started.json` is a start that failed.
-    public func runs(now: Date = Date()) -> [ReviewLearning.Run] {
+    /// session that stopped, failed or still waits on the person's decisions has left none. A finish time later than
+    /// the marker was written counts as when it was written: a moment that does not move, so a mistyped year can't
+    /// hold the pass finished for longer than a week. A folder with no `started.json` is a start that failed.
+    public func runs() -> [ReviewLearning.Run] {
         let folders = (try? FileManager.default.contentsOfDirectory(at: runsURL, includingPropertiesForKeys: nil)) ?? []
         let decoder = JSON.decoder()
         return folders.compactMap { folder in
             guard let data = try? Data(contentsOf: folder.appendingPathComponent("started.json")),
                   let start = try? decoder.decode(ReviewLearning.Start.self, from: data) else { return nil }
             var run = ReviewLearning.Run(folder: folder, start: start)
-            if let data = try? Data(contentsOf: folder.appendingPathComponent("finished.json")),
+            let marker = folder.appendingPathComponent("finished.json")
+            if let data = try? Data(contentsOf: marker),
                let finish = try? decoder.decode(ReviewLearning.Finish.self, from: data), finish.finishedAt >= start.startedAt {
                 run.finish = finish
-                run.finish?.finishedAt = min(finish.finishedAt, now)
+                let written = (try? FileManager.default.attributesOfItem(atPath: marker.path))?[.modificationDate] as? Date
+                run.finish?.finishedAt = min(finish.finishedAt, written ?? finish.finishedAt)
                 // A regular file: an empty or dot name resolves to a folder, whose size is never zero.
                 let attributes = run.report.flatMap { try? FileManager.default.attributesOfItem(atPath: $0.path) }
                 let isFile = attributes?[.type] as? FileAttributeType == .typeRegular

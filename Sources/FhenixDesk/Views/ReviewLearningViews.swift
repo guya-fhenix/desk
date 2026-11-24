@@ -157,7 +157,7 @@ struct ReviewLearningCard: View {
     }
 }
 
-/// Over the master in the sidebar, always there: the pass in a few words, and its one press: Start while a run is due,
+/// Over the master in the sidebar, there while the pass's repo is tracked: the pass in a few words, and its one press: Start while a run is due,
 /// Open while one is started and not finished, Report once one has finished.
 struct ReviewLearningSidebarCard: View {
     @Environment(AppModel.self) private var model

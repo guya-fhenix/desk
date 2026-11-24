@@ -657,9 +657,13 @@ final class AppModel {
         Task {
             defer { startingReviewLearning = false }
             do {
-                let runs = ReviewLearningFolder(support: support).runs()
-                let unfinished = runs.max { $0.start.startedAt < $1.start.startedAt }.flatMap { $0.finish == nil ? $0.start.jobId : nil }
-                let old = unfinished.flatMap { id in state.claudeJobs.contains { $0.id == id } ? id : nil }
+                let newest = ReviewLearningFolder(support: support).runs().max { $0.start.startedAt < $1.start.startedAt }
+                let unfinished = newest.flatMap { $0.finish == nil ? $0 : nil }
+                // Its session when a scan lists it, and also when it started so lately that no scan has seen it yet.
+                let old = unfinished.flatMap { run in
+                    let listed = state.claudeJobs.contains { $0.id == run.start.jobId }
+                    return listed || Date().timeIntervalSince(run.start.startedAt) < ReviewLearning.startGrace ? run.start.jobId : nil
+                }
                 let session = try await service.startReviewLearning(in: clone.root, replacing: old)
                 state.claudeJobs.removeAll { $0.id == old }
                 // Held until the next scan reads it off disk, as Start master's is.

@@ -184,8 +184,14 @@ public actor DeskService {
     public func startReviewLearning(in clone: String, replacing: String? = nil, now: Date = Date()) async throws -> ClaudeJob {
         let folder = ReviewLearningFolder(support: support)
         if let replacing {
-            guard folder.runs(now: now).contains(where: { $0.start.jobId == replacing }) else { throw DeskError.notReviewLearning(replacing) }
-            try await claude().remove(replacing)
+            guard folder.runs().contains(where: { $0.start.jobId == replacing }) else { throw DeskError.notReviewLearning(replacing) }
+            do {
+                try await claude().remove(replacing)
+            } catch {
+                // Already gone, removed by hand or by a press whose start then failed: nothing left to replace. One
+                // that is still there and won't go is the failure.
+                if FileManager.default.fileExists(atPath: "\(ClaudeJobs.home)/jobs/\(replacing)") { throw error }
+            }
         }
         let run = try folder.newRun(now: now)
         var started: String?
@@ -196,7 +202,9 @@ public actor DeskService {
                 flags: ["-n", ReviewLearning.sessionName] + Self.workerFlags(config: config) + ["--add-dir", run.path, "--"]
             )
             started = id
-            try folder.recordStart(ReviewLearning.Start(startedAt: now, jobId: id), in: run)
+            // Stamped now, not when the press came: removing the old session and starting this one can take a while,
+            // and the start's grace counts from here.
+            try folder.recordStart(ReviewLearning.Start(startedAt: Date(), jobId: id), in: run)
             return ClaudeJob(
                 id: id, name: ReviewLearning.sessionName, state: "working", cwd: clone, prKeys: [], updatedAt: now, role: .learning
             )
