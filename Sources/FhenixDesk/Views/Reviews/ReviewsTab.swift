@@ -894,7 +894,7 @@ struct ReviewTogetherSheet: View {
                             FieldRows(labelWidth: 96) {
                                 FieldRow("Skill", model.state.reviewSkill(for: first)?.text ?? "fhenix-workflow · \(ClaudePlugins.reviewTeammateTask)", mono: true)
                                 FieldRow("Folders", folders(prs), mono: true)
-                                FieldRow("Mode", "default: it asks before acting, except to move the diff")
+                                FieldRow("Mode", "default: it asks before acting")
                             }
                         }
                     }

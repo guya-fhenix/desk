@@ -215,9 +215,7 @@ and jumps to one. A file's header folds it. One gutter holds the new line number
 line for its old number. Each review thread shows under the line it ends on, with Reply and Resolve; new line comments
 and the verdicts stay the session's. If a PR gets new commits while you read, Reload fetches the diff again.
 
-The diff and the session are linked. When the session points at a line, the diff moves there, to whichever PR of the
-group the line is in: it runs Desk's `desk-show` helper, which opens one `fhenixdesk://show/…` link and nothing else, and
-is allowed for it without asking. Only a link to a PR Desk knows brings the window forward. Select lines in the diff
+The session never moves the diff: where you read is yours to choose. Select lines in the diff
 (click, then shift-click, or move with ↑ ↓ and stretch with ⇧↑ ⇧↓) and Copy lines (⇧⌘C) puts them on the clipboard,
 with the PR, path and line numbers, to paste into the session's pane. Review on
 GitHub still opens the Files tab. The row says where your review stands: `draft · 7` while you have a pending review, or

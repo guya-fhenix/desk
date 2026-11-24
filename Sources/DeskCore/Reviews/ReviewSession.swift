@@ -1,41 +1,5 @@
 import Foundation
 
-/// `fhenixdesk://show/<owner>/<repo>/<number>/<new|old>/<line>/<path>`: a review session opens one, through
-/// `DeskService.showHelper`, to move the diff beside it to a line. A path rather than a query, so it needs no quoting in a shell, where `?` and `&`
-/// would.
-public struct DeskLink: Equatable, Sendable {
-    public static let scheme = "fhenixdesk"
-
-    /// owner/name
-    public var repo: String
-    public var number: Int
-    public var side: DiffSide
-    public var line: Int
-    public var path: String
-
-    public init(repo: String, number: Int, side: DiffSide, line: Int, path: String) {
-        self.repo = repo
-        self.number = number
-        self.side = side
-        self.line = line
-        self.path = path
-    }
-
-    /// Nil for anything that is not a well-formed show link. Any app can open one, so a link only ever moves the
-    /// diff: it never acts.
-    public init?(_ url: URL) {
-        guard url.scheme == Self.scheme, url.host == "show" else { return nil }
-        let parts = url.path.split(separator: "/", maxSplits: 5).map(String.init)
-        guard parts.count == 6, let number = Int(parts[2]), let line = Int(parts[4]),
-              let side = ["new": DiffSide.right, "old": .left][parts[3]]
-        else { return nil }
-        self.init(repo: "\(parts[0])/\(parts[1])", number: number, side: side, line: line, path: parts[5])
-    }
-
-    /// `owner/name#number`, as `ClaudeJobs.prKey` writes a PR's url.
-    public var prKey: String { "\(repo.lowercased())#\(number)" }
-}
-
 /// PRs reviewed together in one session, any repos and authors — a stack, a ticket's PRs, or ones picked by hand — with
 /// what the reviewer wants looked at.
 public struct ReviewGroup: Sendable, Equatable, Identifiable {
@@ -63,47 +27,13 @@ public struct ReviewGroup: Sendable, Equatable, Identifiable {
     }
 }
 
-extension DeskState {
-    /// The open PR a show link names, out of every search; nil for one Desk does not know.
-    public func pullRequest(for link: DeskLink) -> PullRequest? {
-        (reviewRequests + openForReview + (github?.allOpen ?? [])).first { ClaudeJobs.prKey($0.url) == link.prKey }
-    }
-}
-
 extension DeskService {
-    /// The one command a review session may run without asking. It opens a single show link and nothing else, where an
-    /// allowed `open` also opened any URL or file added after the link. In the per-user temporary folder, whose path
-    /// has no spaces: Claude Code matches a rule against the command's text, and a quoted path would not match.
-    public static let showHelper = FileManager.default.temporaryDirectory.appending(path: "fhenix-desk/desk-show")
-
-    /// Writes `showHelper` before a review session starts, when it is missing or differs: the system clears the
-    /// temporary folder now and then.
-    public static func installShowHelper() throws {
-        let script = """
-        #!/bin/sh
-        [ $# -eq 1 ] || exit 64
-        case "$1" in *[[:space:]]*) exit 64;; \(DeskLink.scheme)://show/*) exec /usr/bin/open -u "$1";; esac
-        exit 64
-
-        """
-        try FileManager.default.createDirectory(at: showHelper.deletingLastPathComponent(), withIntermediateDirectories: true)
-        if (try? String(contentsOf: showHelper, encoding: .utf8)) != script {
-            try Data(script.utf8).write(to: showHelper, options: .atomic)
-        }
-        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: showHelper.path)
-    }
-
-    /// What a review session is told on top of its own instructions: how to move the diff beside it, a link naming
-    /// the PR the line belongs to. Fixed, not a Settings prompt, because the app parses what comes back.
-    public static func groupLinkInstructions(for pullRequests: [PullRequest]) -> String {
+    /// What a review session is told on top of its own instructions: that the diff is beside it, and how the lines
+    /// picked there reach it. Nothing in it lets the session move the diff: where the reviewer reads is theirs to choose.
+    public static func groupDiffInstructions(for pullRequests: [PullRequest]) -> String {
         """
         Fhenix Desk shows the diff of the PR you are on beside you: \(pullRequests.map(\.url).joined(separator: ", ")). \
-        That is how the reviewer moves through the code. Whenever you point at a specific line, also move their view \
-        there by running exactly this command, without quotes: \(showHelper.path) \
-        \(DeskLink.scheme)://show/<owner>/<repo>/<number>/<side>/<line>/<path> — <owner>/<repo>/<number> names the PR \
-        the line belongs to; <side> is new for an added or unchanged line (its number in the new file) and old for a \
-        removed line (its number in the old file); <path> is the file's path as the diff shows it. Lines the reviewer \
-        selects in the diff arrive pasted into your input, with their PR, path and line numbers.
+        Lines the reviewer selects in the diff arrive pasted into your input, with their PR, path and line numbers.
         """
     }
 
@@ -117,13 +47,11 @@ extension DeskService {
         return parts.joined(separator: "\n\n")
     }
 
-    /// The arguments of a group review's `claude`: the plugin folder and the other PRs' clones first, then the one allowed
-    /// command and the instructions, and the prompt last, because `--allowedTools` takes every argument after it up to
-    /// the next option.
+    /// The arguments of a group review's `claude`: the plugin folder and the other PRs' clones first, then the
+    /// instructions and the prompt.
     public static func groupReviewArguments(_ group: ReviewGroup, tickets: [String], otherClones: [String], config: DeskConfig) -> [String] {
         config.pluginDirFlags + otherClones.flatMap { ["--add-dir", $0] } + [
-            "--allowedTools", "Bash(\(showHelper.path) *)",
-            "--append-system-prompt", groupLinkInstructions(for: group.pullRequests),
+            "--append-system-prompt", groupDiffInstructions(for: group.pullRequests),
             groupReviewPrompt(group, tickets: tickets),
         ]
     }
